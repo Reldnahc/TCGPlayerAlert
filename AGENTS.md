@@ -57,6 +57,10 @@ The unofficial seller API integration is maintained separately at:
 
 This application repository owns email ingestion, domain orchestration, rules, actions, printing, user configuration, and end-to-end workflow state. The API repository owns only TCGplayer seller authentication/session behavior, private endpoint transport, response validation, order retrieval, and packing-slip retrieval.
 
+- Consume the API client only through its documented npm package exports.
+- Use a released semantic version for normal builds. Local adjacent-repository development may use an npm-managed `file:../package` dependency or a packed tarball.
+- Never import files directly from `../package/src` or depend on the package repository's internal layout.
+- Keep seller credentials and sessions in server-side application code; do not bundle the private API client into browser-delivered code.
 - Depend on a released/versioned API-client contract rather than copying its implementation into this repository.
 - Keep TCGplayer-specific payloads and endpoint details behind the application adapter.
 - Do not add email, rules-engine, UI, printer, or application-persistence behavior to the API repository.
@@ -84,6 +88,7 @@ The seller interface is private and may change without notice. Keep reverse-engi
 ## Architecture Rules
 
 - Domain code must not import provider SDKs, printer SDKs, web frameworks, database clients, or operating-system print APIs.
+- The application may import the private API client only by its npm package name and declared export paths.
 - Adapters may depend inward on domain/application contracts; domain/application layers must not depend outward on adapters.
 - Model integrations with narrow interfaces and capability-oriented names. Avoid catch-all service classes.
 - Normalize provider data at the boundary. Do not pass raw email messages or raw TCGplayer responses throughout the application.
@@ -122,7 +127,7 @@ The seller interface is private and may change without notice. Keep reverse-engi
 
 ## Coding Standards
 
-The concrete language and toolchain must be recorded in an architecture decision before implementation. Once selected, configure one canonical formatter, linter, strict type checker (when supported), test runner, and dependency-audit command.
+The concrete application runtime and toolchain must be recorded in an architecture decision before implementation. The selected runtime must consume the private API through npm. Once selected, configure one canonical formatter, linter, strict type checker (when supported), test runner, and dependency-audit command.
 
 All production changes must follow these rules:
 
