@@ -5,7 +5,7 @@
 This repository will contain a provider-agnostic automation service for TCGplayer seller fulfillment. Its core workflow is:
 
 1. Observe a mailbox for a credible TCGplayer sale notification.
-2. Confirm and retrieve the corresponding order and packing slip through a dedicated TCGplayer seller-portal adapter.
+2. Confirm and retrieve the corresponding order and packing slip through the separately maintained unofficial TCGplayer seller API client.
 3. Convert the result into stable internal domain objects.
 4. Evaluate user-configurable rules.
 5. Dispatch one or more independently configurable actions, such as printing a shipping-address label or printing a packing slip.
@@ -32,7 +32,7 @@ Keep these concerns separated even if the first version runs as one process:
 
 - **Mail ingestion:** provider authentication, mailbox access, cursors, and message retrieval.
 - **Notification interpretation:** identify candidate sale messages and extract only identifiers/hints needed for confirmation.
-- **TCGplayer access:** authentication/session handling, seller API calls, order confirmation, and packing-slip retrieval.
+- **TCGplayer access:** an application-facing adapter around the separately versioned `tcgplayer-private-api` client. Private endpoint details do not belong in this repository.
 - **Domain and orchestration:** provider-neutral orders, documents, events, rules, idempotency, retries, and workflow state.
 - **Rules:** declarative conditions and action selection, with validation and explainable evaluation results.
 - **Actions:** plugins that consume domain data or documents and produce side effects.
@@ -43,19 +43,33 @@ Keep these concerns separated even if the first version runs as one process:
 Initial adapters are expected to include:
 
 - Standards-based IMAP where feasible, plus OAuth-aware adapters for major providers whose authentication requires it.
-- A TCGplayer seller adapter based on the relevant, minimal behavior learned from `todd-skelton/tcgplayer-automation-app`.
+- A TCGplayer seller adapter that depends on the narrow public contract exposed by `Reldnahc/tcgplayer-private-api`.
 - A DYMO-compatible address-label action.
 - A generic packing-slip print action capable of targeting an operating-system or network printer.
 
 Do not let those initial adapters define the public contracts for future providers or actions.
 
+## API Repository Boundary
+
+The unofficial seller API integration is maintained separately at:
+
+- <https://github.com/Reldnahc/tcgplayer-private-api>
+
+This application repository owns email ingestion, domain orchestration, rules, actions, printing, user configuration, and end-to-end workflow state. The API repository owns only TCGplayer seller authentication/session behavior, private endpoint transport, response validation, order retrieval, and packing-slip retrieval.
+
+- Depend on a released/versioned API-client contract rather than copying its implementation into this repository.
+- Keep TCGplayer-specific payloads and endpoint details behind the application adapter.
+- Do not add email, rules-engine, UI, printer, or application-persistence behavior to the API repository.
+- Do not add reverse-engineered endpoint implementations directly to this application repository.
+- Coordinate breaking changes through explicit versions and compatibility tests.
+
 ## Upstream Reference and Provenance
 
-The primary implementation reference is:
+The primary behavioral implementation reference for the separate API repository is:
 
 - <https://github.com/todd-skelton/tcgplayer-automation-app>
 
-Use only the narrow seller-authentication, order, and packing-slip behavior needed by this project. Do not import its whole application stack by default.
+Research and source reuse based on this reference belong in `tcgplayer-private-api`. Use only the narrow seller-authentication, order, and packing-slip behavior needed by this application. Do not import the upstream application's whole stack.
 
 Before copying or adapting upstream source:
 
@@ -65,7 +79,7 @@ Before copying or adapting upstream source:
 4. Prefer a clean, isolated adapter informed by documented behavior when direct source reuse is not clearly permitted.
 5. Never copy upstream secrets, captured sessions, customer data, generated artifacts, or environment files.
 
-The seller interface is private and may change without notice. Keep reverse-engineered request details inside one replaceable adapter, document assumptions, add contract fixtures with sensitive data removed, and fail safely when the remote behavior changes. Review applicable TCGplayer agreements and policies before distributing or operating the integration. Do not bypass access controls, defeat security mechanisms, or access data the authenticated seller is not authorized to access.
+The seller interface is private and may change without notice. Keep reverse-engineered request details inside the separate API client and its application adapter, document assumptions, add contract fixtures with sensitive data removed, and fail safely when remote behavior changes. Review applicable TCGplayer agreements and policies before distributing or operating the integration. Do not bypass access controls, defeat security mechanisms, or access data the authenticated seller is not authorized to access.
 
 ## Architecture Rules
 
