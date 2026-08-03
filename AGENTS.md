@@ -176,13 +176,15 @@ All production changes must follow these rules:
 
 ## Development Workflow
 
-- Keep `main` releasable. Work in focused branches and commits.
+- Keep `main` releasable and work directly on it by default. Do not create feature branches or pull requests unless the user explicitly requests them.
+- Push focused, validated commits directly to `origin/main` after confirming the diff contains only intended application changes.
+- Synchronize with `origin/main` using a fast-forward-safe workflow before pushing. Never force-push or rewrite published `main` history without explicit user authorization.
 - Before editing, inspect the working tree and preserve unrelated user changes.
 - Do not commit generated output, local state, captured traffic, secrets, or editor artifacts.
 - Update documentation and sanitized configuration examples with behavior changes.
 - Use conventional, imperative commit subjects where practical (for example, `docs: define project standards`).
 - Review dependency and license impact before adding packages or copying code.
-- Prefer a narrow pull request with an explicit validation summary.
+- Report the pushed commit and validation summary separately for this repository.
 
 ## Definition of Done
 
