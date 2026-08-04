@@ -20,6 +20,10 @@ import {
 } from "./config-ui-assets.js";
 import { ConfigurationError } from "./errors.js";
 import type { PriceUpdateQueueStore } from "./price-update-queue.js";
+import type {
+  InventoryAdditionQueueStore,
+  InventoryAdditionService,
+} from "./inventory-additions.js";
 import {
   discoverInstalledPrinters,
   type PrinterDiscoveryResult,
@@ -60,6 +64,10 @@ export interface ConfigurationUiSettings {
     readonly enabled: boolean;
     readonly delaySeconds: number;
   };
+  readonly inventoryAdditionQueue: {
+    readonly enabled: boolean;
+    readonly delaySeconds: number;
+  };
   readonly outputs: readonly OutputSettings[];
   readonly installedPrinters: PrinterDiscoveryResult["printers"];
   readonly discoveryIssue?: string;
@@ -70,6 +78,10 @@ export interface ConfigurationUiUpdate {
   readonly pollIntervalMinutes: number;
   readonly dryRun: boolean;
   readonly priceUpdateQueue: {
+    readonly enabled: boolean;
+    readonly delaySeconds: number;
+  };
+  readonly inventoryAdditionQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
   };
@@ -156,6 +168,10 @@ export class ConfigurationService {
         enabled: config.priceUpdateQueue.enabled,
         delaySeconds: config.priceUpdateQueue.delaySeconds,
       },
+      inventoryAdditionQueue: {
+        enabled: config.inventoryAdditionQueue.enabled,
+        delaySeconds: config.inventoryAdditionQueue.delaySeconds,
+      },
       outputs: Object.entries(config.actions).map(([actionId, action]) =>
         outputSettings(actionId, action, config.printers[action.printer]),
       ),
@@ -180,6 +196,9 @@ export interface StartConfigurationUiOptions {
   readonly priceQueue?: PriceUpdateQueueStore;
   readonly priceWorkerRunning?: boolean;
   readonly repricingService?: RepricingService;
+  readonly inventoryQueue?: InventoryAdditionQueueStore;
+  readonly inventoryWorkerRunning?: boolean;
+  readonly inventoryService?: InventoryAdditionService;
 }
 
 export async function startConfigurationUi(
@@ -202,6 +221,9 @@ export async function startConfigurationUi(
       options.priceQueue,
       options.priceWorkerRunning === true,
       options.repricingService,
+      options.inventoryQueue,
+      options.inventoryWorkerRunning === true,
+      options.inventoryService,
     );
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -317,6 +339,25 @@ function parseUiUpdate(
   ) {
     issues.push("Price-update delay must be between 0 and 3600 seconds.");
   }
+  const inventoryAdditionQueueSource = objectValue(
+    source?.inventoryAdditionQueue,
+  );
+  if (inventoryAdditionQueueSource === undefined) {
+    issues.push("Inventory-addition queue settings are required.");
+  }
+  const inventoryAdditionQueueEnabled = inventoryAdditionQueueSource?.enabled;
+  if (typeof inventoryAdditionQueueEnabled !== "boolean") {
+    issues.push("Inventory-addition queue enabled must be true or false.");
+  }
+  const inventoryAdditionDelaySeconds =
+    inventoryAdditionQueueSource?.delaySeconds;
+  if (
+    !Number.isInteger(inventoryAdditionDelaySeconds) ||
+    Number(inventoryAdditionDelaySeconds) < 0 ||
+    Number(inventoryAdditionDelaySeconds) > 3600
+  ) {
+    issues.push("Inventory-addition delay must be between 0 and 3600 seconds.");
+  }
   const outputValues = source?.outputs;
   if (!Array.isArray(outputValues))
     issues.push("Print actions must be an array.");
@@ -340,6 +381,10 @@ function parseUiUpdate(
     priceUpdateQueue: {
       enabled: priceUpdateQueueEnabled as boolean,
       delaySeconds: Number(priceUpdateDelaySeconds),
+    },
+    inventoryAdditionQueue: {
+      enabled: inventoryAdditionQueueEnabled as boolean,
+      delaySeconds: Number(inventoryAdditionDelaySeconds),
     },
     outputs,
   };
@@ -487,6 +532,11 @@ function applyUpdate(
       enabled: update.priceUpdateQueue.enabled,
       delaySeconds: update.priceUpdateQueue.delaySeconds,
     },
+    inventoryAdditionQueue: {
+      ...config.inventoryAdditionQueue,
+      enabled: update.inventoryAdditionQueue.enabled,
+      delaySeconds: update.inventoryAdditionQueue.delaySeconds,
+    },
     printers,
     actions,
   };
@@ -499,6 +549,9 @@ async function handleRequest(
   priceQueue: PriceUpdateQueueStore | undefined,
   priceWorkerRunning: boolean,
   repricingService: RepricingService | undefined,
+  inventoryQueue: InventoryAdditionQueueStore | undefined,
+  inventoryWorkerRunning: boolean,
+  inventoryService: InventoryAdditionService | undefined,
 ): Promise<void> {
   setSecurityHeaders(response);
   if (!isLoopbackHost(request.headers.host)) {
@@ -566,6 +619,111 @@ async function handleRequest(
       );
       sendJson(response, 202, {
         jobs: await priceQueue.enqueue({ updates }),
+      });
+    } else if (
+      request.method === "GET" &&
+      url.pathname === "/api/catalog/search"
+    ) {
+      if (inventoryService === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory catalog service is unavailable.",
+        });
+        return;
+      }
+      const query = url.searchParams.get("q")?.trim() ?? "";
+      if (query.length < 2 || query.length > 200) {
+        sendJson(response, 400, {
+          message: "Search text must contain 2-200 characters.",
+        });
+        return;
+      }
+      const productLine = url.searchParams.get("productLine")?.trim();
+      sendJson(
+        response,
+        200,
+        await inventoryService.search(
+          query,
+          productLine === "" ? undefined : productLine,
+        ),
+      );
+    } else if (
+      request.method === "GET" &&
+      /^\/api\/catalog\/products\/\d+$/u.test(url.pathname)
+    ) {
+      if (inventoryService === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory catalog service is unavailable.",
+        });
+        return;
+      }
+      const productId = Number(
+        url.pathname.slice(url.pathname.lastIndexOf("/") + 1),
+      );
+      sendJson(response, 200, await inventoryService.getProduct(productId));
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/inventory-additions/preview"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (inventoryService === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory-addition service is unavailable.",
+        });
+        return;
+      }
+      sendJson(
+        response,
+        200,
+        await inventoryService.preview(await readJsonBody(request)),
+      );
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/inventory-additions\/previews\/[0-9a-f-]{36}\/queue$/iu.test(
+        url.pathname,
+      )
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (inventoryService === undefined || inventoryQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory-addition queue is unavailable.",
+        });
+        return;
+      }
+      const pathParts = url.pathname.split("/");
+      const previewId = pathParts[4] ?? "";
+      sendJson(response, 202, {
+        jobs: await inventoryQueue.enqueue(
+          inventoryService.takeAddition(previewId),
+        ),
+      });
+    } else if (
+      request.method === "GET" &&
+      url.pathname === "/api/inventory-additions"
+    ) {
+      if (inventoryQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory-addition queue is unavailable.",
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        ...(await inventoryQueue.snapshot()),
+        workerRunning: inventoryWorkerRunning,
+      });
+    } else if (
+      request.method === "DELETE" &&
+      /^\/api\/inventory-additions\/[0-9a-f-]{36}$/iu.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (inventoryQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory-addition queue is unavailable.",
+        });
+        return;
+      }
+      const jobId = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+      sendJson(response, 200, {
+        job: await inventoryQueue.cancel(jobId),
       });
     } else if (
       request.method === "GET" &&

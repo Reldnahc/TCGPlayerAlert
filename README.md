@@ -1,6 +1,6 @@
 # TCGPlayerAlert
 
-A local-first, configurable seller automation service. It polls the authoritative TCGplayer ready-to-ship queue, reconciles orders against durable state, evaluates declarative rules, dispatches modular actions, and processes explicitly queued listing price changes at a safe pace.
+A local-first, configurable seller automation service. It polls the authoritative TCGplayer ready-to-ship queue, reconciles orders against durable state, evaluates declarative rules, dispatches modular actions, and processes explicitly queued listing and pricing changes at a safe pace.
 
 The first action modules draw an address label through the native Windows print system and render a packing-slip PDF inside the application before sending it to another OS-visible printer. Printer vendors and names are configuration, not application assumptions.
 
@@ -12,6 +12,7 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 - The first successful sync establishes a baseline without processing existing orders.
 - No tracking or shipment mutation is part of the automatic workflow.
 - Price changes are opt-in jobs in a separate durable queue. Only one is submitted at a time, with a configurable delay, and dry run pauses the worker.
+- Card additions require an exact product-condition SKU and a reviewed price preview. They use a separate durable queue, and dry run pauses its worker too.
 - Addresses and document bytes remain in memory and temporary print files only; they are not stored in workflow state or logs.
 - Interrupted or ambiguous print submissions become `review-required` and are never retried automatically.
 
@@ -33,7 +34,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.2.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.4.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -51,7 +52,7 @@ npm run build
 npm run configure
 ```
 
-Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, DPI, and price-queue settings. It also accepts an individual listing update and displays recent queue status. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
+Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, DPI, and queue settings. It also provides exact-card catalog search, preview-first inventory additions, smart repricing, and recent queue status. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
 
 Validate non-secret configuration without contacting TCGplayer or printing:
 
@@ -90,6 +91,26 @@ npm run status
 
 The scheduler and separately invoked manual syncs share a filesystem lease, so they cannot reconcile or dispatch actions concurrently.
 
+## Add cards to inventory
+
+Open the settings screen and use **Add cards**:
+
+1. Search for the card name, optionally narrowing by product line.
+2. Choose the exact set and printing, then select the condition, printing, and language SKU.
+3. Enter the quantity and pricing rules. The default smart rule can compare the same condition or better conditions, enforce a minimum, and fall back to market price, a manual price, or no addition.
+4. Preview the live seller quantity and proposed initial price, verify them, and queue the addition.
+
+The long-running service processes the queue; `npm run configure` only hosts the settings UI. Start `npm start` when queued jobs should be submitted. Dry run or a disabled inventory queue keeps them pending.
+
+Pending additions for the same SKU are combined. Before every request, the worker re-reads the seller's current quantity and secondary-channel inventory. A changed quantity, custom listing, or secondary-channel listing becomes `review-required` instead of risking an incorrect update. Accepted requests are labeled `submitted` because Seller Portal may finish processing asynchronously.
+
+Inspect or cancel jobs from either the UI or CLI:
+
+```powershell
+node dist/cli.js inventory status
+node dist/cli.js inventory cancel --job JOB_ID
+```
+
 ## Reprice listed cards
 
 Open the settings screen and use **Smart repricing**. Set a minimum item price, choose whether comparisons use item price or delivered price, and choose same-condition or same-or-better-condition matching. Click **Refresh inventory & preview**, review every proposed change, then queue selected rows.
@@ -97,8 +118,6 @@ Open the settings screen and use **Smart repricing**. Set a minimum item price, 
 The default same-or-better rule treats conditions as `Near Mint > Lightly Played > Moderately Played > Heavily Played > Damaged`. For example, a Moderately Played card at $3 can match a qualifying Lightly Played listing at $2. Printing and language must also match. Price increases are off by default, the undercut is zero cents by default, and the configured minimum is a hard floor.
 
 Custom listings and SKUs with secondary-channel inventory are shown but skipped because their inventory state cannot be preserved safely. Immediately before each mutation, the worker re-reads the live listing, preserves its current quantity, and abandons the job if the listing sold or its inventory shape changed.
-
-Low-level integrations can still enqueue one complete update or a batch through the CLI without waiting for TCGplayer:
 
 Integrations can enqueue one update or a batch through the CLI without waiting for TCGplayer:
 
@@ -159,4 +178,4 @@ Tests use synthetic orders, documents, providers, stores, and printers. Ordinary
 
 ## Current boundaries
 
-This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, preview-first smart repricing, and a paced price-update queue. Email acceleration, remote administration, remote shipment mutations, unattended scheduled repricing, per-card pricing floors, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.
+This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, preview-first exact-SKU inventory additions, preview-first smart repricing, and paced mutation queues. Email acceleration, remote administration, remote shipment mutations, bulk inventory ingestion, barcode scanning, unattended scheduled repricing, per-card pricing floors, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.

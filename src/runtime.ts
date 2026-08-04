@@ -13,6 +13,11 @@ import {
   PriceUpdateQueueStore,
 } from "./price-update-queue.js";
 import { RepricingService } from "./repricing.js";
+import {
+  createTcgplayerInventoryAdditionExecutor,
+  InventoryAdditionQueueStore,
+  InventoryAdditionService,
+} from "./inventory-additions.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -88,6 +93,40 @@ export function createRepricingService(
     environment,
   );
   return new RepricingService({
+    client: createTcgplayerSellerClient({ session: { authCookie } }),
+    sellerKey,
+  });
+}
+
+export function createInventoryAdditionQueue(
+  config: AppConfig,
+): InventoryAdditionQueueStore {
+  return new InventoryAdditionQueueStore({
+    stateFile: config.inventoryAdditionQueue.stateFile,
+    historyLimit: config.inventoryAdditionQueue.historyLimit,
+  });
+}
+
+export function createInventoryAdditionExecutor(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return createTcgplayerInventoryAdditionExecutor(config, environment);
+}
+
+export function createInventoryAdditionService(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): InventoryAdditionService {
+  const authCookie = secretFromEnvironment(
+    config.provider.authCookieEnv,
+    environment,
+  );
+  const sellerKey = secretFromEnvironment(
+    config.provider.sellerKeyEnv,
+    environment,
+  );
+  return new InventoryAdditionService({
     client: createTcgplayerSellerClient({ session: { authCookie } }),
     sellerKey,
   });

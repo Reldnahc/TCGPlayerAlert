@@ -57,6 +57,13 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       rateLimitDelaySeconds: 300,
       historyLimit: 500,
     },
+    inventoryAdditionQueue: {
+      enabled: true,
+      stateFile: ".data/test-inventory-additions.json",
+      delaySeconds: 0,
+      rateLimitDelaySeconds: 300,
+      historyLimit: 500,
+    },
     provider: {
       type: "tcgplayer",
       authCookieEnv: "TCGPLAYER_AUTH_COOKIE",

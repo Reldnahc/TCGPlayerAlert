@@ -90,6 +90,14 @@ export interface PriceUpdateQueueConfig {
   readonly historyLimit: number;
 }
 
+export interface InventoryAdditionQueueConfig {
+  readonly enabled: boolean;
+  readonly stateFile: string;
+  readonly delaySeconds: number;
+  readonly rateLimitDelaySeconds: number;
+  readonly historyLimit: number;
+}
+
 export interface AppConfig {
   readonly version: 1;
   readonly pollIntervalMinutes: number;
@@ -99,6 +107,7 @@ export interface AppConfig {
   readonly spoolDirectory: string;
   readonly timezoneOffsetMinutes: number | "local";
   readonly priceUpdateQueue: PriceUpdateQueueConfig;
+  readonly inventoryAdditionQueue: InventoryAdditionQueueConfig;
   readonly provider: {
     readonly type: "tcgplayer";
     readonly authCookieEnv: string;
@@ -333,6 +342,7 @@ export function parseConfig(value: unknown): AppConfig {
   if (priceUpdateQueue === undefined) {
     issues.push("config.priceUpdateQueue must be an object.");
   }
+  const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
 
   const printersSource = record(root?.printers);
   if (printersSource === undefined)
@@ -648,6 +658,53 @@ export function parseConfig(value: unknown): AppConfig {
       issues,
     ),
   };
+  const inventoryAdditionQueueConfig: InventoryAdditionQueueConfig =
+    inventoryAdditionQueue === undefined
+      ? {
+          enabled: true,
+          stateFile: ".data/inventory-additions.json",
+          delaySeconds: 0,
+          rateLimitDelaySeconds: 300,
+          historyLimit: 500,
+        }
+      : {
+          enabled: booleanValue(
+            inventoryAdditionQueue,
+            "enabled",
+            "config.inventoryAdditionQueue",
+            issues,
+          ),
+          stateFile: text(
+            inventoryAdditionQueue,
+            "stateFile",
+            "config.inventoryAdditionQueue",
+            issues,
+          ),
+          delaySeconds: integer(
+            inventoryAdditionQueue,
+            "delaySeconds",
+            "config.inventoryAdditionQueue",
+            0,
+            3600,
+            issues,
+          ),
+          rateLimitDelaySeconds: integer(
+            inventoryAdditionQueue,
+            "rateLimitDelaySeconds",
+            "config.inventoryAdditionQueue",
+            30,
+            86_400,
+            issues,
+          ),
+          historyLimit: integer(
+            inventoryAdditionQueue,
+            "historyLimit",
+            "config.inventoryAdditionQueue",
+            10,
+            10_000,
+            issues,
+          ),
+        };
 
   const activePrinterIds = new Set(
     Object.values(actions)
@@ -680,6 +737,7 @@ export function parseConfig(value: unknown): AppConfig {
     spoolDirectory,
     timezoneOffsetMinutes,
     priceUpdateQueue: priceUpdateQueueConfig,
+    inventoryAdditionQueue: inventoryAdditionQueueConfig,
     provider: {
       type: "tcgplayer",
       authCookieEnv,

@@ -34,12 +34,23 @@ export type * from "./printer-discovery.js";
 export { evaluateRules } from "./rules.js";
 export type * from "./rules.js";
 export {
+  createInventoryAdditionExecutor,
+  createInventoryAdditionQueue,
+  createInventoryAdditionService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
   createRepricingService,
   createWorkflow,
 } from "./runtime.js";
+export {
+  createTcgplayerInventoryAdditionExecutor,
+  InventoryAdditionQueueStore,
+  InventoryAdditionService,
+  InventoryAdditionWorker,
+  parseInventoryPricingRules,
+} from "./inventory-additions.js";
+export type * from "./inventory-additions.js";
 export {
   createTcgplayerPriceUpdateExecutor,
   parsePriceUpdates,

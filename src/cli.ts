@@ -6,6 +6,9 @@ import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
 import {
+  createInventoryAdditionExecutor,
+  createInventoryAdditionQueue,
+  createInventoryAdditionService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
@@ -14,6 +17,7 @@ import {
 } from "./runtime.js";
 import { JsonStateStore } from "./state.js";
 import { PriceUpdateWorker } from "./price-update-queue.js";
+import { InventoryAdditionWorker } from "./inventory-additions.js";
 import { FileSyncLease } from "./sync-lease.js";
 
 const argumentsList = process.argv.slice(2);
@@ -78,6 +82,8 @@ try {
       port: uiPort,
       priceQueue: createPriceUpdateQueue(config),
       repricingService: createRepricingService(config),
+      inventoryQueue: createInventoryAdditionQueue(config),
+      inventoryService: createInventoryAdditionService(config),
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
     try {
@@ -92,6 +98,7 @@ try {
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
     const priceQueue = createPriceUpdateQueue(initialConfig);
+    const inventoryQueue = createInventoryAdditionQueue(initialConfig);
     const priceWorker = new PriceUpdateWorker({
       queue: priceQueue,
       executor: createPriceUpdateExecutor(initialConfig),
@@ -107,17 +114,42 @@ try {
         `${initialConfig.priceUpdateQueue.stateFile}.worker-lock`,
       ),
     });
+    const inventoryWorker = new InventoryAdditionWorker({
+      queue: inventoryQueue,
+      executor: createInventoryAdditionExecutor(initialConfig),
+      settings: async () => {
+        const current = await loadConfig(configPath);
+        return {
+          ...current.inventoryAdditionQueue,
+          enabled: current.inventoryAdditionQueue.enabled && !current.dryRun,
+        };
+      },
+      logger: jsonLogger,
+      workerLease: new FileSyncLease(
+        `${initialConfig.inventoryAdditionQueue.stateFile}.worker-lock`,
+      ),
+    });
     const ui = await startConfigurationUi({
       configPath,
       port: uiPort,
       priceQueue,
       priceWorkerRunning: true,
       repricingService: createRepricingService(initialConfig),
+      inventoryQueue,
+      inventoryWorkerRunning: true,
+      inventoryService: createInventoryAdditionService(initialConfig),
     });
     const priceWorkerPromise = priceWorker
       .run(controller.signal)
       .catch((error: unknown) => {
         jsonLogger.error("price-queue.worker-failed", {
+          errorCode: safeErrorCode(error),
+        });
+      });
+    const inventoryWorkerPromise = inventoryWorker
+      .run(controller.signal)
+      .catch((error: unknown) => {
+        jsonLogger.error("inventory-queue.worker-failed", {
           errorCode: safeErrorCode(error),
         });
       });
@@ -140,6 +172,7 @@ try {
     } finally {
       await ui.close();
       await priceWorkerPromise;
+      await inventoryWorkerPromise;
     }
     jsonLogger.info("service.stopped");
   } else if (command === "price" && argumentsList[1] === "queue") {
@@ -169,9 +202,23 @@ try {
     process.stdout.write(
       `${JSON.stringify(await createPriceUpdateQueue(config).cancel(jobId), null, 2)}\n`,
     );
+  } else if (command === "inventory" && argumentsList[1] === "status") {
+    const config = await loadConfig(configPath);
+    process.stdout.write(
+      `${JSON.stringify(await createInventoryAdditionQueue(config).snapshot(), null, 2)}\n`,
+    );
+  } else if (command === "inventory" && argumentsList[1] === "cancel") {
+    const config = await loadConfig(configPath);
+    const jobId = option("--job");
+    if (jobId === undefined) {
+      throw new ConfigurationError(["inventory cancel requires --job."]);
+    }
+    process.stdout.write(
+      `${JSON.stringify(await createInventoryAdditionQueue(config).cancel(jobId), null, 2)}\n`,
+    );
   } else {
     process.stderr.write(
-      "Usage: tcgplayer-alert <start|configure|sync|status|config validate|print test|price queue|price status|price cancel> [--config path] [--port number] [--process-backlog] [--action id] [--file path] [--job id]\n",
+      "Usage: tcgplayer-alert <start|configure|sync|status|config validate|print test|price queue|price status|price cancel|inventory status|inventory cancel> [--config path] [--port number] [--process-backlog] [--action id] [--file path] [--job id]\n",
     );
     process.exitCode = 2;
   }

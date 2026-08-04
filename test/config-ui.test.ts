@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ConfigurationService,
   immediateSyncLease,
+  InventoryAdditionQueueStore,
+  InventoryAdditionService,
   loadConfig,
   PriceUpdateQueueStore,
   RepricingService,
@@ -68,6 +70,10 @@ describe("configuration UI service", () => {
         enabled: true,
         delaySeconds: 0,
       },
+      inventoryAdditionQueue: {
+        enabled: true,
+        delaySeconds: 0,
+      },
       outputs: [
         {
           actionId: address.actionId,
@@ -94,6 +100,7 @@ describe("configuration UI service", () => {
       pollIntervalMinutes: 15,
       dryRun: false,
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
+      inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
     });
     expect(config.actions[address.actionId]?.enabled).toBe(false);
     expect(config.actions[packingSlip.actionId]?.enabled).toBe(true);
@@ -133,10 +140,44 @@ describe("configuration UI service", () => {
       historyLimit: 25,
       lease: immediateSyncLease,
     });
+    const inventoryQueue = new InventoryAdditionQueueStore({
+      stateFile: join(dirname(fixture.path), "inventory-additions.json"),
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
     const repricingService = new RepricingService({
       sellerKey: "synthetic-seller",
       client: {
         listSellerInventory: () => Promise.resolve([]),
+        searchMarketplaceProducts: () =>
+          Promise.resolve({ totalProducts: 0, products: [] }),
+      },
+    });
+    const catalogProduct = {
+      productId: 123,
+      productName: "Synthetic Card",
+      productLineName: "Synthetic Game",
+      setName: "Synthetic Set",
+      rarityName: "Rare",
+      cardNumber: "42",
+      marketPrice: 3.5,
+      sellerListable: true,
+      skus: [
+        {
+          productConditionId: 456,
+          conditionId: 1,
+          condition: "Near Mint",
+          printing: "Normal",
+          language: "English",
+        },
+      ],
+    } as const;
+    const inventoryService = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({ totalProducts: 1, products: [catalogProduct] }),
+        getCatalogProduct: () => Promise.resolve(catalogProduct),
         searchMarketplaceProducts: () =>
           Promise.resolve({ totalProducts: 0, products: [] }),
       },
@@ -148,6 +189,9 @@ describe("configuration UI service", () => {
       priceQueue,
       priceWorkerRunning: true,
       repricingService,
+      inventoryQueue,
+      inventoryWorkerRunning: true,
+      inventoryService,
     });
 
     const page = await fetch(server.url);
@@ -197,15 +241,76 @@ describe("configuration UI service", () => {
         }),
       },
     );
+    const catalogSearch = await fetch(
+      `${server.url}/api/catalog/search?q=Synthetic`,
+    );
+    const catalogDetails = await fetch(
+      `${server.url}/api/catalog/products/123`,
+    );
+    const inventoryPreviewResponse = await fetch(
+      `${server.url}/api/inventory-additions/preview`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server.url,
+        },
+        body: JSON.stringify({
+          productId: 123,
+          productConditionId: 456,
+          addQuantity: 2,
+          rules: {
+            minimumPrice: 0.35,
+            conditionPolicy: "same-or-better",
+            priceBasis: "item",
+            adjustmentCents: 0,
+            estimatedShippingPrice: 0,
+            noComparisonFallback: "market",
+          },
+        }),
+      },
+    );
+    const inventoryPreview = (await inventoryPreviewResponse.json()) as {
+      id: string;
+      proposedPrice: number;
+    };
+    const queuedInventory = await fetch(
+      `${server.url}/api/inventory-additions/previews/${inventoryPreview.id}/queue`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server.url,
+        },
+        body: "{}",
+      },
+    );
+    const inventoryStatus = await fetch(
+      `${server.url}/api/inventory-additions`,
+    );
 
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("Choose what prints");
+    const pageText = await page.text();
+    expect(pageText).toContain("Choose what prints");
+    expect(pageText).toContain("Add cards");
     expect(repricingPreview.status).toBe(200);
     expect(await repricingPreview.json()).toMatchObject({
       counts: { ready: 0, unchanged: 0, skipped: 0 },
       rows: [],
     });
     expect(settings.status).toBe(200);
+    expect(catalogSearch.status).toBe(200);
+    expect(await catalogSearch.json()).toMatchObject({ totalProducts: 1 });
+    expect(catalogDetails.status).toBe(200);
+    expect(await catalogDetails.json()).toMatchObject({ productId: 123 });
+    expect(inventoryPreviewResponse.status).toBe(200);
+    expect(inventoryPreview.proposedPrice).toBe(3.5);
+    expect(queuedInventory.status).toBe(202);
+    expect(inventoryStatus.status).toBe(200);
+    expect(await inventoryStatus.json()).toMatchObject({
+      workerRunning: true,
+      counts: { pending: 1 },
+    });
     expect(forbidden.status).toBe(403);
     expect(queued.status).toBe(202);
     expect(await queueStatus.json()).toMatchObject({

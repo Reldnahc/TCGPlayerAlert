@@ -13,6 +13,13 @@
     "rateLimitDelaySeconds": 300,
     "historyLimit": 500
   },
+  "inventoryAdditionQueue": {
+    "enabled": true,
+    "stateFile": ".data/inventory-additions.json",
+    "delaySeconds": 0,
+    "rateLimitDelaySeconds": 300,
+    "historyLimit": 500
+  },
   "provider": {
     "type": "tcgplayer",
     "authCookieEnv": "TCGPLAYER_AUTH_COOKIE",

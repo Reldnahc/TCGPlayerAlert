@@ -12,11 +12,30 @@ describe("application configuration", () => {
 
     expect(config.version).toBe(1);
     expect(config.dryRun).toBe(true);
+    expect(config.inventoryAdditionQueue).toMatchObject({
+      enabled: true,
+      delaySeconds: 0,
+    });
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
       enabled: true,
       omitLineValues: ["US", "USA"],
       page: { fontSize: 14 },
+    });
+  });
+
+  it("migrates an older version-one config with inventory-addition defaults", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    delete value.inventoryAdditionQueue;
+
+    expect(parseConfig(value).inventoryAdditionQueue).toEqual({
+      enabled: true,
+      stateFile: ".data/inventory-additions.json",
+      delaySeconds: 0,
+      rateLimitDelaySeconds: 300,
+      historyLimit: 500,
     });
   });
 
