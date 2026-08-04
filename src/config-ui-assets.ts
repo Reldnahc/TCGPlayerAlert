@@ -52,6 +52,60 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <p id="printer-note" class="printer-note" hidden></p>
           <div id="outputs" class="output-grid"></div>
 
+          <div class="section-heading queue-heading">
+            <div>
+              <p class="section-kicker">Background work</p>
+              <h2>Price update queue</h2>
+            </div>
+            <span id="queue-health" class="connection">Loading queue...</span>
+          </div>
+          <section class="panel queue-panel" aria-labelledby="queue-title">
+            <div class="queue-settings">
+              <label class="switch-row">
+                <span>
+                  <strong id="queue-title">Process queued prices</strong>
+                  <small>Dry run pauses this worker even when it is enabled.</small>
+                </span>
+                <input id="price-queue-enabled" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+              <label class="field compact-field">
+                <span>Wait between updates</span>
+                <span class="input-with-unit">
+                  <input id="price-delay" type="number" min="1" max="3600" required />
+                  <span>seconds</span>
+                </span>
+              </label>
+            </div>
+
+            <details class="queue-entry">
+              <summary>Queue one listing price</summary>
+              <p class="queue-help">Use the current Seller Portal listing values. Quantity and reserve quantity are preserved, never changed.</p>
+              <div class="queue-form-grid">
+                <label class="field wide-field"><span>Product name</span><input id="q-product-name" type="text" maxlength="1024" /></label>
+                <label class="field"><span>Category</span><input id="q-category-name" type="text" maxlength="256" /></label>
+                <label class="field"><span>New price</span><input id="q-price" type="number" min="0.01" max="1000000" step="0.01" /></label>
+                <label class="field"><span>SKU / Product condition ID</span><input id="q-sku-id" type="number" min="1" step="1" /></label>
+                <label class="field"><span>Product ID</span><input id="q-product-id" type="number" min="1" step="1" /></label>
+                <label class="field"><span>Condition ID</span><input id="q-condition-id" type="number" min="1" step="1" /></label>
+                <label class="field"><span>Current quantity</span><input id="q-quantity" type="number" min="0" step="1" /></label>
+                <label class="field"><span>Reserve quantity</span><input id="q-reserve" type="number" min="0" step="1" value="0" /></label>
+                <label class="field"><span>Channel ID</span><input id="q-channel-id" type="number" min="0" step="1" value="0" /></label>
+                <label class="field"><span>Custom price ID (optional)</span><input id="q-custom-id" type="number" min="0" step="1" /></label>
+              </div>
+              <div class="queue-submit-row">
+                <span id="queue-form-message" class="queue-message"></span>
+                <button id="queue-submit" class="primary-button dark-button" type="button">Add to queue</button>
+              </div>
+            </details>
+
+            <div class="queue-list-head">
+              <strong>Recent jobs</strong>
+              <button id="refresh-queue" class="quiet-button" type="button">Refresh</button>
+            </div>
+            <div id="queue-jobs" class="queue-jobs" aria-live="polite"></div>
+          </section>
+
           <div class="save-bar">
             <div>
               <strong id="save-title">Ready to configure</strong>
@@ -105,8 +159,8 @@ h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
 .field { display: grid; gap: 8px; color: var(--muted); font-size: .86rem; font-weight: 700; }
 .compact-field { min-width: 210px; }
 .input-with-unit { display: flex; align-items: center; gap: 9px; color: var(--muted); font-weight: 600; }
-input[type="number"], select { width: 100%; min-height: 44px; border: 1px solid #cfd7ce; border-radius: 11px; background: white; color: var(--ink); padding: 9px 11px; outline: none; }
-input[type="number"]:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(22,107,73,.12); }
+input[type="number"], input[type="text"], select { width: 100%; min-height: 44px; border: 1px solid #cfd7ce; border-radius: 11px; background: white; color: var(--ink); padding: 9px 11px; outline: none; }
+input[type="number"]:focus, input[type="text"]:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(22,107,73,.12); }
 .input-with-unit input { width: 82px; }
 .switch-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "text toggle"; align-items: center; gap: 18px; }
 .switch-row > span:first-child { grid-area: text; display: grid; gap: 4px; }
@@ -132,6 +186,31 @@ input[type="number"]:focus, select:focus { border-color: var(--green); box-shado
 .output-body { padding: 21px 23px 24px; display: grid; gap: 18px; transition: opacity .2s ease; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .adapter-note { margin: -5px 0 0; color: var(--muted); font-size: .78rem; }
+.queue-heading { margin-top: 40px; }
+.queue-panel { overflow: hidden; margin-bottom: 22px; }
+.queue-settings { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; padding: 23px 25px; border-bottom: 1px solid var(--line); }
+.queue-entry { padding: 0 25px; border-bottom: 1px solid var(--line); }
+.queue-entry summary { padding: 19px 0; color: var(--green-dark); font-weight: 800; cursor: pointer; }
+.queue-entry[open] summary { padding-bottom: 10px; }
+.queue-help { margin: 0 0 18px; color: var(--muted); font-size: .86rem; }
+.queue-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.queue-form-grid .wide-field { grid-column: span 2; }
+.queue-submit-row { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 19px 0 22px; }
+.queue-message { flex: 1; color: var(--muted); font-size: .86rem; }
+.dark-button { background: var(--green); color: white; }
+.dark-button:hover { background: var(--green-dark); }
+.queue-list-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 25px 12px; }
+.queue-jobs { padding: 0 25px 24px; display: grid; gap: 8px; }
+.queue-empty { color: var(--muted); background: var(--paper); border-radius: 12px; padding: 18px; text-align: center; }
+.queue-job { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.queue-job-copy { min-width: 0; display: grid; gap: 3px; }
+.queue-job-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
+.queue-job-copy small { color: var(--muted); }
+.status-pill { border-radius: 999px; padding: 5px 9px; background: #edf0eb; color: var(--muted); font-size: .73rem; font-weight: 800; text-transform: capitalize; }
+.status-pill.applied { background: var(--green-soft); color: var(--green-dark); }
+.status-pill.review-required, .status-pill.failed { background: #fde8df; color: #93401c; }
+.status-pill.applying { background: #fff2d7; color: #845311; }
+.cancel-job { border: 0; background: transparent; color: #8c4630; padding: 5px; font-size: .8rem; font-weight: 750; }
 .save-bar { position: fixed; z-index: 5; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(1048px, calc(100% - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px 14px 20px; background: rgba(23,34,29,.94); color: white; border: 1px solid rgba(255,255,255,.14); border-radius: 17px; box-shadow: 0 18px 45px rgba(12,26,18,.25); backdrop-filter: blur(12px); }
 .save-bar div { display: grid; gap: 2px; }
 .save-bar span { color: #c3cec6; font-size: .82rem; }
@@ -148,6 +227,11 @@ input[type="number"]:focus, select:focus { border-color: var(--green); box-shado
   .connection { grid-column: 1 / -1; justify-self: start; }
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
   .output-grid { grid-template-columns: 1fr; }
+  .queue-settings { grid-template-columns: 1fr; gap: 20px; }
+  .queue-form-grid { grid-template-columns: 1fr 1fr; }
+  .queue-form-grid .wide-field { grid-column: span 2; }
+  .queue-job { grid-template-columns: minmax(0, 1fr) auto; }
+  .queue-job .cancel-job { grid-column: 1 / -1; justify-self: end; }
   .save-bar { bottom: 10px; width: calc(100% - 20px); }
   .save-bar span { display: none; }
 }
@@ -266,6 +350,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function render() {
     document.querySelector("#poll-interval").value = String(state.settings.pollIntervalMinutes);
     document.querySelector("#dry-run").checked = state.settings.dryRun;
+    document.querySelector("#price-queue-enabled").checked = state.settings.priceUpdateQueue.enabled;
+    document.querySelector("#price-delay").value = String(state.settings.priceUpdateQueue.delaySeconds);
     outputs.replaceChildren(...state.settings.outputs.map(renderOutput));
     printerNote.hidden = !state.settings.discoveryIssue;
     printerNote.textContent = state.settings.discoveryIssue || "";
@@ -273,6 +359,62 @@ export const CONFIG_UI_JS = String.raw`(() => {
     connection.classList.add("ready");
     fatal.hidden = true;
     form.hidden = false;
+    void loadQueue();
+  }
+
+  function queueJob(job) {
+    const copy = el("div", { className: "queue-job-copy" }, [
+      el("strong", { text: job.update.productName }),
+      el("small", { text: "SKU " + job.update.productConditionId + " · $" + Number(job.update.price).toFixed(2) + " · attempt " + job.attempts }),
+    ]);
+    const status = el("span", {
+      className: "status-pill " + job.status,
+      text: job.status.replace("-", " "),
+    });
+    const children = [copy, status];
+    if (job.status === "pending") {
+      const cancel = el("button", { className: "cancel-job", type: "button", text: "Cancel" });
+      cancel.addEventListener("click", () => cancelJob(job.id));
+      children.push(cancel);
+    }
+    return el("div", { className: "queue-job" }, children);
+  }
+
+  async function loadQueue() {
+    const health = document.querySelector("#queue-health");
+    try {
+      const response = await fetch("/api/price-updates", { headers: { Accept: "application/json" } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Queue unavailable.");
+      const active = data.counts.pending + data.counts.applying;
+      health.textContent = active + (active === 1 ? " active job" : " active jobs");
+      health.classList.add("ready");
+      const jobs = data.jobs.slice(0, 50);
+      document.querySelector("#queue-jobs").replaceChildren(
+        ...(jobs.length === 0
+          ? [el("div", { className: "queue-empty", text: data.workerRunning ? "No price updates queued." : "No jobs yet. Start the service to process new jobs." })]
+          : jobs.map(queueJob)),
+      );
+    } catch (error) {
+      health.textContent = "Queue unavailable";
+      health.classList.remove("ready");
+      document.querySelector("#queue-jobs").replaceChildren(
+        el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Queue unavailable." }),
+      );
+    }
+  }
+
+  async function cancelJob(jobId) {
+    const response = await fetch("/api/price-updates/" + encodeURIComponent(jobId), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: "{}",
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      document.querySelector("#queue-form-message").textContent = data.message || "The job could not be canceled.";
+    }
+    await loadQueue();
   }
 
   async function load() {
@@ -320,6 +462,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
       revision: state.settings.revision,
       pollIntervalMinutes: Number(document.querySelector("#poll-interval").value),
       dryRun: document.querySelector("#dry-run").checked,
+      priceUpdateQueue: {
+        enabled: document.querySelector("#price-queue-enabled").checked,
+        delaySeconds: Number(document.querySelector("#price-delay").value),
+      },
       outputs: state.settings.outputs.map((output) => {
         const card = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
         return collectOutput(card, output);
@@ -347,6 +493,44 @@ export const CONFIG_UI_JS = String.raw`(() => {
   });
 
   document.querySelector("#refresh-printers").addEventListener("click", load);
+  document.querySelector("#refresh-queue").addEventListener("click", loadQueue);
+  document.querySelector("#queue-submit").addEventListener("click", async () => {
+    const message = document.querySelector("#queue-form-message");
+    const button = document.querySelector("#queue-submit");
+    const number = (selector) => Number(document.querySelector(selector).value);
+    const optional = document.querySelector("#q-custom-id").value.trim();
+    const update = {
+      productId: number("#q-product-id"),
+      productName: document.querySelector("#q-product-name").value,
+      productConditionId: number("#q-sku-id"),
+      conditionId: number("#q-condition-id"),
+      channelId: number("#q-channel-id"),
+      categoryName: document.querySelector("#q-category-name").value,
+      quantity: number("#q-quantity"),
+      price: number("#q-price"),
+      storePriceCustomId: optional === "" ? null : Number(optional),
+      reserveQuantity: number("#q-reserve"),
+    };
+    button.disabled = true;
+    message.textContent = "Adding update...";
+    try {
+      const response = await fetch("/api/price-updates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(update),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The update was not queued.");
+      message.textContent = "Queued. You can leave this page; the worker will continue in the background.";
+      document.querySelector("#q-price").value = "";
+      await loadQueue();
+    } catch (error) {
+      message.textContent = error instanceof Error ? error.message : "The update was not queued.";
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.querySelector("#retry").addEventListener("click", load);
   load();
+  setInterval(loadQueue, 5000);
 })();`;

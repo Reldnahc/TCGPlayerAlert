@@ -33,7 +33,19 @@ export {
 export type * from "./printer-discovery.js";
 export { evaluateRules } from "./rules.js";
 export type * from "./rules.js";
-export { createPrinters, createWorkflow } from "./runtime.js";
+export {
+  createPriceUpdateExecutor,
+  createPriceUpdateQueue,
+  createPrinters,
+  createWorkflow,
+} from "./runtime.js";
+export {
+  createTcgplayerPriceUpdateExecutor,
+  parsePriceUpdates,
+  PriceUpdateQueueStore,
+  PriceUpdateWorker,
+} from "./price-update-queue.js";
+export type * from "./price-update-queue.js";
 export {
   emptyState,
   JsonStateStore,

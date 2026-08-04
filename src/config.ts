@@ -80,6 +80,16 @@ export interface PackingSlipActionConfig {
 
 export type ActionConfig = AddressLabelActionConfig | PackingSlipActionConfig;
 
+export interface PriceUpdateQueueConfig {
+  readonly enabled: boolean;
+  readonly stateFile: string;
+  /** Minimum time between requests accepted by the local worker. */
+  readonly delaySeconds: number;
+  /** Pause before retrying a request that TCGplayer explicitly rejected with 429. */
+  readonly rateLimitDelaySeconds: number;
+  readonly historyLimit: number;
+}
+
 export interface AppConfig {
   readonly version: 1;
   readonly pollIntervalMinutes: number;
@@ -88,6 +98,7 @@ export interface AppConfig {
   readonly stateFile: string;
   readonly spoolDirectory: string;
   readonly timezoneOffsetMinutes: number | "local";
+  readonly priceUpdateQueue: PriceUpdateQueueConfig;
   readonly provider: {
     readonly type: "tcgplayer";
     readonly authCookieEnv: string;
@@ -317,6 +328,10 @@ export function parseConfig(value: unknown): AppConfig {
   const provider = record(root?.provider);
   if (provider?.type !== "tcgplayer") {
     issues.push("config.provider.type must be tcgplayer.");
+  }
+  const priceUpdateQueue = record(root?.priceUpdateQueue);
+  if (priceUpdateQueue === undefined) {
+    issues.push("config.priceUpdateQueue must be an object.");
   }
 
   const printersSource = record(root?.printers);
@@ -595,6 +610,44 @@ export function parseConfig(value: unknown): AppConfig {
     1000,
     issues,
   );
+  const priceUpdateQueueConfig: PriceUpdateQueueConfig = {
+    enabled: booleanValue(
+      priceUpdateQueue,
+      "enabled",
+      "config.priceUpdateQueue",
+      issues,
+    ),
+    stateFile: text(
+      priceUpdateQueue,
+      "stateFile",
+      "config.priceUpdateQueue",
+      issues,
+    ),
+    delaySeconds: integer(
+      priceUpdateQueue,
+      "delaySeconds",
+      "config.priceUpdateQueue",
+      1,
+      3600,
+      issues,
+    ),
+    rateLimitDelaySeconds: integer(
+      priceUpdateQueue,
+      "rateLimitDelaySeconds",
+      "config.priceUpdateQueue",
+      30,
+      86_400,
+      issues,
+    ),
+    historyLimit: integer(
+      priceUpdateQueue,
+      "historyLimit",
+      "config.priceUpdateQueue",
+      10,
+      10_000,
+      issues,
+    ),
+  };
 
   const activePrinterIds = new Set(
     Object.values(actions)
@@ -626,6 +679,7 @@ export function parseConfig(value: unknown): AppConfig {
     stateFile,
     spoolDirectory,
     timezoneOffsetMinutes,
+    priceUpdateQueue: priceUpdateQueueConfig,
     provider: {
       type: "tcgplayer",
       authCookieEnv,

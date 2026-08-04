@@ -15,7 +15,7 @@ The product must remain useful beyond one seller, scheduling cadence, operating 
 
 ## Current Phase
 
-Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Keep remote mutations opt-in and out of the initial automatic workflow until a newly received order is available for supervised compatibility testing.
+Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are separately authorized through the durable, paced queue in ADR 0005; they must preserve current quantity/reserve state and stop ambiguous jobs for review.
 
 The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
 
@@ -42,7 +42,7 @@ Keep these concerns separated even if the first version runs as one process:
 - **Actions:** plugins that consume domain data or documents and produce side effects.
 - **Printing:** printer discovery/selection, rendering, job submission, and job-result reporting behind a print interface.
 - **Configuration and secrets:** validated non-secret configuration separated from credentials and session material.
-- **Persistence:** the smallest durable store that safely supports cursors, deduplication, job state, and audit history.
+- **Persistence:** the smallest durable store that safely supports cursors, deduplication, job state, and audit history. Price jobs use a separate state document and may never contain credentials.
 
 Initial adapters are expected to include:
 

@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: Reldnahc/tcgplayer-private-api
-          ref: bf7be5f5a48c821217edc955b64437f19dd0a033
+          ref: c501e3f0fce6ee42c4abab5318c00cfdda79e6af
           path: api-package
       - uses: actions/setup-node@v7
         with:

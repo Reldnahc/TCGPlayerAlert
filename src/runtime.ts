@@ -7,6 +7,10 @@ import { FulfillmentWorkflow } from "./orchestrator.js";
 import { JsonStateStore } from "./state.js";
 import { TcgplayerOrderProvider } from "./tcgplayer-provider.js";
 import { FileSyncLease } from "./sync-lease.js";
+import {
+  createTcgplayerPriceUpdateExecutor,
+  PriceUpdateQueueStore,
+} from "./price-update-queue.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -51,6 +55,22 @@ export function createPrinters(
       createPrinter(printerConfig, config.spoolDirectory),
     ]),
   );
+}
+
+export function createPriceUpdateQueue(
+  config: AppConfig,
+): PriceUpdateQueueStore {
+  return new PriceUpdateQueueStore({
+    stateFile: config.priceUpdateQueue.stateFile,
+    historyLimit: config.priceUpdateQueue.historyLimit,
+  });
+}
+
+export function createPriceUpdateExecutor(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return createTcgplayerPriceUpdateExecutor(config, environment);
 }
 
 function secretFromEnvironment(

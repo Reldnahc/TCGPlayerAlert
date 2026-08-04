@@ -50,6 +50,13 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     stateFile: ".data/test-state.json",
     spoolDirectory: ".spool-test",
     timezoneOffsetMinutes: "local",
+    priceUpdateQueue: {
+      enabled: true,
+      stateFile: ".data/test-price-updates.json",
+      delaySeconds: 30,
+      rateLimitDelaySeconds: 300,
+      historyLimit: 500,
+    },
     provider: {
       type: "tcgplayer",
       authCookieEnv: "TCGPLAYER_AUTH_COOKIE",

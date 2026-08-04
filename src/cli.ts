@@ -1,11 +1,19 @@
 #!/usr/bin/env node
+import { readFile } from "node:fs/promises";
 import { loadConfig } from "./config.js";
 import { startConfigurationUi } from "./config-ui.js";
 import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
-import { createPrinters, createWorkflow } from "./runtime.js";
+import {
+  createPriceUpdateExecutor,
+  createPriceUpdateQueue,
+  createPrinters,
+  createWorkflow,
+} from "./runtime.js";
 import { JsonStateStore } from "./state.js";
+import { PriceUpdateWorker } from "./price-update-queue.js";
+import { FileSyncLease } from "./sync-lease.js";
 
 const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
@@ -59,12 +67,16 @@ try {
       `${JSON.stringify({ printed: true, actionId, synthetic: true })}\n`,
     );
   } else if (command === "configure") {
-    await loadConfig(configPath);
+    const config = await loadConfig(configPath);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    const ui = await startConfigurationUi({ configPath, port: uiPort });
+    const ui = await startConfigurationUi({
+      configPath,
+      port: uiPort,
+      priceQueue: createPriceUpdateQueue(config),
+    });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
     try {
       await waitUntilAborted(controller.signal);
@@ -72,12 +84,40 @@ try {
       await ui.close();
     }
   } else if (command === "start") {
-    await loadConfig(configPath);
+    const initialConfig = await loadConfig(configPath);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    const ui = await startConfigurationUi({ configPath, port: uiPort });
+    const priceQueue = createPriceUpdateQueue(initialConfig);
+    const priceWorker = new PriceUpdateWorker({
+      queue: priceQueue,
+      executor: createPriceUpdateExecutor(initialConfig),
+      settings: async () => {
+        const current = await loadConfig(configPath);
+        return {
+          ...current.priceUpdateQueue,
+          enabled: current.priceUpdateQueue.enabled && !current.dryRun,
+        };
+      },
+      logger: jsonLogger,
+      workerLease: new FileSyncLease(
+        `${initialConfig.priceUpdateQueue.stateFile}.worker-lock`,
+      ),
+    });
+    const ui = await startConfigurationUi({
+      configPath,
+      port: uiPort,
+      priceQueue,
+      priceWorkerRunning: true,
+    });
+    const priceWorkerPromise = priceWorker
+      .run(controller.signal)
+      .catch((error: unknown) => {
+        jsonLogger.error("price-queue.worker-failed", {
+          errorCode: safeErrorCode(error),
+        });
+      });
     jsonLogger.info("service.started", {
       settingsUrl: ui.url,
     });
@@ -96,11 +136,39 @@ try {
       }
     } finally {
       await ui.close();
+      await priceWorkerPromise;
     }
     jsonLogger.info("service.stopped");
+  } else if (command === "price" && argumentsList[1] === "queue") {
+    const config = await loadConfig(configPath);
+    const inputPath = option("--file");
+    if (inputPath === undefined) {
+      throw new ConfigurationError([
+        "price queue requires --file with a JSON update or batch.",
+      ]);
+    }
+    const value = JSON.parse(await readFile(inputPath, "utf8")) as unknown;
+    const jobs = await createPriceUpdateQueue(config).enqueue(value);
+    process.stdout.write(
+      `${JSON.stringify({ queued: jobs.length, jobs }, null, 2)}\n`,
+    );
+  } else if (command === "price" && argumentsList[1] === "status") {
+    const config = await loadConfig(configPath);
+    process.stdout.write(
+      `${JSON.stringify(await createPriceUpdateQueue(config).snapshot(), null, 2)}\n`,
+    );
+  } else if (command === "price" && argumentsList[1] === "cancel") {
+    const config = await loadConfig(configPath);
+    const jobId = option("--job");
+    if (jobId === undefined) {
+      throw new ConfigurationError(["price cancel requires --job."]);
+    }
+    process.stdout.write(
+      `${JSON.stringify(await createPriceUpdateQueue(config).cancel(jobId), null, 2)}\n`,
+    );
   } else {
     process.stderr.write(
-      "Usage: tcgplayer-alert <start|configure|sync|status|config validate|print test> [--config path] [--port number] [--process-backlog] [--action id]\n",
+      "Usage: tcgplayer-alert <start|configure|sync|status|config validate|print test|price queue|price status|price cancel> [--config path] [--port number] [--process-backlog] [--action id] [--file path] [--job id]\n",
     );
     process.exitCode = 2;
   }

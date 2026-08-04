@@ -1,11 +1,13 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Script } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ConfigurationService,
+  immediateSyncLease,
   loadConfig,
+  PriceUpdateQueueStore,
   startConfigurationUi,
   type ConfigurationUiServer,
 } from "../src/index.js";
@@ -61,6 +63,10 @@ describe("configuration UI service", () => {
       revision: initial.revision,
       pollIntervalMinutes: 15,
       dryRun: false,
+      priceUpdateQueue: {
+        enabled: true,
+        delaySeconds: 45,
+      },
       outputs: [
         {
           actionId: address.actionId,
@@ -83,7 +89,11 @@ describe("configuration UI service", () => {
     const config = await loadConfig(fixture.path);
 
     expect(saved.revision).not.toBe(initial.revision);
-    expect(config).toMatchObject({ pollIntervalMinutes: 15, dryRun: false });
+    expect(config).toMatchObject({
+      pollIntervalMinutes: 15,
+      dryRun: false,
+      priceUpdateQueue: { enabled: true, delaySeconds: 45 },
+    });
     expect(config.actions[address.actionId]?.enabled).toBe(false);
     expect(config.actions[packingSlip.actionId]?.enabled).toBe(true);
     expect(config.printers[address.printerId]?.printerName).toBe(
@@ -117,10 +127,17 @@ describe("configuration UI service", () => {
 
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
     const fixture = await configurationFixture();
+    const priceQueue = new PriceUpdateQueueStore({
+      stateFile: join(dirname(fixture.path), "price-updates.json"),
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
     server = await startConfigurationUi({
       configPath: fixture.path,
       port: 0,
       service: fixture.service,
+      priceQueue,
+      priceWorkerRunning: true,
     });
 
     const page = await fetch(server.url);
@@ -133,11 +150,36 @@ describe("configuration UI service", () => {
       },
       body: "{}",
     });
+    const queued = await fetch(`${server.url}/api/price-updates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: server.url,
+      },
+      body: JSON.stringify({
+        productId: 123,
+        productName: "Synthetic Card",
+        productConditionId: 456,
+        conditionId: 1,
+        channelId: 0,
+        categoryName: "Synthetic Game",
+        quantity: 7,
+        price: 1.15,
+        storePriceCustomId: null,
+        reserveQuantity: 2,
+      }),
+    });
+    const queueStatus = await fetch(`${server.url}/api/price-updates`);
 
     expect(page.status).toBe(200);
     expect(await page.text()).toContain("Choose what prints");
     expect(settings.status).toBe(200);
     expect(forbidden.status).toBe(403);
+    expect(queued.status).toBe(202);
+    expect(await queueStatus.json()).toMatchObject({
+      workerRunning: true,
+      counts: { pending: 1 },
+    });
     expect(page.headers.get("content-security-policy")).toContain(
       "frame-ancestors 'none'",
     );

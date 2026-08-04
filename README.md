@@ -1,6 +1,6 @@
 # TCGPlayerAlert
 
-A local-first, configurable fulfillment automation service. It polls the authoritative TCGplayer ready-to-ship queue, reconciles orders against durable state, evaluates declarative rules, and dispatches modular actions.
+A local-first, configurable seller automation service. It polls the authoritative TCGplayer ready-to-ship queue, reconciles orders against durable state, evaluates declarative rules, dispatches modular actions, and processes explicitly queued listing price changes at a safe pace.
 
 The first action modules draw an address label through the native Windows print system and render a packing-slip PDF inside the application before sending it to another OS-visible printer. Printer vendors and names are configuration, not application assumptions.
 
@@ -11,6 +11,7 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 - `dryRun` is enabled in the committed example. The ignored local configuration may be deliberately switched to live printing after printer tests pass.
 - The first successful sync establishes a baseline without processing existing orders.
 - No tracking or shipment mutation is part of the automatic workflow.
+- Price changes are opt-in jobs in a separate durable queue. Only one is submitted at a time, with a configurable delay, and dry run pauses the worker.
 - Addresses and document bytes remain in memory and temporary print files only; they are not stored in workflow state or logs.
 - Interrupted or ambiguous print submissions become `review-required` and are never retried automatically.
 
@@ -32,7 +33,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.1.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.2.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -50,7 +51,7 @@ npm run build
 npm run configure
 ```
 
-Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, and DPI settings. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
+Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, DPI, and price-queue settings. It also accepts an individual listing update and displays recent queue status. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
 
 Validate non-secret configuration without contacting TCGplayer or printing:
 
@@ -89,6 +90,37 @@ npm run status
 
 The scheduler and separately invoked manual syncs share a filesystem lease, so they cannot reconcile or dispatch actions concurrently.
 
+## Queue price updates
+
+The settings screen can add one listing at a time. It requires the current Seller Portal product, SKU/product-condition, condition, channel, quantity, reserve-quantity, and optional custom-price identifiers. Requiring the complete current state prevents a price-only update from clearing inventory.
+
+Integrations can enqueue one update or a batch through the CLI without waiting for TCGplayer:
+
+```powershell
+node dist/cli.js price queue --file .\price-updates.json
+node dist/cli.js price status
+node dist/cli.js price cancel --job JOB_ID
+```
+
+The JSON file may contain one update or `{ "updates": [...] }`. A complete item looks like:
+
+```json
+{
+  "productId": 123,
+  "productName": "Example card",
+  "productConditionId": 456,
+  "conditionId": 1,
+  "channelId": 0,
+  "categoryName": "Example game",
+  "quantity": 7,
+  "price": 12.34,
+  "storePriceCustomId": null,
+  "reserveQuantity": 0
+}
+```
+
+Pending jobs for the same SKU/channel are superseded by the newest price. The service submits one listing per request and waits 30 seconds by default. A definite HTTP 429 is delayed for five minutes; authentication and validation failures stop as failed. A timeout, disconnect, server error, or interrupted in-flight update becomes `review-required` and is never retried automatically. Check the listing in Seller Portal before deciding what to do with a review-required job. Seller Portal may continue processing after it accepts a request.
+
 ## Enable printing safely
 
 The example uses `windows-native-label` for address text and `windows-pdf` for packing slips. Neither needs a separately installed PDF viewer. Configure each exact Windows printer name; the label adapter also uses the action's configured dimensions, while the PDF adapter controls render DPI and scaling.
@@ -121,4 +153,4 @@ Tests use synthetic orders, documents, providers, stores, and printers. Ordinary
 
 ## Current boundaries
 
-This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, and versioned JSON persistence. Email acceleration, remote administration, remote shipment mutations, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.
+This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, and a paced price-update queue. Email acceleration, remote administration, remote shipment mutations, automatic repricing rules, listing-state discovery, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.

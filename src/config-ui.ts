@@ -19,6 +19,7 @@ import {
   CONFIG_UI_JS,
 } from "./config-ui-assets.js";
 import { ConfigurationError } from "./errors.js";
+import type { PriceUpdateQueueStore } from "./price-update-queue.js";
 import {
   discoverInstalledPrinters,
   type PrinterDiscoveryResult,
@@ -54,6 +55,10 @@ export interface ConfigurationUiSettings {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly dryRun: boolean;
+  readonly priceUpdateQueue: {
+    readonly enabled: boolean;
+    readonly delaySeconds: number;
+  };
   readonly outputs: readonly OutputSettings[];
   readonly installedPrinters: PrinterDiscoveryResult["printers"];
   readonly discoveryIssue?: string;
@@ -63,6 +68,10 @@ export interface ConfigurationUiUpdate {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly dryRun: boolean;
+  readonly priceUpdateQueue: {
+    readonly enabled: boolean;
+    readonly delaySeconds: number;
+  };
   readonly outputs: readonly OutputSettingsUpdate[];
 }
 
@@ -142,6 +151,10 @@ export class ConfigurationService {
       revision,
       pollIntervalMinutes: config.pollIntervalMinutes,
       dryRun: config.dryRun,
+      priceUpdateQueue: {
+        enabled: config.priceUpdateQueue.enabled,
+        delaySeconds: config.priceUpdateQueue.delaySeconds,
+      },
       outputs: Object.entries(config.actions).map(([actionId, action]) =>
         outputSettings(actionId, action, config.printers[action.printer]),
       ),
@@ -163,6 +176,8 @@ export interface StartConfigurationUiOptions {
   readonly port?: number;
   readonly host?: string;
   readonly service?: ConfigurationService;
+  readonly priceQueue?: PriceUpdateQueueStore;
+  readonly priceWorkerRunning?: boolean;
 }
 
 export async function startConfigurationUi(
@@ -178,7 +193,13 @@ export async function startConfigurationUi(
     options.service ??
     new ConfigurationService({ configPath: options.configPath });
   const server = createServer((request, response) => {
-    void handleRequest(request, response, service);
+    void handleRequest(
+      request,
+      response,
+      service,
+      options.priceQueue,
+      options.priceWorkerRunning === true,
+    );
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
     server.once("error", rejectPromise);
@@ -277,6 +298,22 @@ function parseUiUpdate(
   const dryRun = source?.dryRun;
   if (typeof dryRun !== "boolean")
     issues.push("Dry run must be true or false.");
+  const priceUpdateQueueSource = objectValue(source?.priceUpdateQueue);
+  if (priceUpdateQueueSource === undefined) {
+    issues.push("Price-update queue settings are required.");
+  }
+  const priceUpdateQueueEnabled = priceUpdateQueueSource?.enabled;
+  if (typeof priceUpdateQueueEnabled !== "boolean") {
+    issues.push("Price-update queue enabled must be true or false.");
+  }
+  const priceUpdateDelaySeconds = priceUpdateQueueSource?.delaySeconds;
+  if (
+    !Number.isInteger(priceUpdateDelaySeconds) ||
+    Number(priceUpdateDelaySeconds) < 1 ||
+    Number(priceUpdateDelaySeconds) > 3600
+  ) {
+    issues.push("Price-update delay must be between 1 and 3600 seconds.");
+  }
   const outputValues = source?.outputs;
   if (!Array.isArray(outputValues))
     issues.push("Print actions must be an array.");
@@ -297,6 +334,10 @@ function parseUiUpdate(
     revision: revision as string,
     pollIntervalMinutes: Number(pollIntervalMinutes),
     dryRun: dryRun as boolean,
+    priceUpdateQueue: {
+      enabled: priceUpdateQueueEnabled as boolean,
+      delaySeconds: Number(priceUpdateDelaySeconds),
+    },
     outputs,
   };
 }
@@ -438,6 +479,11 @@ function applyUpdate(
     ...config,
     pollIntervalMinutes: update.pollIntervalMinutes,
     dryRun: update.dryRun,
+    priceUpdateQueue: {
+      ...config.priceUpdateQueue,
+      enabled: update.priceUpdateQueue.enabled,
+      delaySeconds: update.priceUpdateQueue.delaySeconds,
+    },
     printers,
     actions,
   };
@@ -447,6 +493,8 @@ async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   service: ConfigurationService,
+  priceQueue: PriceUpdateQueueStore | undefined,
+  priceWorkerRunning: boolean,
 ): Promise<void> {
   setSecurityHeaders(response);
   if (!isLoopbackHost(request.headers.host)) {
@@ -479,6 +527,47 @@ async function handleRequest(
         return;
       }
       sendJson(response, 200, await service.save(await readJsonBody(request)));
+    } else if (
+      request.method === "GET" &&
+      url.pathname === "/api/price-updates"
+    ) {
+      if (priceQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The price-update queue is unavailable.",
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        ...(await priceQueue.snapshot()),
+        workerRunning: priceWorkerRunning,
+      });
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/price-updates"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (priceQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The price-update queue is unavailable.",
+        });
+        return;
+      }
+      sendJson(response, 202, {
+        jobs: await priceQueue.enqueue(await readJsonBody(request)),
+      });
+    } else if (
+      request.method === "DELETE" &&
+      /^\/api\/price-updates\/[0-9a-f-]{36}$/iu.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (priceQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The price-update queue is unavailable.",
+        });
+        return;
+      }
+      const jobId = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+      sendJson(response, 200, { job: await priceQueue.cancel(jobId) });
     } else {
       sendJson(response, 404, { message: "Not found." });
     }
@@ -496,12 +585,34 @@ async function handleRequest(
       sendJson(response, 400, {
         message: "The request body must contain valid JSON.",
       });
+    } else if (error instanceof Error && "code" in error) {
+      sendJson(response, 409, {
+        message: error.message,
+        code: String(error.code),
+      });
     } else {
       sendJson(response, 500, {
         message: "The configuration operation failed.",
       });
     }
   }
+}
+
+function isAllowedMutationRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): boolean {
+  if (!isAllowedOrigin(request.headers.origin, request.headers.host)) {
+    sendJson(response, 403, { message: "The request origin is not allowed." });
+    return false;
+  }
+  if (request.headers["content-type"] !== "application/json") {
+    sendJson(response, 415, {
+      message: "Content-Type must be application/json.",
+    });
+    return false;
+  }
+  return true;
 }
 
 function setSecurityHeaders(response: ServerResponse): void {
@@ -552,7 +663,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request as AsyncIterable<Uint8Array>) {
     const buffer = Buffer.from(chunk);
     length += buffer.length;
-    if (length > 32_768) {
+    if (length > 262_144) {
       throw new ConfigurationError(["The settings update is too large."]);
     }
     chunks.push(buffer);
