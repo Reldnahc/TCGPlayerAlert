@@ -37,6 +37,7 @@ export {
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
+  createRepricingService,
   createWorkflow,
 } from "./runtime.js";
 export {
@@ -46,6 +47,13 @@ export {
   PriceUpdateWorker,
 } from "./price-update-queue.js";
 export type * from "./price-update-queue.js";
+export {
+  calculateRepricingRow,
+  parseRepricingRules,
+  RepricingService,
+  TCGPLAYER_CONDITION_ORDER,
+} from "./repricing.js";
+export type * from "./repricing.js";
 export {
   emptyState,
   JsonStateStore,

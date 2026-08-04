@@ -17,9 +17,9 @@ Seller Portal price updates are slow and should not block an operator or reprici
 - Pause processing while global dry run is enabled or the queue is disabled.
 - Retry only a definite HTTP 429, after a long configured delay. Mark authentication, authorization, validation, and permanent failures as failed.
 - Mark timeouts, lost responses, server errors, and jobs found `applying` after process interruption as `review-required`; never automatically resubmit them.
-- Expose queue settings, manual enqueue, recent status, and pending-job cancellation through the loopback-only same-origin UI. Also provide JSON-file CLI ingestion for future modules.
+- Expose queue settings, repricing preview/selection, recent status, and pending-job cancellation through the loopback-only same-origin UI. Also retain JSON-file CLI ingestion for integrations.
 - Retain a bounded terminal history while preserving non-terminal and review-required jobs.
 
 ## Consequences
 
-Operators and future repricers can enqueue work without waiting for Seller Portal, while the service applies natural backpressure. The current UI requires listing identifiers and current inventory state because automatic listing lookup is not implemented yet. Review-required jobs must be reconciled manually in Seller Portal. This queue does not provide pricing strategies, automatic repricing rules, or inventory quantity changes.
+Operators can enqueue previewed changes without waiting for Seller Portal while the service applies natural backpressure. Review-required jobs must be reconciled manually in Seller Portal. The queue does not expose inventory quantity changes.

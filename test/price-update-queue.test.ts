@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +8,8 @@ import {
 } from "tcgplayer-private-api";
 import {
   immediateSyncLease,
+  createTcgplayerPriceUpdateExecutor,
+  parseConfig,
   PriceUpdateQueueStore,
   PriceUpdateWorker,
   type Logger,
@@ -228,5 +230,107 @@ describe("price-update queue", () => {
       status: "review-required",
       errorCode: "INTERRUPTED_DURING_MUTATION",
     });
+  });
+
+  it("refreshes live quantity immediately before submitting a queued price", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const requestText = (input: URL | RequestInfo): string =>
+      input instanceof Request
+        ? input.url
+        : input instanceof URL
+          ? input.href
+          : input;
+    const bodyText = (body: BodyInit | null | undefined): string => {
+      if (typeof body !== "string") throw new Error("Expected a string body");
+      return body;
+    };
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      await Promise.resolve();
+      requests.push({
+        url: requestText(input),
+        ...(init === undefined ? {} : { init }),
+      });
+      if (requestText(input).includes("mp-search-api")) {
+        const body = JSON.parse(bodyText(init?.body)) as {
+          listingSearch: { filters: { term: { channelId: number } } };
+        };
+        const listings =
+          body.listingSearch.filters.term.channelId === 0
+            ? [
+                {
+                  listingId: 11,
+                  productId: 123,
+                  productConditionId: 456,
+                  conditionId: 1,
+                  condition: "Near Mint",
+                  channelId: 0,
+                  printing: "Normal",
+                  language: "English",
+                  languageId: 1,
+                  sellerKey: "seller_test",
+                  sellerName: "Synthetic Seller",
+                  quantity: 3,
+                  price: 10,
+                  shippingPrice: 0.99,
+                  customData: {},
+                },
+              ]
+            : [];
+        return new Response(
+          JSON.stringify({
+            errors: [],
+            results: [
+              {
+                totalResults: listings.length === 0 ? 0 : 1,
+                results:
+                  listings.length === 0
+                    ? []
+                    : [
+                        {
+                          productId: 123,
+                          productName: "Synthetic Card",
+                          productLineName: "Synthetic Game",
+                          setName: "Synthetic Set",
+                          rarityName: "Rare",
+                          marketPrice: 11,
+                          totalListings: 5,
+                          listings,
+                        },
+                      ],
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 204 });
+    };
+    vi.stubGlobal("fetch", fetchImplementation);
+    const config = parseConfig(
+      JSON.parse(
+        await readFile("config/local.example.json", "utf8"),
+      ) as unknown,
+    );
+    const executor = createTcgplayerPriceUpdateExecutor(config, {
+      TCGPLAYER_AUTH_COOKIE: "synthetic-cookie",
+      TCGPLAYER_SELLER_KEY: "seller_test",
+    });
+
+    try {
+      await executor.apply(syntheticUpdate);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(requests).toHaveLength(3);
+    const form = new URLSearchParams(bodyText(requests[2]?.init?.body));
+    expect(
+      form.get(
+        "productQuantityPrices[0][ConditionQuantityPrices][0][Quantity]",
+      ),
+    ).toBe("3");
+    expect(
+      form.get("productQuantityPrices[0][ConditionQuantityPrices][0][Price]"),
+    ).toBe("12.34");
   });
 });

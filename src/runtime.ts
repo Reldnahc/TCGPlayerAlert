@@ -1,4 +1,5 @@
 import type { AppConfig } from "./config.js";
+import { createTcgplayerSellerClient } from "tcgplayer-private-api";
 import { createActions } from "./actions.js";
 import { ConfigurationError } from "./errors.js";
 import type { Logger } from "./logger.js";
@@ -11,6 +12,7 @@ import {
   createTcgplayerPriceUpdateExecutor,
   PriceUpdateQueueStore,
 } from "./price-update-queue.js";
+import { RepricingService } from "./repricing.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -71,6 +73,24 @@ export function createPriceUpdateExecutor(
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   return createTcgplayerPriceUpdateExecutor(config, environment);
+}
+
+export function createRepricingService(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): RepricingService {
+  const authCookie = secretFromEnvironment(
+    config.provider.authCookieEnv,
+    environment,
+  );
+  const sellerKey = secretFromEnvironment(
+    config.provider.sellerKeyEnv,
+    environment,
+  );
+  return new RepricingService({
+    client: createTcgplayerSellerClient({ session: { authCookie } }),
+    sellerKey,
+  });
 }
 
 function secretFromEnvironment(

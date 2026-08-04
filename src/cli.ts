@@ -9,6 +9,7 @@ import {
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
+  createRepricingService,
   createWorkflow,
 } from "./runtime.js";
 import { JsonStateStore } from "./state.js";
@@ -76,6 +77,7 @@ try {
       configPath,
       port: uiPort,
       priceQueue: createPriceUpdateQueue(config),
+      repricingService: createRepricingService(config),
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
     try {
@@ -110,6 +112,7 @@ try {
       port: uiPort,
       priceQueue,
       priceWorkerRunning: true,
+      repricingService: createRepricingService(initialConfig),
     });
     const priceWorkerPromise = priceWorker
       .run(controller.signal)

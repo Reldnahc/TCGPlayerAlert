@@ -24,6 +24,7 @@ import {
   discoverInstalledPrinters,
   type PrinterDiscoveryResult,
 } from "./printer-discovery.js";
+import type { RepricingService } from "./repricing.js";
 
 interface OutputSettingsBase {
   readonly actionId: string;
@@ -178,6 +179,7 @@ export interface StartConfigurationUiOptions {
   readonly service?: ConfigurationService;
   readonly priceQueue?: PriceUpdateQueueStore;
   readonly priceWorkerRunning?: boolean;
+  readonly repricingService?: RepricingService;
 }
 
 export async function startConfigurationUi(
@@ -199,6 +201,7 @@ export async function startConfigurationUi(
       service,
       options.priceQueue,
       options.priceWorkerRunning === true,
+      options.repricingService,
     );
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -495,6 +498,7 @@ async function handleRequest(
   service: ConfigurationService,
   priceQueue: PriceUpdateQueueStore | undefined,
   priceWorkerRunning: boolean,
+  repricingService: RepricingService | undefined,
 ): Promise<void> {
   setSecurityHeaders(response);
   if (!isLoopbackHost(request.headers.host)) {
@@ -527,6 +531,42 @@ async function handleRequest(
         return;
       }
       sendJson(response, 200, await service.save(await readJsonBody(request)));
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/repricing/preview"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (repricingService === undefined) {
+        sendJson(response, 503, {
+          message: "The repricing service is unavailable.",
+        });
+        return;
+      }
+      sendJson(
+        response,
+        200,
+        await repricingService.preview(await readJsonBody(request)),
+      );
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/repricing\/previews\/[0-9a-f-]{36}\/queue$/iu.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (repricingService === undefined || priceQueue === undefined) {
+        sendJson(response, 503, {
+          message: "Repricing or the price-update queue is unavailable.",
+        });
+        return;
+      }
+      const pathParts = url.pathname.split("/");
+      const previewId = pathParts[4] ?? "";
+      const updates = repricingService.takeUpdates(
+        previewId,
+        await readJsonBody(request),
+      );
+      sendJson(response, 202, {
+        jobs: await priceQueue.enqueue({ updates }),
+      });
     } else if (
       request.method === "GET" &&
       url.pathname === "/api/price-updates"

@@ -90,9 +90,15 @@ npm run status
 
 The scheduler and separately invoked manual syncs share a filesystem lease, so they cannot reconcile or dispatch actions concurrently.
 
-## Queue price updates
+## Reprice listed cards
 
-The settings screen can add one listing at a time. It requires the current Seller Portal product, SKU/product-condition, condition, channel, quantity, reserve-quantity, and optional custom-price identifiers. Requiring the complete current state prevents a price-only update from clearing inventory.
+Open the settings screen and use **Smart repricing**. Set a minimum item price, choose whether comparisons use item price or delivered price, and choose same-condition or same-or-better-condition matching. Click **Refresh inventory & preview**, review every proposed change, then queue selected rows.
+
+The default same-or-better rule treats conditions as `Near Mint > Lightly Played > Moderately Played > Heavily Played > Damaged`. For example, a Moderately Played card at $3 can match a qualifying Lightly Played listing at $2. Printing and language must also match. Price increases are off by default, the undercut is zero cents by default, and the configured minimum is a hard floor.
+
+Custom listings and SKUs with secondary-channel inventory are shown but skipped because their inventory state cannot be preserved safely. Immediately before each mutation, the worker re-reads the live listing, preserves its current quantity, and abandons the job if the listing sold or its inventory shape changed.
+
+Low-level integrations can still enqueue one complete update or a batch through the CLI without waiting for TCGplayer:
 
 Integrations can enqueue one update or a batch through the CLI without waiting for TCGplayer:
 
@@ -153,4 +159,4 @@ Tests use synthetic orders, documents, providers, stores, and printers. Ordinary
 
 ## Current boundaries
 
-This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, and a paced price-update queue. Email acceleration, remote administration, remote shipment mutations, automatic repricing rules, listing-state discovery, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.
+This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, preview-first smart repricing, and a paced price-update queue. Email acceleration, remote administration, remote shipment mutations, unattended scheduled repricing, per-card pricing floors, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.

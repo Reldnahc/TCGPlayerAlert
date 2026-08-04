@@ -424,15 +424,80 @@ export function createTcgplayerPriceUpdateExecutor(
   environment: NodeJS.ProcessEnv = process.env,
 ): PriceUpdateExecutor {
   const authCookie = environment[config.provider.authCookieEnv]?.trim();
+  const sellerKey = environment[config.provider.sellerKeyEnv]?.trim();
   if (!authCookie) {
     throw new ConfigurationError([
       `Environment variable ${config.provider.authCookieEnv} is required.`,
     ]);
   }
+  if (!sellerKey) {
+    throw new ConfigurationError([
+      `Environment variable ${config.provider.sellerKeyEnv} is required.`,
+    ]);
+  }
   const client = createTcgplayerSellerClient({ session: { authCookie } });
   return {
     apply: async (update) => {
-      await client.updateSellerPrices({ updates: [update] });
+      const [currentResult, secondaryResult] = await Promise.all([
+        client.searchMarketplaceProducts({
+          productIds: [update.productId],
+          sellerKey,
+          channelId: update.channelId,
+          limit: 24,
+        }),
+        update.channelId === 0
+          ? client.searchMarketplaceProducts({
+              productIds: [update.productId],
+              sellerKey,
+              channelId: 1,
+              limit: 24,
+            })
+          : Promise.resolve({ totalProducts: 0, products: [] }),
+      ]);
+      const currentListing = currentResult.products
+        .flatMap((product) => product.listings)
+        .find(
+          (listing) =>
+            listing.productConditionId === update.productConditionId &&
+            listing.sellerKey === sellerKey &&
+            listing.channelId === update.channelId,
+        );
+      if (currentListing === undefined || currentListing.quantity < 1) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "The listing is no longer live, so its queued price was not submitted.",
+        );
+      }
+      if (currentListing.customData.customListingId !== undefined) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "Custom listings cannot be repriced automatically.",
+        );
+      }
+      const hasSecondaryInventory = secondaryResult.products
+        .flatMap((product) => product.listings)
+        .some(
+          (listing) =>
+            listing.productConditionId === update.productConditionId &&
+            listing.sellerKey === sellerKey,
+        );
+      if (hasSecondaryInventory) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "The listing now has secondary-channel inventory, so reserve quantity cannot be preserved safely.",
+        );
+      }
+      if (currentListing.price === update.price) return;
+      await client.updateSellerPrices({
+        updates: [
+          {
+            ...update,
+            conditionId: currentListing.conditionId,
+            channelId: currentListing.channelId,
+            quantity: currentListing.quantity,
+          },
+        ],
+      });
     },
   };
 }

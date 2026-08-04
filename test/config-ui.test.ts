@@ -8,6 +8,7 @@ import {
   immediateSyncLease,
   loadConfig,
   PriceUpdateQueueStore,
+  RepricingService,
   startConfigurationUi,
   type ConfigurationUiServer,
 } from "../src/index.js";
@@ -132,12 +133,21 @@ describe("configuration UI service", () => {
       historyLimit: 25,
       lease: immediateSyncLease,
     });
+    const repricingService = new RepricingService({
+      sellerKey: "synthetic-seller",
+      client: {
+        listSellerInventory: () => Promise.resolve([]),
+        searchMarketplaceProducts: () =>
+          Promise.resolve({ totalProducts: 0, products: [] }),
+      },
+    });
     server = await startConfigurationUi({
       configPath: fixture.path,
       port: 0,
       service: fixture.service,
       priceQueue,
       priceWorkerRunning: true,
+      repricingService,
     });
 
     const page = await fetch(server.url);
@@ -170,9 +180,31 @@ describe("configuration UI service", () => {
       }),
     });
     const queueStatus = await fetch(`${server.url}/api/price-updates`);
+    const repricingPreview = await fetch(
+      `${server.url}/api/repricing/preview`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server.url,
+        },
+        body: JSON.stringify({
+          minimumPrice: 0.35,
+          conditionPolicy: "same-or-better",
+          priceBasis: "delivered",
+          adjustmentCents: 0,
+          allowPriceIncreases: false,
+        }),
+      },
+    );
 
     expect(page.status).toBe(200);
     expect(await page.text()).toContain("Choose what prints");
+    expect(repricingPreview.status).toBe(200);
+    expect(await repricingPreview.json()).toMatchObject({
+      counts: { ready: 0, unchanged: 0, skipped: 0 },
+      rows: [],
+    });
     expect(settings.status).toBe(200);
     expect(forbidden.status).toBe(403);
     expect(queued.status).toBe(202);

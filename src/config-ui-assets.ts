@@ -52,6 +52,49 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <p id="printer-note" class="printer-note" hidden></p>
           <div id="outputs" class="output-grid"></div>
 
+          <div class="section-heading repricing-heading">
+            <div>
+              <p class="section-kicker">Listed inventory</p>
+              <h2>Smart repricing</h2>
+            </div>
+          </div>
+          <section class="panel repricing-panel" aria-labelledby="repricing-title">
+            <div class="repricing-copy">
+              <h3 id="repricing-title">Match qualifying lowest listings</h3>
+              <p>Loads cards you already have listed, compares the same printing and language, and previews every price before anything is queued.</p>
+            </div>
+            <div class="repricing-rules">
+              <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="repricing-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
+              <label class="field"><span>Condition comparison</span><select id="repricing-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
+              <label class="field"><span>Compare using</span><select id="repricing-basis"><option value="delivered">Item + shipping</option><option value="item">Item price only</option></select></label>
+              <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="repricing-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
+            </div>
+            <div class="repricing-options">
+              <label class="switch-row">
+                <span><strong>Allow price increases</strong><small>Off by default: cards already below the target stay where they are.</small></span>
+                <input id="repricing-allow-increases" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+              <button id="repricing-preview" class="primary-button dark-button" type="button">Refresh inventory &amp; preview</button>
+            </div>
+            <p id="repricing-message" class="repricing-message">Nothing changes until you preview and queue selected prices.</p>
+            <div id="repricing-results" hidden>
+              <div class="repricing-summary">
+                <div id="repricing-counts"></div>
+                <div class="repricing-actions">
+                  <button id="repricing-select-all" class="quiet-button" type="button">Select all changes</button>
+                  <button id="repricing-queue" class="primary-button dark-button" type="button">Queue selected</button>
+                </div>
+              </div>
+              <div class="repricing-table-wrap">
+                <table class="repricing-table">
+                  <thead><tr><th><span class="sr-only">Select</span></th><th>Card</th><th>Condition</th><th>Current</th><th>Lowest match</th><th>Proposed</th><th>Result</th></tr></thead>
+                  <tbody id="repricing-rows"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
           <div class="section-heading queue-heading">
             <div>
               <p class="section-kicker">Background work</p>
@@ -77,27 +120,6 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                 </span>
               </label>
             </div>
-
-            <details class="queue-entry">
-              <summary>Queue one listing price</summary>
-              <p class="queue-help">Use the current Seller Portal listing values. Quantity and reserve quantity are preserved, never changed.</p>
-              <div class="queue-form-grid">
-                <label class="field wide-field"><span>Product name</span><input id="q-product-name" type="text" maxlength="1024" /></label>
-                <label class="field"><span>Category</span><input id="q-category-name" type="text" maxlength="256" /></label>
-                <label class="field"><span>New price</span><input id="q-price" type="number" min="0.01" max="1000000" step="0.01" /></label>
-                <label class="field"><span>SKU / Product condition ID</span><input id="q-sku-id" type="number" min="1" step="1" /></label>
-                <label class="field"><span>Product ID</span><input id="q-product-id" type="number" min="1" step="1" /></label>
-                <label class="field"><span>Condition ID</span><input id="q-condition-id" type="number" min="1" step="1" /></label>
-                <label class="field"><span>Current quantity</span><input id="q-quantity" type="number" min="0" step="1" /></label>
-                <label class="field"><span>Reserve quantity</span><input id="q-reserve" type="number" min="0" step="1" value="0" /></label>
-                <label class="field"><span>Channel ID</span><input id="q-channel-id" type="number" min="0" step="1" value="0" /></label>
-                <label class="field"><span>Custom price ID (optional)</span><input id="q-custom-id" type="number" min="0" step="1" /></label>
-              </div>
-              <div class="queue-submit-row">
-                <span id="queue-form-message" class="queue-message"></span>
-                <button id="queue-submit" class="primary-button dark-button" type="button">Add to queue</button>
-              </div>
-            </details>
 
             <div class="queue-list-head">
               <strong>Recent jobs</strong>
@@ -186,6 +208,33 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .output-body { padding: 21px 23px 24px; display: grid; gap: 18px; transition: opacity .2s ease; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .adapter-note { margin: -5px 0 0; color: var(--muted); font-size: .78rem; }
+.repricing-heading { margin-top: 40px; }
+.repricing-panel { overflow: hidden; margin-bottom: 22px; }
+.repricing-copy { padding: 23px 25px 10px; }
+.repricing-copy h3 { margin: 0 0 6px; }
+.repricing-copy p { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
+.repricing-rules { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 15px 25px 21px; }
+.money-input { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; }
+.money-input > span { font-size: 1rem; color: var(--ink); }
+.repricing-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
+.repricing-message { margin: 0; padding: 15px 25px; color: var(--muted); font-size: .86rem; }
+.repricing-message.error { color: #93401c; background: #fff5f1; }
+.repricing-message.success { color: var(--green-dark); background: var(--green-soft); }
+.repricing-summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 25px; border-top: 1px solid var(--line); }
+#repricing-counts { color: var(--muted); font-size: .86rem; font-weight: 700; }
+.repricing-actions { display: flex; gap: 9px; }
+.repricing-table-wrap { overflow: auto; border-top: 1px solid var(--line); }
+.repricing-table { width: 100%; min-width: 920px; border-collapse: collapse; font-size: .83rem; }
+.repricing-table th { padding: 11px 12px; background: #f1f3ed; color: var(--muted); text-align: left; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
+.repricing-table td { padding: 12px; border-top: 1px solid var(--line); vertical-align: top; }
+.repricing-table td:first-child, .repricing-table th:first-child { width: 42px; text-align: center; }
+.repricing-table input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--green); }
+.card-cell { display: grid; gap: 3px; min-width: 220px; }
+.card-cell small, .result-copy { color: var(--muted); line-height: 1.35; }
+.price-old { color: var(--muted); }
+.price-new { color: var(--green-dark); font-weight: 850; }
+.minimum-note { display: block; color: var(--amber); font-size: .72rem; font-weight: 700; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .queue-heading { margin-top: 40px; }
 .queue-panel { overflow: hidden; margin-bottom: 22px; }
 .queue-settings { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; padding: 23px 25px; border-bottom: 1px solid var(--line); }
@@ -228,6 +277,10 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
+  .repricing-rules { grid-template-columns: 1fr 1fr; }
+  .repricing-options { grid-template-columns: 1fr; }
+  .repricing-summary { align-items: stretch; flex-direction: column; }
+  .repricing-actions { justify-content: flex-end; }
   .queue-form-grid { grid-template-columns: 1fr 1fr; }
   .queue-form-grid .wide-field { grid-column: span 2; }
   .queue-job { grid-template-columns: minmax(0, 1fr) auto; }
@@ -239,7 +292,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 
 export const CONFIG_UI_JS = String.raw`(() => {
   "use strict";
-  const state = { settings: null };
+  const state = { settings: null, repricingPreview: null };
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
   const connection = document.querySelector("#connection");
@@ -380,6 +433,121 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return el("div", { className: "queue-job" }, children);
   }
 
+  const money = (value) => "$" + Number(value).toFixed(2);
+
+  function renderRepricingRow(row) {
+    const checkbox = el("input", {
+      type: "checkbox",
+      "data-row-id": row.id,
+      "aria-label": "Select " + row.productName,
+    });
+    checkbox.checked = row.queueable;
+    checkbox.disabled = !row.queueable;
+    const competitor = row.competitorPrice === undefined
+      ? "—"
+      : money(row.competitorPrice) + (row.competitorShipping > 0 ? " + " + money(row.competitorShipping) + " shipping" : "") + " · " + row.competitorCondition;
+    const proposed = el("td", {}, [
+      el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
+    ]);
+    if (row.minimumApplied) proposed.append(el("span", { className: "minimum-note", text: "minimum applied" }));
+    return el("tr", {}, [
+      el("td", {}, [checkbox]),
+      el("td", {}, [el("div", { className: "card-cell" }, [
+        el("strong", { text: row.productName }),
+        el("small", { text: row.productLineName + " · " + row.setName }),
+        el("small", { text: row.printing + " · " + row.language + " · qty " + row.quantity }),
+      ])]),
+      el("td", { text: row.condition }),
+      el("td", { className: "price-old", text: money(row.currentPrice) }),
+      el("td", { text: competitor }),
+      proposed,
+      el("td", {}, [
+        el("span", { className: "status-pill " + row.status, text: row.status }),
+        el("div", { className: "result-copy", text: row.reason }),
+      ]),
+    ]);
+  }
+
+  function renderRepricingPreview(preview) {
+    state.repricingPreview = preview;
+    document.querySelector("#repricing-counts").textContent =
+      preview.counts.ready + " changes · " + preview.counts.unchanged + " unchanged · " + preview.counts.skipped + " skipped";
+    document.querySelector("#repricing-rows").replaceChildren(...preview.rows.map(renderRepricingRow));
+    document.querySelector("#repricing-results").hidden = false;
+    document.querySelector("#repricing-queue").disabled = preview.counts.ready === 0;
+  }
+
+  function repricingRules() {
+    return {
+      minimumPrice: Number(document.querySelector("#repricing-minimum").value),
+      conditionPolicy: document.querySelector("#repricing-condition").value,
+      priceBasis: document.querySelector("#repricing-basis").value,
+      adjustmentCents: Number(document.querySelector("#repricing-adjustment").value),
+      allowPriceIncreases: document.querySelector("#repricing-allow-increases").checked,
+    };
+  }
+
+  async function previewRepricing() {
+    const button = document.querySelector("#repricing-preview");
+    const message = document.querySelector("#repricing-message");
+    button.disabled = true;
+    button.textContent = "Loading inventory…";
+    message.className = "repricing-message";
+    message.textContent = "Reading your live listings and qualifying marketplace prices. This can take a moment.";
+    try {
+      const response = await fetch("/api/repricing/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(repricingRules()),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The preview could not be created.");
+      renderRepricingPreview(data);
+      message.className = "repricing-message success";
+      message.textContent = "Preview ready. Review the proposed prices, then queue only the rows you want.";
+    } catch (error) {
+      message.className = "repricing-message error";
+      message.textContent = error instanceof Error ? error.message : "The preview could not be created.";
+    } finally {
+      button.disabled = false;
+      button.textContent = "Refresh inventory & preview";
+    }
+  }
+
+  async function queueRepricingSelection() {
+    const preview = state.repricingPreview;
+    if (!preview) return;
+    const button = document.querySelector("#repricing-queue");
+    const message = document.querySelector("#repricing-message");
+    const rowIds = [...document.querySelectorAll('#repricing-rows input[type="checkbox"]:checked')].map((checkbox) => checkbox.dataset.rowId);
+    if (rowIds.length === 0) {
+      message.className = "repricing-message error";
+      message.textContent = "Select at least one proposed change.";
+      return;
+    }
+    button.disabled = true;
+    message.className = "repricing-message";
+    message.textContent = "Adding " + rowIds.length + " price " + (rowIds.length === 1 ? "change" : "changes") + " to the queue…";
+    try {
+      const response = await fetch("/api/repricing/previews/" + encodeURIComponent(preview.id) + "/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ rowIds }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The changes were not queued.");
+      message.className = "repricing-message success";
+      message.textContent = data.jobs.length + " price " + (data.jobs.length === 1 ? "change is" : "changes are") + " queued. The worker processes the next one as soon as the previous request finishes.";
+      state.repricingPreview = null;
+      document.querySelector("#repricing-results").hidden = true;
+      await loadQueue();
+    } catch (error) {
+      message.className = "repricing-message error";
+      message.textContent = error instanceof Error ? error.message : "The changes were not queued.";
+      button.disabled = false;
+    }
+  }
+
   async function loadQueue() {
     const health = document.querySelector("#queue-health");
     try {
@@ -412,7 +580,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     });
     const data = await response.json();
     if (!response.ok) {
-      document.querySelector("#queue-form-message").textContent = data.message || "The job could not be canceled.";
+      const message = document.querySelector("#repricing-message");
+      message.className = "repricing-message error";
+      message.textContent = data.message || "The job could not be canceled.";
     }
     await loadQueue();
   }
@@ -494,41 +664,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   document.querySelector("#refresh-printers").addEventListener("click", load);
   document.querySelector("#refresh-queue").addEventListener("click", loadQueue);
-  document.querySelector("#queue-submit").addEventListener("click", async () => {
-    const message = document.querySelector("#queue-form-message");
-    const button = document.querySelector("#queue-submit");
-    const number = (selector) => Number(document.querySelector(selector).value);
-    const optional = document.querySelector("#q-custom-id").value.trim();
-    const update = {
-      productId: number("#q-product-id"),
-      productName: document.querySelector("#q-product-name").value,
-      productConditionId: number("#q-sku-id"),
-      conditionId: number("#q-condition-id"),
-      channelId: number("#q-channel-id"),
-      categoryName: document.querySelector("#q-category-name").value,
-      quantity: number("#q-quantity"),
-      price: number("#q-price"),
-      storePriceCustomId: optional === "" ? null : Number(optional),
-      reserveQuantity: number("#q-reserve"),
-    };
-    button.disabled = true;
-    message.textContent = "Adding update...";
-    try {
-      const response = await fetch("/api/price-updates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(update),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The update was not queued.");
-      message.textContent = "Queued. You can leave this page; the worker will continue in the background.";
-      document.querySelector("#q-price").value = "";
-      await loadQueue();
-    } catch (error) {
-      message.textContent = error instanceof Error ? error.message : "The update was not queued.";
-    } finally {
-      button.disabled = false;
-    }
+  document.querySelector("#repricing-preview").addEventListener("click", previewRepricing);
+  document.querySelector("#repricing-queue").addEventListener("click", queueRepricingSelection);
+  document.querySelector("#repricing-select-all").addEventListener("click", () => {
+    for (const checkbox of document.querySelectorAll('#repricing-rows input[type="checkbox"]:not(:disabled)')) checkbox.checked = true;
   });
   document.querySelector("#retry").addEventListener("click", load);
   load();
