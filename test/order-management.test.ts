@@ -25,6 +25,46 @@ const secondOrder = {
 function client() {
   return {
     searchOrders: vi.fn(),
+    confirmOrder: vi.fn(() =>
+      Promise.resolve({
+        summary: firstOrder,
+        order: {
+          createdAt: firstOrder.orderDate,
+          status: firstOrder.orderStatus,
+          orderChannel: firstOrder.orderChannel,
+          orderFulfillment: firstOrder.orderFulfillment,
+          orderNumber: firstOrder.orderNumber,
+          sellerName: "Synthetic Seller",
+          buyerName: firstOrder.buyerName,
+          paymentType: "CreditCard",
+          pickupStatus: "",
+          shippingType: firstOrder.shippingType,
+          estimatedDeliveryDate: "2026-08-08T12:00:00.000Z",
+          transaction: {
+            productAmount: firstOrder.productAmount,
+            shippingAmount: firstOrder.shippingAmount,
+            grossAmount: firstOrder.totalAmount,
+            feeAmount: 1,
+            netAmount: 12.49,
+            directFeeAmount: 0,
+            taxes: [],
+          },
+          shippingAddress: {
+            recipientName: "Synthetic Buyer",
+            addressOne: "123 Example Street",
+            addressTwo: "Apt 4",
+            city: "Example City",
+            territory: "IL",
+            country: "US",
+            postalCode: "00000",
+          },
+          products: [],
+          refundStatus: "None",
+          trackingNumbers: [],
+          allowedActions: ["AddTracking", "MarkShipped"],
+        },
+      }),
+    ),
     getPackingSlip: vi.fn(() =>
       Promise.resolve({
         bytes: new Uint8Array([37, 80, 68, 70]),
@@ -158,6 +198,30 @@ describe("order management", () => {
         orderNumber: firstOrder.orderNumber,
         carrier: "USPS",
         trackingNumber: "synthetic-tracking",
+      },
+      undefined,
+    );
+  });
+
+  it("formats a seller-confirmed address for Pirate Ship without putting it in a URL", async () => {
+    const fakeClient = client();
+    const orders = service(fakeClient);
+
+    const prepared = await orders.preparePirateShip(firstOrder.orderNumber);
+    const cached = await orders.preparePirateShip(firstOrder.orderNumber);
+
+    expect(prepared).toEqual({
+      url: "https://ship.pirateship.com/ship/single",
+      pasteAddress:
+        "Synthetic Buyer\n123 Example Street\nApt 4\nExample City, IL 00000\nUS",
+    });
+    expect(prepared.url).not.toContain("Synthetic");
+    expect(cached).toBe(prepared);
+    expect(fakeClient.confirmOrder).toHaveBeenCalledOnce();
+    expect(fakeClient.confirmOrder).toHaveBeenCalledWith(
+      {
+        sellerKey: "synthetic-seller",
+        orderNumber: firstOrder.orderNumber,
       },
       undefined,
     );

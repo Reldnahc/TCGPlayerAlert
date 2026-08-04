@@ -30,9 +30,15 @@ export interface AddTrackingResult {
   readonly outcome: "applied" | "already-applied";
 }
 
+export interface PirateShipPreparation {
+  readonly url: "https://ship.pirateship.com/ship/single";
+  readonly pasteAddress: string;
+}
+
 type OrderManagementClient = Pick<
   TcgplayerSellerClient,
   | "searchOrders"
+  | "confirmOrder"
   | "getPackingSlip"
   | "detectCarrier"
   | "addOrderTracking"
@@ -60,6 +66,11 @@ interface CachedOrders {
   readonly value: ManagedOrderList;
 }
 
+interface CachedPirateShipPreparation {
+  readonly expiresAt: number;
+  readonly value: PirateShipPreparation;
+}
+
 export class OrderManagementService {
   private readonly client: OrderManagementClient;
   private readonly sellerKey: string;
@@ -71,6 +82,10 @@ export class OrderManagementService {
   private readonly liveMode: () => Promise<boolean>;
   private readonly executePrint?: OrderManagementServiceOptions["executePrint"];
   private readonly cache = new Map<OrderListScope, CachedOrders>();
+  private readonly pirateShipCache = new Map<
+    string,
+    CachedPirateShipPreparation
+  >();
 
   constructor(options: OrderManagementServiceOptions) {
     this.client = options.client;
@@ -182,6 +197,55 @@ export class OrderManagementService {
     return { fileName: document.fileName, bytes: document.bytes };
   }
 
+  async preparePirateShip(
+    orderNumber: string,
+    signal?: AbortSignal,
+  ): Promise<PirateShipPreparation> {
+    const normalized = requiredText(orderNumber, "Order number", 128);
+    const now = this.now();
+    const cached = this.pirateShipCache.get(normalized);
+    if (cached !== undefined && cached.expiresAt > now.getTime()) {
+      return cached.value;
+    }
+    const confirmed = await this.client.confirmOrder(
+      { sellerKey: this.sellerKey, orderNumber: normalized },
+      signal === undefined ? undefined : { signal },
+    );
+    if (confirmed.order.orderNumber !== normalized) {
+      throw new ApplicationError(
+        "PROVIDER_ERROR",
+        "The confirmed order did not match the requested order.",
+      );
+    }
+    const address = confirmed.order.shippingAddress;
+    const regionAndPostal = [address.territory, address.postalCode]
+      .filter((part) => part.trim())
+      .join(" ");
+    const locality = [address.city, regionAndPostal]
+      .filter((part) => part.trim())
+      .join(", ");
+    const value = {
+      url: "https://ship.pirateship.com/ship/single" as const,
+      pasteAddress: [
+        address.recipientName,
+        address.addressOne,
+        address.addressTwo,
+        locality,
+        address.country,
+      ]
+        .filter((line): line is string =>
+          typeof line === "string" ? Boolean(line.trim()) : false,
+        )
+        .map((line) => line.trim())
+        .join("\n"),
+    };
+    this.pirateShipCache.set(normalized, {
+      expiresAt: now.getTime() + this.cacheMilliseconds,
+      value,
+    });
+    return value;
+  }
+
   async print(
     orderNumber: string,
     actionType: ManualPrintActionType,
@@ -214,6 +278,7 @@ export class OrderManagementService {
       256,
     );
     this.cache.clear();
+    this.pirateShipCache.clear();
     const requestOptions = signal === undefined ? undefined : { signal };
     const { carrier } = await this.client.detectCarrier(
       normalizedTracking,
@@ -241,6 +306,7 @@ export class OrderManagementService {
     await this.requireLiveMode();
     const normalized = requiredText(orderNumber, "Order number", 128);
     this.cache.clear();
+    this.pirateShipCache.clear();
     const result = await this.client.markOrdersShipped(
       { sellerKey: this.sellerKey, orderNumbers: [normalized] },
       signal === undefined ? undefined : { signal },

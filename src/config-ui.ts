@@ -616,6 +616,21 @@ async function handleRequest(
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (
       request.method === "GET" &&
+      /^\/api\/orders\/[^/]{1,384}\/pirate-ship$/u.test(url.pathname)
+    ) {
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "pirate-ship");
+      const preparation = await withRequestAbort(request, response, (signal) =>
+        orderService.preparePirateShip(orderNumber, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, preparation);
+    } else if (
+      request.method === "GET" &&
       /^\/api\/orders\/[^/]{1,384}\/packing-slip$/u.test(url.pathname)
     ) {
       if (orderService === undefined) {
@@ -997,6 +1012,7 @@ function setSecurityHeaders(response: ServerResponse): void {
     "default-src 'self'; img-src 'self' https://product-images.tcgplayer.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
   );
   response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader("Permissions-Policy", "clipboard-write=(self)");
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
   response.setHeader("Cache-Control", "no-store");

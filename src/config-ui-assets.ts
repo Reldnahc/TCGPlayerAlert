@@ -477,6 +477,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     catalogSearchController: null,
     orderLists: { all: null, "ready-to-ship": null },
     orderLoading: { all: false, "ready-to-ship": false },
+    pirateShipPreparations: new Map(),
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
@@ -893,6 +894,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       orderButton("Print address label", (button) => runOrderPrint(order, "print-address-label", "address label", button, "all")),
       orderButton("Print packing slip", (button) => runOrderPrint(order, "print-packing-slip", "packing slip", button, "all")),
       orderButton("Download packing slip", (button) => downloadPackingSlip(order, button, "all")),
+      pirateShipButton(order, "all"),
       trackingOpenButton(order, tracking),
       markShippedButton(order, "all"),
       el("a", {
@@ -978,6 +980,70 @@ export const CONFIG_UI_JS = String.raw`(() => {
       throw new Error((data.issues || []).join(" ") || data.message || "The order action failed.");
     }
     return data;
+  }
+
+  function preparePirateShip(order) {
+    const existing = state.pirateShipPreparations.get(order.orderNumber);
+    if (existing && existing.expiresAt > Date.now()) return existing.request;
+    state.pirateShipPreparations.delete(order.orderNumber);
+    const request = fetch(
+      "/api/orders/" + encodeURIComponent(order.orderNumber) + "/pirate-ship",
+      { headers: { Accept: "application/json" } },
+    ).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "The address could not be prepared for Pirate Ship.");
+      return data;
+    }).catch((error) => {
+      const cached = state.pirateShipPreparations.get(order.orderNumber);
+      if (cached?.request === request) state.pirateShipPreparations.delete(order.orderNumber);
+      throw error;
+    });
+    state.pirateShipPreparations.set(order.orderNumber, {
+      request,
+      expiresAt: Date.now() + 30000,
+    });
+    return request;
+  }
+
+  function pirateShipButton(order, scope) {
+    const button = orderButton("Open in Pirate Ship", (control) => openInPirateShip(order, scope, control));
+    button.title = "Copies the address, then opens Pirate Ship";
+    const prefetch = () => void preparePirateShip(order).catch(() => undefined);
+    button.addEventListener("pointerenter", prefetch, { once: true });
+    button.addEventListener("focus", prefetch, { once: true });
+    return button;
+  }
+
+  async function openInPirateShip(order, scope, button) {
+    const idleText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Preparing...";
+    showOrderMessage(scope, "");
+    try {
+      const prepared = await preparePirateShip(order);
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(prepared.pasteAddress);
+      } catch {
+        const accepted = window.prompt(
+          "Copy this address, then select OK to open Pirate Ship.",
+          prepared.pasteAddress,
+        );
+        if (accepted === null) {
+          showOrderMessage(scope, "Pirate Ship was not opened.", "error");
+          return;
+        }
+      }
+      showOrderMessage(scope, "Address copied. Press Ctrl+V in Pirate Ship.", "success");
+      const pirateShipWindow = window.open(prepared.url, "_blank");
+      if (pirateShipWindow) pirateShipWindow.opener = null;
+      else window.location.assign(prepared.url);
+    } catch (error) {
+      showOrderMessage(scope, error instanceof Error ? error.message : "Pirate Ship could not be opened.", "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = idleText;
+    }
   }
 
   async function runOrderMutation(order, scope, path, body, button, busyText, successText) {

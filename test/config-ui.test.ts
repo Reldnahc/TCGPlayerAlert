@@ -285,6 +285,45 @@ describe("configuration UI service", () => {
       searchOrders: vi.fn(() =>
         Promise.resolve({ totalOrders: 1, orders: [order] }),
       ),
+      confirmOrder: vi.fn(() =>
+        Promise.resolve({
+          summary: order,
+          order: {
+            createdAt: order.orderDate,
+            status: order.orderStatus,
+            orderChannel: order.orderChannel,
+            orderFulfillment: order.orderFulfillment,
+            orderNumber: order.orderNumber,
+            sellerName: "Synthetic Seller",
+            buyerName: order.buyerName,
+            paymentType: "CreditCard",
+            pickupStatus: "",
+            shippingType: order.shippingType,
+            estimatedDeliveryDate: "2026-08-08T12:00:00.000Z",
+            transaction: {
+              productAmount: order.productAmount,
+              shippingAmount: order.shippingAmount,
+              grossAmount: order.totalAmount,
+              feeAmount: 1,
+              netAmount: 12.49,
+              directFeeAmount: 0,
+              taxes: [],
+            },
+            shippingAddress: {
+              recipientName: "Synthetic Buyer",
+              addressOne: "123 Example Street",
+              city: "Example City",
+              territory: "IL",
+              country: "US",
+              postalCode: "00000",
+            },
+            products: [],
+            refundStatus: "None",
+            trackingNumbers: [],
+            allowedActions: ["AddTracking", "MarkShipped"],
+          },
+        }),
+      ),
       getPackingSlip: vi.fn(() =>
         Promise.resolve({
           bytes: new Uint8Array([37, 80, 68, 70]),
@@ -340,6 +379,9 @@ describe("configuration UI service", () => {
     const document = await fetch(
       `${serverUrl}/api/orders/synthetic-order/packing-slip`,
     );
+    const pirateShip = await fetch(
+      `${serverUrl}/api/orders/synthetic-order/pirate-ship`,
+    );
     const printed = await mutation("print", {
       actionType: "print-address-label",
     });
@@ -364,6 +406,12 @@ describe("configuration UI service", () => {
     expect(new Uint8Array(await document.arrayBuffer())).toEqual(
       new Uint8Array([37, 80, 68, 70]),
     );
+    expect(pirateShip.status).toBe(200);
+    expect(await pirateShip.json()).toEqual({
+      url: "https://ship.pirateship.com/ship/single",
+      pasteAddress:
+        "Synthetic Buyer\n123 Example Street\nExample City, IL 00000\nUS",
+    });
     expect(printed.status).toBe(200);
     expect(tracking.status).toBe(200);
     expect(shipped.status).toBe(200);
@@ -443,11 +491,16 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('"Print address label"');
     expect(CONFIG_UI_JS).toContain('"Print packing slip"');
     expect(CONFIG_UI_JS).toContain('"Download packing slip"');
+    expect(CONFIG_UI_JS).toContain('"Open in Pirate Ship"');
     expect(CONFIG_UI_JS).toContain('"Add tracking"');
     expect(CONFIG_UI_JS).toContain('"Mark shipped"');
     expect(CONFIG_UI_JS).toContain('text: "Manage order"');
     expect(CONFIG_UI_JS).toContain(
       '"https://sellerportal.tcgplayer.com/orders/"',
+    );
+    expect(CONFIG_UI_JS).toContain("navigator.clipboard.writeText");
+    expect(CONFIG_UI_JS).toContain(
+      '"Address copied. Press Ctrl+V in Pirate Ship."',
     );
     expect(CONFIG_UI_JS).toContain(
       "Turn off dry run and save settings before changing or printing a real order.",
@@ -725,6 +778,9 @@ describe("configuration UI service", () => {
     );
     expect(page.headers.get("content-security-policy")).toContain(
       "img-src 'self' https://product-images.tcgplayer.com",
+    );
+    expect(page.headers.get("permissions-policy")).toBe(
+      "clipboard-write=(self)",
     );
   });
 });

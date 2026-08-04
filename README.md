@@ -56,6 +56,8 @@ Open the printed `http://127.0.0.1:47831` address. The interface opens on persis
 
 Polling, printer details, and background-worker configuration remain in Settings. Dashboard switches use the same save banner and do not replace those full controls. Real-order printing, tracking, and shipment changes are rejected while dry run is enabled. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with label-size, font, PDF scaling, DPI, and queue settings. Catalog search is ranked by name likeness and includes product images. The UI listens only on this computer and never receives or displays the seller credentials from `.env.local`.
 
+`Open in Pirate Ship` on an Orders row confirms the order belongs to the configured seller, briefly caches its address in memory, copies a multiline address to the clipboard, and opens Pirate Ship's Single Label page. Press `Ctrl+V` there to activate Pirate Ship's Paste Address field. If browser clipboard access is unavailable, the application shows the address in a manual-copy prompt instead. The address is never added to the Pirate Ship URL, application state, or logs.
+
 Validate non-secret configuration without contacting TCGplayer or printing:
 
 ```powershell
