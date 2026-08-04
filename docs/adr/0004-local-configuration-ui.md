@@ -17,7 +17,8 @@ Printer names, label stock, PDF scaling, polling cadence, dry-run behavior, and 
 - Never expose seller credentials or session material through the UI or its API. Limit request sizes, require same-origin writes, reject non-loopback hosts, and send a restrictive content security policy.
 - Use a configuration revision hash so a stale browser tab cannot overwrite a newer edit. Validate the complete resulting application configuration before replacing the file.
 - Host the UI with the long-running scheduler and also provide a `configure` command that runs the settings UI without seller credentials or synchronization.
+- Organize the growing operator surface into Automation, Add cards, Repricing, and Jobs tabs. Keep status visible across tabs, preserve each tab's DOM state while navigating, expose the selected tab in the URL hash, remember it locally, and support standard arrow, Home, and End keyboard navigation.
 
 ## Consequences
 
-Routine printer setup no longer requires hand-editing JSON, while configuration remains inspectable, portable, and compatible with the CLI. Printer discovery is Windows-specific in this release; other operating systems can add discovery adapters later. A saved configuration is used by one-shot commands immediately and by the scheduler on its next synchronization cycle. Remote and multi-user administration remain out of scope.
+Routine printer setup no longer requires hand-editing JSON, while configuration remains inspectable, portable, and compatible with the CLI. Distinct workflows no longer form one continuously scrolling page, and changing tabs does not discard searches, previews, selections, or unsaved settings. Printer discovery is Windows-specific in this release; other operating systems can add discovery adapters later. A saved configuration is used by one-shot commands immediately and by the scheduler on its next synchronization cycle. Remote and multi-user administration remain out of scope.

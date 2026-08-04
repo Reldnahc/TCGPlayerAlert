@@ -143,6 +143,25 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
   });
 
+  it("organizes the workspace into accessible persistent tabs", () => {
+    const ids = [...CONFIG_UI_HTML.matchAll(/\sid="([^"]+)"/gu)].map(
+      (match) => match[1],
+    );
+
+    expect(CONFIG_UI_HTML.match(/\srole="tab"/gu)).toHaveLength(4);
+    expect(CONFIG_UI_HTML.match(/\srole="tabpanel"/gu)).toHaveLength(4);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(CONFIG_UI_HTML).toContain(
+      'id="panel-automation" class="tab-panel" role="tabpanel"',
+    );
+    expect(CONFIG_UI_HTML).toContain(
+      'id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden',
+    );
+    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.active-tab");
+    expect(CONFIG_UI_JS).toContain('event.key === "ArrowRight"');
+    expect(CONFIG_UI_JS).toContain('window.addEventListener("popstate"');
+  });
+
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
     const fixture = await configurationFixture();
     const priceQueue = new PriceUpdateQueueStore({
@@ -327,7 +346,8 @@ describe("configuration UI service", () => {
 
     expect(page.status).toBe(200);
     const pageText = await page.text();
-    expect(pageText).toContain("Choose what prints");
+    expect(pageText).toContain("Seller workspace");
+    expect(pageText).toContain('role="tablist"');
     expect(pageText).toContain("Add cards");
     expect(pageText).toContain('id="inventory-card-condition"');
     expect(pageText).toContain('id="inventory-printing"');

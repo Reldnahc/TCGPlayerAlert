@@ -12,14 +12,28 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
         <div class="brand-mark" aria-hidden="true">T</div>
         <div>
           <p class="eyebrow">TCGPlayerAlert</p>
-          <h1>Fulfillment settings</h1>
-          <p class="subtitle">Choose what prints when a new order arrives.</p>
+          <h1>Seller workspace</h1>
+          <p class="subtitle">Manage fulfillment, inventory, pricing, and background work.</p>
         </div>
-        <div id="connection" class="connection">Loading settings…</div>
       </header>
 
       <main>
         <form id="settings-form" hidden>
+          <div class="status-strip" aria-label="Application status">
+            <span id="connection" class="connection">Loading settings…</span>
+            <span id="dry-run-status" class="connection">Dry run unknown</span>
+            <span id="inventory-queue-health" class="connection">Loading inventory queue…</span>
+            <span id="queue-health" class="connection">Loading price queue…</span>
+          </div>
+
+          <nav class="tab-list" role="tablist" aria-label="Workspace sections">
+            <button id="tab-automation" class="tab-button" type="button" role="tab" aria-controls="panel-automation" aria-selected="true" tabindex="0" data-tab="automation">Automation</button>
+            <button id="tab-add-cards" class="tab-button" type="button" role="tab" aria-controls="panel-add-cards" aria-selected="false" tabindex="-1" data-tab="add-cards">Add cards</button>
+            <button id="tab-repricing" class="tab-button" type="button" role="tab" aria-controls="panel-repricing" aria-selected="false" tabindex="-1" data-tab="repricing">Repricing</button>
+            <button id="tab-jobs" class="tab-button" type="button" role="tab" aria-controls="panel-jobs" aria-selected="false" tabindex="-1" data-tab="jobs">Jobs</button>
+          </nav>
+
+          <div id="panel-automation" class="tab-panel" role="tabpanel" aria-labelledby="tab-automation" tabindex="0" data-panel="automation">
           <section class="panel general-panel" aria-labelledby="general-title">
             <div>
               <p class="section-kicker">Automation</p>
@@ -51,13 +65,14 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </div>
           <p id="printer-note" class="printer-note" hidden></p>
           <div id="outputs" class="output-grid"></div>
+          </div>
 
+          <div id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden>
           <div class="section-heading inventory-heading">
             <div>
               <p class="section-kicker">Catalog inventory</p>
               <h2>Add cards</h2>
             </div>
-            <span id="inventory-queue-health" class="connection">Loading queue...</span>
           </div>
           <section class="panel inventory-panel" aria-labelledby="inventory-title">
             <div class="inventory-copy">
@@ -91,21 +106,10 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               </div>
               <div id="inventory-preview-result" class="inventory-preview-result" hidden></div>
             </div>
-            <div class="inventory-queue-settings">
-              <label class="switch-row">
-                <span><strong>Process added cards</strong><small>Runs one at a time. Dry run pauses inventory submissions.</small></span>
-                <input id="inventory-queue-enabled" type="checkbox" />
-                <span class="switch" aria-hidden="true"></span>
-              </label>
-              <label class="field compact-field"><span>Cooldown after each addition</span><span class="input-with-unit"><input id="inventory-delay" type="number" min="0" max="3600" required /><span>seconds</span></span></label>
-            </div>
-            <div class="queue-list-head">
-              <strong>Recent card additions</strong>
-              <button id="refresh-inventory-queue" class="quiet-button" type="button">Refresh</button>
-            </div>
-            <div id="inventory-queue-jobs" class="queue-jobs" aria-live="polite"></div>
           </section>
+          </div>
 
+          <div id="panel-repricing" class="tab-panel" role="tabpanel" aria-labelledby="tab-repricing" tabindex="0" data-panel="repricing" hidden>
           <div class="section-heading repricing-heading">
             <div>
               <p class="section-kicker">Listed inventory</p>
@@ -148,13 +152,36 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               </div>
             </div>
           </section>
+          </div>
+
+          <div id="panel-jobs" class="tab-panel" role="tabpanel" aria-labelledby="tab-jobs" tabindex="0" data-panel="jobs" hidden>
+          <div class="section-heading queue-heading first-heading">
+            <div>
+              <p class="section-kicker">Background work</p>
+              <h2>Inventory addition queue</h2>
+            </div>
+          </div>
+          <section class="panel queue-panel" aria-labelledby="inventory-queue-title">
+            <div class="inventory-queue-settings">
+              <label class="switch-row">
+                <span><strong id="inventory-queue-title">Process added cards</strong><small>Runs one at a time. Dry run pauses inventory submissions.</small></span>
+                <input id="inventory-queue-enabled" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+              <label class="field compact-field"><span>Cooldown after each addition</span><span class="input-with-unit"><input id="inventory-delay" type="number" min="0" max="3600" required /><span>seconds</span></span></label>
+            </div>
+            <div class="queue-list-head">
+              <strong>Recent card additions</strong>
+              <button id="refresh-inventory-queue" class="quiet-button" type="button">Refresh</button>
+            </div>
+            <div id="inventory-queue-jobs" class="queue-jobs" aria-live="polite"></div>
+          </section>
 
           <div class="section-heading queue-heading">
             <div>
               <p class="section-kicker">Background work</p>
               <h2>Price update queue</h2>
             </div>
-            <span id="queue-health" class="connection">Loading queue...</span>
           </div>
           <section class="panel queue-panel" aria-labelledby="queue-title">
             <div class="queue-settings">
@@ -181,11 +208,12 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
             <div id="queue-jobs" class="queue-jobs" aria-live="polite"></div>
           </section>
+          </div>
 
-          <div class="save-bar">
+          <div id="save-bar" class="save-bar">
             <div>
               <strong id="save-title">Ready to configure</strong>
-              <span id="save-detail">Changes are stored only on this computer.</span>
+              <span id="save-detail">Automation and worker changes are stored only on this computer.</span>
             </div>
             <button id="save-button" class="primary-button" type="submit">Save settings</button>
           </div>
@@ -221,7 +249,7 @@ body { margin: 0; background: radial-gradient(circle at top right, #dceee3 0, tr
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 .shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 112px; }
-.hero { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; margin-bottom: 34px; }
+.hero { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; margin-bottom: 24px; }
 .brand-mark { width: 54px; height: 54px; display: grid; place-items: center; background: var(--green); color: white; border-radius: 17px; font: 800 27px/1 Georgia, serif; box-shadow: 0 12px 26px rgba(22,107,73,.22); }
 .eyebrow, .section-kicker { margin: 0 0 4px; color: var(--green); font-size: .74rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 h1, h2, p { margin-top: 0; }
@@ -230,6 +258,15 @@ h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
 .subtitle { margin-bottom: 0; color: var(--muted); }
 .connection { padding: 9px 13px; border-radius: 999px; background: rgba(255,255,255,.72); border: 1px solid var(--line); color: var(--muted); font-size: .83rem; font-weight: 700; }
 .connection.ready { color: var(--green-dark); background: var(--green-soft); border-color: #badcc8; }
+.connection.warning { color: #7a4a16; background: #fff2d7; border-color: #efd09a; }
+.status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
+.tab-button { min-height: 46px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); padding: 10px 16px; font-weight: 800; }
+.tab-button:hover { color: var(--green-dark); background: rgba(255,255,255,.72); }
+.tab-button[aria-selected="true"] { color: white; background: var(--green); box-shadow: 0 7px 16px rgba(22,107,73,.2); }
+.tab-button:focus-visible { outline: 3px solid rgba(22,107,73,.25); outline-offset: 2px; }
+.tab-panel { min-height: 390px; }
+.tab-panel > .section-heading:first-child { margin-top: 0; }
 .panel { background: var(--card); border: 1px solid rgba(202,211,201,.8); border-radius: 22px; box-shadow: var(--shadow); }
 .general-panel { padding: 24px 26px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 28px; }
 .field { display: grid; gap: 8px; color: var(--muted); font-size: .86rem; font-weight: 700; }
@@ -357,7 +394,9 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 @media (max-width: 780px) {
   .shell { width: min(100% - 22px, 600px); padding-top: 24px; }
   .hero { grid-template-columns: auto 1fr; }
-  .connection { grid-column: 1 / -1; justify-self: start; }
+  .tab-list { display: flex; overflow-x: auto; top: 6px; }
+  .tab-button { flex: 1 0 auto; min-width: 112px; }
+  .status-strip .connection { flex: 1 1 auto; text-align: center; }
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
@@ -390,6 +429,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     inventoryPreview: null,
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
+  const activeTabStorageKey = "tcgplayer-alert.active-tab";
+  const tabIds = ["automation", "add-cards", "repricing", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
   const connection = document.querySelector("#connection");
@@ -397,8 +438,63 @@ export const CONFIG_UI_JS = String.raw`(() => {
   const fatalMessage = document.querySelector("#fatal-message");
   const printerNote = document.querySelector("#printer-note");
   const saveButton = document.querySelector("#save-button");
+  const saveBar = document.querySelector("#save-bar");
   const saveTitle = document.querySelector("#save-title");
   const saveDetail = document.querySelector("#save-detail");
+  const dryRunStatus = document.querySelector("#dry-run-status");
+
+  function isTabId(value) {
+    return tabIds.includes(value);
+  }
+
+  function activateTab(tabId, updateHistory = false, focusTab = false) {
+    const selectedTab = isTabId(tabId) ? tabId : "automation";
+    for (const button of document.querySelectorAll('[role="tab"][data-tab]')) {
+      const selected = button.dataset.tab === selectedTab;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+      if (selected && focusTab) button.focus();
+    }
+    for (const panel of document.querySelectorAll('[role="tabpanel"][data-panel]')) {
+      panel.hidden = panel.dataset.panel !== selectedTab;
+    }
+    saveBar.hidden = selectedTab !== "automation" && selectedTab !== "jobs";
+    try {
+      window.localStorage.setItem(activeTabStorageKey, selectedTab);
+    } catch {
+      // Tab navigation remains usable when browser storage is unavailable.
+    }
+    const nextHash = "#" + selectedTab;
+    if (window.location.hash !== nextHash) {
+      const url = window.location.pathname + window.location.search + nextHash;
+      if (updateHistory) window.history.pushState(null, "", url);
+      else window.history.replaceState(null, "", url);
+    }
+  }
+
+  function initialTab() {
+    const hashTab = window.location.hash.slice(1);
+    if (isTabId(hashTab)) return hashTab;
+    try {
+      const stored = window.localStorage.getItem(activeTabStorageKey);
+      if (isTabId(stored)) return stored;
+    } catch {
+      // Automation remains the default when browser storage is unavailable.
+    }
+    return "automation";
+  }
+
+  function selectLocationTab() {
+    const hashTab = window.location.hash.slice(1);
+    activateTab(isTabId(hashTab) ? hashTab : "automation");
+  }
+
+  function renderDryRunStatus() {
+    const enabled = document.querySelector("#dry-run").checked;
+    dryRunStatus.textContent = enabled ? "Dry run on" : "Dry run off";
+    dryRunStatus.classList.toggle("warning", enabled);
+    dryRunStatus.classList.toggle("ready", !enabled);
+  }
 
   const el = (tag, attributes = {}, children = []) => {
     const node = document.createElement(tag);
@@ -500,6 +596,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function render() {
     document.querySelector("#poll-interval").value = String(state.settings.pollIntervalMinutes);
     document.querySelector("#dry-run").checked = state.settings.dryRun;
+    renderDryRunStatus();
     document.querySelector("#price-queue-enabled").checked = state.settings.priceUpdateQueue.enabled;
     document.querySelector("#price-delay").value = String(state.settings.priceUpdateQueue.delaySeconds);
     document.querySelector("#inventory-queue-enabled").checked = state.settings.inventoryAdditionQueue.enabled;
@@ -871,7 +968,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Inventory queue unavailable.");
       const active = data.counts.pending + data.counts.applying;
-      health.textContent = active + (active === 1 ? " active addition" : " active additions");
+      health.textContent = "Inventory: " + active + (active === 1 ? " active addition" : " active additions");
       health.classList.add("ready");
       const jobs = data.jobs.slice(0, 50);
       document.querySelector("#inventory-queue-jobs").replaceChildren(
@@ -880,7 +977,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
           : jobs.map(inventoryQueueJob)),
       );
     } catch (error) {
-      health.textContent = "Queue unavailable";
+      health.textContent = "Inventory queue unavailable";
       health.classList.remove("ready");
       document.querySelector("#inventory-queue-jobs").replaceChildren(
         el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Inventory queue unavailable." }),
@@ -1023,7 +1120,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Queue unavailable.");
       const active = data.counts.pending + data.counts.applying;
-      health.textContent = active + (active === 1 ? " active job" : " active jobs");
+      health.textContent = "Price updates: " + active + (active === 1 ? " active job" : " active jobs");
       health.classList.add("ready");
       const jobs = data.jobs.slice(0, 50);
       document.querySelector("#queue-jobs").replaceChildren(
@@ -1032,7 +1129,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
           : jobs.map(queueJob)),
       );
     } catch (error) {
-      health.textContent = "Queue unavailable";
+      health.textContent = "Price queue unavailable";
       health.classList.remove("ready");
       document.querySelector("#queue-jobs").replaceChildren(
         el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Queue unavailable." }),
@@ -1169,8 +1266,29 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#repricing-select-all").addEventListener("click", () => {
     for (const checkbox of document.querySelectorAll('#repricing-rows input[type="checkbox"]:not(:disabled)')) checkbox.checked = true;
   });
+  const tabList = document.querySelector('[role="tablist"]');
+  for (const button of tabList.querySelectorAll('[role="tab"][data-tab]')) {
+    button.addEventListener("click", () => activateTab(button.dataset.tab, true));
+  }
+  tabList.addEventListener("keydown", (event) => {
+    const current = event.target.closest('[role="tab"][data-tab]');
+    if (!current) return;
+    const currentIndex = tabIds.indexOf(current.dataset.tab);
+    let nextIndex;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabIds.length;
+    else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabIds.length) % tabIds.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tabIds.length - 1;
+    else return;
+    event.preventDefault();
+    activateTab(tabIds[nextIndex], true, true);
+  });
+  window.addEventListener("popstate", selectLocationTab);
+  window.addEventListener("hashchange", selectLocationTab);
+  document.querySelector("#dry-run").addEventListener("change", renderDryRunStatus);
   document.querySelector("#retry").addEventListener("click", load);
   restoreInventoryShippingPreference();
+  activateTab(initialTab());
   load();
   setInterval(loadQueue, 5000);
   setInterval(loadInventoryQueue, 5000);
