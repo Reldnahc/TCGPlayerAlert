@@ -561,10 +561,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const response = await fetch("/api/catalog/search?" + parameters.toString(), { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Catalog search failed.");
-      const products = data.products.filter((product) => product.sellerListable);
+      const products = data.products;
       results.replaceChildren(
         ...(products.length === 0
-          ? [el("div", { className: "queue-empty", text: "No seller-listable products matched. Try a more exact name or product line." })]
+          ? [el("div", { className: "queue-empty", text: "No products matched. Try a more exact name or product line." })]
           : products.map(catalogResult)),
       );
       results.hidden = false;

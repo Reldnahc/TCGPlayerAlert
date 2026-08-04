@@ -131,6 +131,9 @@ describe("configuration UI service", () => {
 
   it("ships syntactically valid browser JavaScript", () => {
     expect(() => new Script(CONFIG_UI_JS)).not.toThrow();
+    expect(CONFIG_UI_JS).not.toContain(
+      ".filter((product) => product.sellerListable)",
+    );
   });
 
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
@@ -153,7 +156,7 @@ describe("configuration UI service", () => {
           Promise.resolve({ totalProducts: 0, products: [] }),
       },
     });
-    const catalogProduct = {
+    const catalogSummary = {
       productId: 123,
       productName: "Synthetic Card",
       productLineName: "Synthetic Game",
@@ -161,6 +164,10 @@ describe("configuration UI service", () => {
       rarityName: "Rare",
       cardNumber: "42",
       marketPrice: 3.5,
+      sellerListable: false,
+    } as const;
+    const catalogProduct = {
+      ...catalogSummary,
       sellerListable: true,
       skus: [
         {
@@ -176,7 +183,7 @@ describe("configuration UI service", () => {
       sellerKey: "synthetic-seller",
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, products: [catalogProduct] }),
+          Promise.resolve({ totalProducts: 1, products: [catalogSummary] }),
         getCatalogProduct: () => Promise.resolve(catalogProduct),
         searchMarketplaceProducts: () =>
           Promise.resolve({ totalProducts: 0, products: [] }),
