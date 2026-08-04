@@ -494,6 +494,7 @@ export class InventoryAdditionService {
       expiresAt: expiresAt.toISOString(),
       product: {
         productId: product.productId,
+        imageUrl: product.imageUrl,
         productName: product.productName,
         productLineName: product.productLineName,
         setName: product.setName,

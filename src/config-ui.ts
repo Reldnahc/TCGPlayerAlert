@@ -816,7 +816,7 @@ function isAllowedMutationRequest(
 function setSecurityHeaders(response: ServerResponse): void {
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
+    "default-src 'self'; img-src 'self' https://product-images.tcgplayer.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
   );
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader("X-Content-Type-Options", "nosniff");

@@ -158,6 +158,7 @@ describe("configuration UI service", () => {
     });
     const catalogSummary = {
       productId: 123,
+      imageUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
       productName: "Synthetic Card",
       productLineName: "Synthetic Game",
       setName: "Synthetic Set",
@@ -326,6 +327,9 @@ describe("configuration UI service", () => {
     });
     expect(page.headers.get("content-security-policy")).toContain(
       "frame-ancestors 'none'",
+    );
+    expect(page.headers.get("content-security-policy")).toContain(
+      "img-src 'self' https://product-images.tcgplayer.com",
     );
   });
 });

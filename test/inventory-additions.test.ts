@@ -21,6 +21,7 @@ import {
 
 const product: CatalogProductDetails = {
   productId: 123,
+  imageUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
   productName: "Synthetic Card",
   productLineName: "Synthetic Game",
   setName: "Synthetic Set",

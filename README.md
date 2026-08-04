@@ -52,7 +52,7 @@ npm run build
 npm run configure
 ```
 
-Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, DPI, and queue settings. It also provides exact-card catalog search, preview-first inventory additions, smart repricing, and recent queue status. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
+Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, DPI, and queue settings. It also provides catalog search ranked by name likeness with product images, preview-first inventory additions, smart repricing, and recent queue status. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
 
 Validate non-secret configuration without contacting TCGplayer or printing:
 
@@ -95,7 +95,7 @@ The scheduler and separately invoked manual syncs share a filesystem lease, so t
 
 Open the settings screen and use **Add cards**:
 
-1. Search for the card name, optionally narrowing by product line.
+1. Search for the card name, optionally narrowing by product line. Exact-name matches appear before broader fuzzy matches, and artwork helps identify the correct printing.
 2. Choose the exact set and printing, then select the condition, printing, and language SKU.
 3. Enter the quantity and pricing rules. The default smart rule can compare the same condition or better conditions, enforce a minimum, and fall back to market price, a manual price, or no addition.
 4. Preview the live seller quantity and proposed initial price, verify them, and queue the addition.
