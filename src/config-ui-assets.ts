@@ -291,7 +291,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .printer-note { background: #fff4dc; color: #774416; border: 1px solid #eed4a1; border-radius: 12px; padding: 11px 14px; font-size: .9rem; }
 .output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .output-card { overflow: hidden; transition: opacity .2s ease; }
-.output-card.disabled .output-body { opacity: .5; }
+.output-card.disabled .output-body > :not(.print-test-row) { opacity: .5; }
 .output-head { padding: 22px 23px 19px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; }
 .output-icon { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 13px; background: var(--green-soft); color: var(--green-dark); font-size: 1.15rem; }
 .output-title { flex: 1; }
@@ -300,6 +300,11 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .output-body { padding: 21px 23px 24px; display: grid; gap: 18px; transition: opacity .2s ease; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .adapter-note { margin: -5px 0 0; color: var(--muted); font-size: .78rem; }
+.print-test-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 17px; border-top: 1px solid var(--line); }
+.print-test-message { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.35; }
+.print-test-message.success { color: var(--green-dark); }
+.print-test-message.error { color: #93401c; }
+.print-test-button { flex: 0 0 auto; }
 .repricing-heading { margin-top: 40px; }
 .repricing-panel { overflow: hidden; margin-bottom: 22px; }
 .repricing-copy { padding: 23px 25px 10px; }
@@ -586,11 +591,54 @@ export const CONFIG_UI_JS = String.raw`(() => {
         field("Print quality (DPI)", numberInput("dpi", output.dpi, 72, 600)),
       ]));
     }
+    const testMessage = el("p", {
+      className: "print-test-message",
+      text: "Synthetic data only. This sends a real print job.",
+      "aria-live": "polite",
+    });
+    const testButton = el("button", {
+      className: "quiet-button print-test-button",
+      type: "button",
+      text: isAddress ? "Print test label" : "Print test sheet",
+    });
+    testButton.addEventListener("click", () => runPrintTest(output, testButton, testMessage));
+    body.append(el("div", { className: "print-test-row" }, [testMessage, testButton]));
     card.append(body);
     const updateDisabled = () => card.classList.toggle("disabled", !enabled.checked);
     enabled.addEventListener("change", updateDisabled);
     updateDisabled();
     return card;
+  }
+
+  async function runPrintTest(output, button, message) {
+    if (!form.reportValidity()) return;
+    const idleText = output.type === "print-address-label" ? "Print test label" : "Print test sheet";
+    const outputName = output.type === "print-address-label" ? "label" : "sheet";
+    const card = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
+    const printerName = card.querySelector('[name="printerName"]').value;
+    button.disabled = true;
+    button.textContent = "Sendingâ€¦";
+    message.className = "print-test-message";
+    message.textContent = "Sending synthetic " + outputName + " to the printerâ€¦";
+    try {
+      const response = await fetch("/api/print-tests/" + encodeURIComponent(output.actionId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(collectSettingsUpdate()),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error((data.issues || []).join(" ") || data.message || "The test job could not be printed.");
+      }
+      message.className = "print-test-message success";
+      message.textContent = "Synthetic test " + outputName + " sent to " + printerName + ".";
+    } catch (error) {
+      message.className = "print-test-message error";
+      message.textContent = error instanceof Error ? error.message : "The test job could not be printed.";
+    } finally {
+      button.disabled = false;
+      button.textContent = idleText;
+    }
   }
 
   function render() {

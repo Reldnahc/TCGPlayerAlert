@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Script } from "node:vm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConfigurationService,
   immediateSyncLease,
@@ -12,6 +12,7 @@ import {
   PriceUpdateQueueStore,
   RepricingService,
   startConfigurationUi,
+  type AppConfig,
   type ConfigurationUiServer,
 } from "../src/index.js";
 import { CONFIG_UI_HTML, CONFIG_UI_JS } from "../src/config-ui-assets.js";
@@ -141,6 +142,78 @@ describe("configuration UI service", () => {
     );
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-shipping");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
+    expect(CONFIG_UI_JS).toContain(
+      'text: isAddress ? "Print test label" : "Print test sheet"',
+    );
+    expect(CONFIG_UI_JS).toContain('"/api/print-tests/"');
+    expect(CONFIG_UI_JS).toContain(
+      "Synthetic data only. This sends a real print job.",
+    );
+  });
+
+  it("prints synthetic output with the current unsaved printer settings", async () => {
+    const fixture = await configurationFixture();
+    const initial = await fixture.service.read();
+    const originalFile = await readFile(fixture.path, "utf8");
+    const executePrintTest = vi.fn<
+      (config: AppConfig, actionId: string) => Promise<void>
+    >(() => Promise.resolve());
+    const address = initial.outputs.find(
+      (output) => output.type === "print-address-label",
+    );
+    if (address === undefined) throw new Error("Address output is missing.");
+    const outputs = initial.outputs.map((output) =>
+      output.actionId === address.actionId
+        ? {
+            ...output,
+            enabled: false,
+            printerName: "Synthetic Label Printer",
+            marginMm: 1,
+            fontSize: 16,
+          }
+        : output,
+    );
+    server = await startConfigurationUi({
+      configPath: fixture.path,
+      port: 0,
+      service: fixture.service,
+      executePrintTest,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/print-tests/${address.actionId}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server.url,
+        },
+        body: JSON.stringify({ ...initial, outputs }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      printed: true,
+      actionId: address.actionId,
+      synthetic: true,
+    });
+    expect(executePrintTest).toHaveBeenCalledOnce();
+    expect(executePrintTest.mock.calls[0]?.[1]).toBe(address.actionId);
+    expect(executePrintTest.mock.calls[0]?.[0]).toMatchObject({
+      actions: {
+        [address.actionId]: {
+          enabled: false,
+          page: { marginMm: 1, fontSize: 16 },
+        },
+      },
+      printers: {
+        [address.printerId]: {
+          printerName: "Synthetic Label Printer",
+        },
+      },
+    });
+    expect(await readFile(fixture.path, "utf8")).toBe(originalFile);
   });
 
   it("organizes the workspace into accessible persistent tabs", () => {

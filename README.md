@@ -154,6 +154,10 @@ The optional `command` PDF adapter remains available for other systems and custo
 
 Before setting `dryRun` to `false`, print synthetic documents with no customer data:
 
+In the Automation tab, each printer card has a `Print test label` or `Print test sheet` button. A test uses the printer and page settings currently visible in the form, including unsaved changes, without saving them. Clicking either button submits a real print job containing synthetic data only; the output does not need to be enabled for automation first.
+
+The same tests are available from the CLI:
+
 ```powershell
 node --env-file=.env.local dist/cli.js print test --action print-address-label
 node --env-file=.env.local dist/cli.js print test --action print-packing-slip

@@ -42,6 +42,7 @@ export {
   createPrinters,
   createRepricingService,
   createWorkflow,
+  executeConfiguredSyntheticPrintTest,
 } from "./runtime.js";
 export {
   createTcgplayerInventoryAdditionExecutor,

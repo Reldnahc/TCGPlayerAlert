@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createActions,
+  executeConfiguredSyntheticPrintTest,
   renderAddressLabel,
   type PrintJob,
   type Printer,
@@ -91,5 +92,45 @@ describe("address-label action", () => {
     expect(submitted[1]).toMatchObject({
       lines: ["Example Recipient", "123 Example Street", "Unit 4", "Canada"],
     });
+  });
+
+  it("can explicitly test an output that is disabled for automation", async () => {
+    const submitted: PrintJob[] = [];
+    const printer: Printer = {
+      acceptedMediaTypes: new Set(["application/pdf"]),
+      submit: (job) => {
+        submitted.push(job);
+        return Promise.resolve();
+      },
+    };
+    const config = appConfig({
+      printers: {
+        synthetic: {
+          adapter: "windows-pdf",
+          printerName: "Synthetic Printer",
+          timeoutSeconds: 30,
+          dpi: 150,
+          scale: "fit",
+        },
+      },
+      actions: {
+        packing: {
+          type: "print-packing-slip",
+          enabled: false,
+          printer: "synthetic",
+        },
+      },
+    });
+
+    await executeConfiguredSyntheticPrintTest(config, "packing", {
+      synthetic: printer,
+    });
+
+    expect(submitted).toHaveLength(1);
+    const job = submitted[0];
+    if (job?.mediaType !== "application/pdf") {
+      throw new Error("Synthetic PDF print job is missing.");
+    }
+    expect(new TextDecoder().decode(job.bytes.slice(0, 5))).toBe("%PDF-");
   });
 });

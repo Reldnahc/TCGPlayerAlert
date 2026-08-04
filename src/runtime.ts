@@ -1,6 +1,6 @@
 import type { AppConfig } from "./config.js";
 import { createTcgplayerSellerClient } from "tcgplayer-private-api";
-import { createActions } from "./actions.js";
+import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { createPrinter, type Printer } from "./printing.js";
@@ -62,6 +62,29 @@ export function createPrinters(
       createPrinter(printerConfig, config.spoolDirectory),
     ]),
   );
+}
+
+export async function executeConfiguredSyntheticPrintTest(
+  config: AppConfig,
+  actionId: string,
+  printers: Readonly<Record<string, Printer>> = createPrinters(config),
+): Promise<void> {
+  const actionConfig = config.actions[actionId];
+  if (actionConfig === undefined) {
+    throw new ConfigurationError([
+      "The selected print action is not configured.",
+    ]);
+  }
+  const testActionConfig = { ...actionConfig, enabled: true };
+  const testConfig: AppConfig = {
+    ...config,
+    actions: { [actionId]: testActionConfig },
+  };
+  const action = createActions(testConfig, printers)[actionId];
+  if (action === undefined) {
+    throw new ConfigurationError(["The selected print action is unavailable."]);
+  }
+  await executeSyntheticPrintTest(action, testActionConfig);
 }
 
 export function createPriceUpdateQueue(

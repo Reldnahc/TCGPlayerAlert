@@ -2,7 +2,6 @@
 import { readFile } from "node:fs/promises";
 import { loadConfig } from "./config.js";
 import { startConfigurationUi } from "./config-ui.js";
-import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
 import {
@@ -11,7 +10,7 @@ import {
   createInventoryAdditionService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
-  createPrinters,
+  executeConfiguredSyntheticPrintTest,
   createRepricingService,
   createWorkflow,
 } from "./runtime.js";
@@ -61,13 +60,7 @@ try {
         "print test requires --action with a configured action id.",
       ]);
     }
-    const workflowAction = createActions(config, createPrinters(config))[
-      actionId
-    ];
-    if (workflowAction === undefined) {
-      throw new ConfigurationError(["The selected action is unavailable."]);
-    }
-    await executeSyntheticPrintTest(workflowAction, action);
+    await executeConfiguredSyntheticPrintTest(config, actionId);
     process.stdout.write(
       `${JSON.stringify({ printed: true, actionId, synthetic: true })}\n`,
     );
@@ -84,6 +77,7 @@ try {
       repricingService: createRepricingService(config),
       inventoryQueue: createInventoryAdditionQueue(config),
       inventoryService: createInventoryAdditionService(config),
+      executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
     try {
@@ -138,6 +132,7 @@ try {
       inventoryQueue,
       inventoryWorkerRunning: true,
       inventoryService: createInventoryAdditionService(initialConfig),
+      executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     const priceWorkerPromise = priceWorker
       .run(controller.signal)

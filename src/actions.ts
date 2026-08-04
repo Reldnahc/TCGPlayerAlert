@@ -143,19 +143,75 @@ export async function renderSyntheticPrintTest(
   const document = await PDFDocument.create();
   const page = document.addPage([612, 792]);
   const font = await document.embedFont(StandardFonts.Helvetica);
-  page.drawText("TCGPlayerAlert packing-slip printer test", {
+  const bold = await document.embedFont(StandardFonts.HelveticaBold);
+  page.drawRectangle({
+    x: 36,
+    y: 36,
+    width: 540,
+    height: 720,
+    borderWidth: 1,
+    borderColor: rgb(0.15, 0.35, 0.25),
+  });
+  page.drawText("TCGPlayerAlert", {
     x: 72,
     y: 720,
-    size: 18,
-    font,
+    size: 13,
+    font: bold,
+    color: rgb(0.09, 0.42, 0.29),
+  });
+  page.drawText("Packing slip printer test", {
+    x: 72,
+    y: 675,
+    size: 24,
+    font: bold,
     color: rgb(0, 0, 0),
   });
-  page.drawText("Synthetic document - no customer data", {
+  page.drawText("Synthetic document - no customer or order data", {
     x: 72,
-    y: 690,
+    y: 642,
     size: 12,
     font,
+    color: rgb(0.28, 0.32, 0.3),
+  });
+  page.drawLine({
+    start: { x: 72, y: 616 },
+    end: { x: 540, y: 616 },
+    thickness: 1,
+    color: rgb(0.78, 0.82, 0.79),
+  });
+  page.drawText("Setup check", {
+    x: 72,
+    y: 575,
+    size: 15,
+    font: bold,
     color: rgb(0, 0, 0),
+  });
+  page.drawText(
+    "If the complete border is visible, page scaling fits the printable area.",
+    {
+      x: 72,
+      y: 545,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+  page.drawText(
+    "Confirm that this sheet arrived at the printer selected in Settings.",
+    {
+      x: 72,
+      y: 520,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+  page.drawText("TEST PAGE - DO NOT FULFILL", {
+    x: 72,
+    y: 76,
+    size: 10,
+    font: bold,
+    color: rgb(0.42, 0.24, 0.14),
   });
   return document.save({ useObjectStreams: false });
 }

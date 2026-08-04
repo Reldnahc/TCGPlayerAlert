@@ -121,13 +121,7 @@ export class ConfigurationService {
   }
 
   async save(value: unknown): Promise<ConfigurationUiSettings> {
-    const current = await this.readVersionedConfig();
-    const update = parseUiUpdate(value, current.config);
-    if (update.revision !== current.revision) {
-      throw new ConfigurationConflictError();
-    }
-    const candidate = applyUpdate(current.config, update);
-    const validated = parseConfig(candidate);
+    const validated = await this.validatedCandidate(value);
     const serialized = `${JSON.stringify(validated, null, 2)}\n`;
     await writeAtomic(this.configPath, serialized);
     return this.toUiSettings(
@@ -135,6 +129,19 @@ export class ConfigurationService {
       revisionOf(serialized),
       await this.discoverPrinters(),
     );
+  }
+
+  async preview(value: unknown): Promise<AppConfig> {
+    return this.validatedCandidate(value);
+  }
+
+  private async validatedCandidate(value: unknown): Promise<AppConfig> {
+    const current = await this.readVersionedConfig();
+    const update = parseUiUpdate(value, current.config);
+    if (update.revision !== current.revision) {
+      throw new ConfigurationConflictError();
+    }
+    return parseConfig(applyUpdate(current.config, update));
   }
 
   private async readVersionedConfig(): Promise<{
@@ -188,6 +195,11 @@ export interface ConfigurationUiServer {
   close(): Promise<void>;
 }
 
+export type ConfigurationPrintTest = (
+  config: AppConfig,
+  actionId: string,
+) => Promise<void>;
+
 export interface StartConfigurationUiOptions {
   readonly configPath: string;
   readonly port?: number;
@@ -199,6 +211,7 @@ export interface StartConfigurationUiOptions {
   readonly inventoryQueue?: InventoryAdditionQueueStore;
   readonly inventoryWorkerRunning?: boolean;
   readonly inventoryService?: InventoryAdditionService;
+  readonly executePrintTest?: ConfigurationPrintTest;
 }
 
 export async function startConfigurationUi(
@@ -224,6 +237,7 @@ export async function startConfigurationUi(
       options.inventoryQueue,
       options.inventoryWorkerRunning === true,
       options.inventoryService,
+      options.executePrintTest,
     );
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -552,6 +566,7 @@ async function handleRequest(
   inventoryQueue: InventoryAdditionQueueStore | undefined,
   inventoryWorkerRunning: boolean,
   inventoryService: InventoryAdditionService | undefined,
+  executePrintTest: ConfigurationPrintTest | undefined,
 ): Promise<void> {
   setSecurityHeaders(response);
   if (!isLoopbackHost(request.headers.host)) {
@@ -584,6 +599,33 @@ async function handleRequest(
         return;
       }
       sendJson(response, 200, await service.save(await readJsonBody(request)));
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/print-tests\/[^/]{1,3072}$/u.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (executePrintTest === undefined) {
+        sendJson(response, 503, {
+          message: "Printer testing is unavailable.",
+        });
+        return;
+      }
+      const actionId = decodeURIComponent(
+        url.pathname.slice(url.pathname.lastIndexOf("/") + 1),
+      );
+      if (!safeText(actionId)) {
+        throw new ConfigurationError([
+          "The selected print action id is invalid.",
+        ]);
+      }
+      const candidate = await service.preview(await readJsonBody(request));
+      if (candidate.actions[actionId] === undefined) {
+        throw new ConfigurationError([
+          "The selected print action is not configured.",
+        ]);
+      }
+      await executePrintTest(candidate, actionId);
+      sendJson(response, 200, { printed: true, actionId, synthetic: true });
     } else if (
       request.method === "POST" &&
       url.pathname === "/api/repricing/preview"
