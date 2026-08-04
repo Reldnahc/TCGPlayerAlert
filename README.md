@@ -96,7 +96,7 @@ The scheduler and separately invoked manual syncs share a filesystem lease, so t
 Open the settings screen and use **Add cards**:
 
 1. Search for the card name, optionally narrowing by product line. Exact-name matches appear before broader fuzzy matches, and artwork helps identify the correct printing.
-2. Choose the exact set and printing, then select the condition, printing, and language SKU.
+2. Choose the exact set, then select condition, printing, and language independently. Only valid combinations are offered, and language defaults to English whenever English is available.
 3. Enter the quantity and pricing rules. The default smart rule can compare the same condition or better conditions, enforce a minimum, and fall back to market price, a manual price, or no addition.
 4. Preview the live seller quantity and proposed initial price, verify them, and queue the addition.
 

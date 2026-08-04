@@ -134,6 +134,8 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain(
       ".filter((product) => product.sellerListable)",
     );
+    expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
+    expect(CONFIG_UI_JS).toContain('refreshInventoryLanguages("English")');
   });
 
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
@@ -172,11 +174,32 @@ describe("configuration UI service", () => {
       sellerListable: true,
       skus: [
         {
+          productConditionId: 455,
+          conditionId: 1,
+          condition: "Near Mint",
+          printing: "Normal",
+          language: "Japanese",
+        },
+        {
           productConditionId: 456,
           conditionId: 1,
           condition: "Near Mint",
           printing: "Normal",
           language: "English",
+        },
+        {
+          productConditionId: 457,
+          conditionId: 1,
+          condition: "Near Mint",
+          printing: "Holofoil",
+          language: "English",
+        },
+        {
+          productConditionId: 458,
+          conditionId: 2,
+          condition: "Lightly Played",
+          printing: "Normal",
+          language: "Spanish",
         },
       ],
     } as const;
@@ -301,6 +324,9 @@ describe("configuration UI service", () => {
     const pageText = await page.text();
     expect(pageText).toContain("Choose what prints");
     expect(pageText).toContain("Add cards");
+    expect(pageText).toContain('id="inventory-card-condition"');
+    expect(pageText).toContain('id="inventory-printing"');
+    expect(pageText).toContain('id="inventory-language"');
     expect(repricingPreview.status).toBe(200);
     expect(await repricingPreview.json()).toMatchObject({
       counts: { ready: 0, unchanged: 0, skipped: 0 },

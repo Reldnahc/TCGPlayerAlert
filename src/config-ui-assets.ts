@@ -74,10 +74,12 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <div id="inventory-editor" class="inventory-editor" hidden>
               <div id="selected-product" class="selected-product"></div>
               <div class="inventory-fields">
-                <label class="field wide-field"><span>Condition, printing, and language</span><select id="inventory-sku"></select></label>
+                <label class="field"><span>Condition</span><select id="inventory-card-condition"></select></label>
+                <label class="field"><span>Printing</span><select id="inventory-printing"></select></label>
+                <label class="field"><span>Language</span><select id="inventory-language"></select></label>
                 <label class="field"><span>Quantity to add</span><input id="inventory-quantity" type="number" min="1" max="10000000" step="1" value="1" /></label>
                 <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="inventory-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
-                <label class="field"><span>Condition comparison</span><select id="inventory-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
+                <label class="field"><span>Compare against</span><select id="inventory-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
                 <label class="field"><span>Compare using</span><select id="inventory-basis"><option value="item">Item price only</option><option value="delivered">Item + shipping</option></select></label>
                 <label class="field"><span>Your shipping charge</span><span class="money-input"><span>$</span><input id="inventory-shipping" type="number" min="0" max="1000000" step="0.01" value="0" /></span></label>
                 <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="inventory-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
@@ -600,6 +602,93 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
   }
 
+  const inventoryConditionOrder = [
+    "Near Mint",
+    "Lightly Played",
+    "Moderately Played",
+    "Heavily Played",
+    "Damaged",
+    "Unopened",
+  ];
+
+  const distinct = (values) => [...new Set(values)];
+
+  function sortedInventoryValues(values, preferred, orderedValues = []) {
+    return distinct(values).sort((left, right) => {
+      if (left === preferred) return -1;
+      if (right === preferred) return 1;
+      const leftOrder = orderedValues.indexOf(left);
+      const rightOrder = orderedValues.indexOf(right);
+      if (leftOrder >= 0 || rightOrder >= 0) {
+        if (leftOrder < 0) return 1;
+        if (rightOrder < 0) return -1;
+        return leftOrder - rightOrder;
+      }
+      return left.localeCompare(right);
+    });
+  }
+
+  function replaceInventoryOptions(select, values, preferred) {
+    const previous = select.value;
+    select.replaceChildren(...values.map((value) => el("option", { value, text: value })));
+    if (values.includes(preferred)) select.value = preferred;
+    else if (values.includes(previous)) select.value = previous;
+  }
+
+  function refreshInventoryLanguages(preferred = "English") {
+    const product = state.inventoryProduct;
+    if (!product) return;
+    const condition = document.querySelector("#inventory-card-condition").value;
+    const printing = document.querySelector("#inventory-printing").value;
+    const languages = sortedInventoryValues(
+      product.skus
+        .filter((sku) => sku.condition === condition && sku.printing === printing)
+        .map((sku) => sku.language),
+      preferred,
+    );
+    replaceInventoryOptions(document.querySelector("#inventory-language"), languages, preferred);
+  }
+
+  function refreshInventoryPrintings(preferred = "Normal") {
+    const product = state.inventoryProduct;
+    if (!product) return;
+    const condition = document.querySelector("#inventory-card-condition").value;
+    const printings = sortedInventoryValues(
+      product.skus.filter((sku) => sku.condition === condition).map((sku) => sku.printing),
+      preferred,
+    );
+    replaceInventoryOptions(document.querySelector("#inventory-printing"), printings, preferred);
+    refreshInventoryLanguages("English");
+  }
+
+  function initializeInventorySkuSelectors() {
+    const product = state.inventoryProduct;
+    if (!product) return;
+    const conditions = sortedInventoryValues(
+      product.skus.map((sku) => sku.condition),
+      "Near Mint",
+      inventoryConditionOrder,
+    );
+    replaceInventoryOptions(document.querySelector("#inventory-card-condition"), conditions, "Near Mint");
+    refreshInventoryPrintings("Normal");
+  }
+
+  function selectedInventorySku() {
+    const product = state.inventoryProduct;
+    if (!product) return undefined;
+    const condition = document.querySelector("#inventory-card-condition").value;
+    const printing = document.querySelector("#inventory-printing").value;
+    const language = document.querySelector("#inventory-language").value;
+    return product.skus.find(
+      (sku) => sku.condition === condition && sku.printing === printing && sku.language === language,
+    );
+  }
+
+  function invalidateInventoryPreview() {
+    state.inventoryPreview = null;
+    document.querySelector("#inventory-preview-result").hidden = true;
+  }
+
   async function selectCatalogProduct(productId) {
     const message = document.querySelector("#inventory-message");
     message.className = "repricing-message";
@@ -610,11 +699,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (!response.ok) throw new Error(product.message || "Product details could not be loaded.");
       state.inventoryProduct = product;
       state.inventoryPreview = null;
-      const skuSelect = document.querySelector("#inventory-sku");
-      skuSelect.replaceChildren(...product.skus.map((sku) => el("option", {
-        value: String(sku.productConditionId),
-        text: sku.condition + " / " + sku.printing + " / " + sku.language,
-      })));
+      initializeInventorySkuSelectors();
       document.querySelector("#selected-product").replaceChildren(
         productImage(product),
         el("div", { className: "selected-product-copy" }, [
@@ -625,7 +710,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       document.querySelector("#inventory-editor").hidden = false;
       document.querySelector("#inventory-preview-result").hidden = true;
       message.className = "repricing-message success";
-      message.textContent = "Exact product selected. Choose its SKU and pricing rules, then preview.";
+      message.textContent = "Exact product selected. Choose its condition, printing, language, and pricing rules, then preview.";
     } catch (error) {
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "Product details could not be loaded.";
@@ -675,6 +760,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
   async function previewInventoryAddition() {
     if (!state.inventoryProduct) return;
     const message = document.querySelector("#inventory-message");
+    const sku = selectedInventorySku();
+    if (!sku) {
+      message.className = "repricing-message error";
+      message.textContent = "Choose a valid condition, printing, and language combination.";
+      return;
+    }
     const button = document.querySelector("#inventory-preview");
     button.disabled = true;
     button.textContent = "Calculating...";
@@ -686,7 +777,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           productId: state.inventoryProduct.productId,
-          productConditionId: Number(document.querySelector("#inventory-sku").value),
+          productConditionId: sku.productConditionId,
           addQuantity: Number(document.querySelector("#inventory-quantity").value),
           rules: inventoryPricingRules(),
         }),
@@ -1024,6 +1115,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
   });
   document.querySelector("#inventory-preview").addEventListener("click", previewInventoryAddition);
+  document.querySelector("#inventory-card-condition").addEventListener("change", () => {
+    invalidateInventoryPreview();
+    refreshInventoryPrintings("Normal");
+  });
+  document.querySelector("#inventory-printing").addEventListener("change", () => {
+    invalidateInventoryPreview();
+    refreshInventoryLanguages("English");
+  });
+  document.querySelector("#inventory-language").addEventListener("change", invalidateInventoryPreview);
   document.querySelector("#inventory-fallback").addEventListener("change", (event) => {
     document.querySelector("#inventory-manual-field").hidden = event.target.value !== "manual";
   });
