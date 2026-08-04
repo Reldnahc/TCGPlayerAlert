@@ -16,7 +16,11 @@ import {
   type AppConfig,
   type ConfigurationUiServer,
 } from "../src/index.js";
-import { CONFIG_UI_HTML, CONFIG_UI_JS } from "../src/config-ui-assets.js";
+import {
+  CONFIG_UI_CSS,
+  CONFIG_UI_HTML,
+  CONFIG_UI_JS,
+} from "../src/config-ui-assets.js";
 
 const discovery = () =>
   Promise.resolve({
@@ -553,6 +557,18 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("syncDashboardAutomation()");
     expect(CONFIG_UI_JS).not.toContain(
       'saveBar.hidden = selectedTab !== "settings"',
+    );
+  });
+
+  it("uses the wider desktop application shell", () => {
+    expect(CONFIG_UI_CSS).toContain(
+      ".shell { width: min(1440px, calc(100% - 32px));",
+    );
+    expect(CONFIG_UI_CSS).toContain(
+      ".save-bar { position: fixed; z-index: 5; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(1408px, calc(100% - 32px));",
+    );
+    expect(CONFIG_UI_CSS).toContain(
+      ".shell { width: min(100% - 22px, 600px); padding-top: 10px; }",
     );
   });
 

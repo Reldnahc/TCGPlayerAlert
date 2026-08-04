@@ -258,7 +258,7 @@ export const CONFIG_UI_CSS = String.raw`:root {
 body { margin: 0; background: radial-gradient(circle at top right, #dceee3 0, transparent 32rem), var(--paper); color: var(--ink); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
-.shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 20px 0 112px; }
+.shell { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 20px 0 112px; }
 h2, p { margin-top: 0; }
 h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
 .tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
@@ -418,7 +418,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .status-pill.review-required, .status-pill.failed { background: #fde8df; color: #93401c; }
 .status-pill.applying { background: #fff2d7; color: #845311; }
 .cancel-job { border: 0; background: transparent; color: #8c4630; padding: 5px; font-size: .8rem; font-weight: 750; }
-.save-bar { position: fixed; z-index: 5; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(1048px, calc(100% - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px 14px 20px; background: rgba(23,34,29,.94); color: white; border: 1px solid rgba(255,255,255,.14); border-radius: 17px; box-shadow: 0 18px 45px rgba(12,26,18,.25); backdrop-filter: blur(12px); }
+.save-bar { position: fixed; z-index: 5; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(1408px, calc(100% - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px 14px 20px; background: rgba(23,34,29,.94); color: white; border: 1px solid rgba(255,255,255,.14); border-radius: 17px; box-shadow: 0 18px 45px rgba(12,26,18,.25); backdrop-filter: blur(12px); }
 .save-bar div { display: grid; gap: 2px; }
 .save-bar span { color: #c3cec6; font-size: .82rem; }
 .primary-button { border: 0; border-radius: 11px; background: #ecf7ef; color: var(--green-dark); padding: 11px 18px; font-weight: 800; }
