@@ -8,24 +8,8 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
   </head>
   <body>
     <div class="shell">
-      <header class="hero">
-        <div class="brand-mark" aria-hidden="true">T</div>
-        <div>
-          <p class="eyebrow">TCGPlayerAlert</p>
-          <h1>Seller workspace</h1>
-          <p class="subtitle">Manage fulfillment, inventory, pricing, and background work.</p>
-        </div>
-      </header>
-
       <main>
         <form id="settings-form" hidden>
-          <div class="status-strip" aria-label="Application status">
-            <span id="connection" class="connection">Loading settings…</span>
-            <span id="dry-run-status" class="connection">Dry run unknown</span>
-            <span id="inventory-queue-health" class="connection">Loading inventory queue…</span>
-            <span id="queue-health" class="connection">Loading price queue…</span>
-          </div>
-
           <nav class="tab-list" role="tablist" aria-label="Workspace sections">
             <button id="tab-automation" class="tab-button" type="button" role="tab" aria-controls="panel-automation" aria-selected="true" tabindex="0" data-tab="automation">Automation</button>
             <button id="tab-add-cards" class="tab-button" type="button" role="tab" aria-controls="panel-add-cards" aria-selected="false" tabindex="-1" data-tab="add-cards">Add cards</button>
@@ -248,18 +232,10 @@ export const CONFIG_UI_CSS = String.raw`:root {
 body { margin: 0; background: radial-gradient(circle at top right, #dceee3 0, transparent 32rem), var(--paper); color: var(--ink); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
-.shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 112px; }
-.hero { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; margin-bottom: 24px; }
-.brand-mark { width: 54px; height: 54px; display: grid; place-items: center; background: var(--green); color: white; border-radius: 17px; font: 800 27px/1 Georgia, serif; box-shadow: 0 12px 26px rgba(22,107,73,.22); }
-.eyebrow, .section-kicker { margin: 0 0 4px; color: var(--green); font-size: .74rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-h1, h2, p { margin-top: 0; }
-h1 { margin-bottom: 5px; font: 700 clamp(2rem, 5vw, 3.25rem)/1.02 Georgia, serif; letter-spacing: -.035em; }
+.shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 20px 0 112px; }
+.section-kicker { margin: 0 0 4px; color: var(--green); font-size: .74rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+h2, p { margin-top: 0; }
 h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
-.subtitle { margin-bottom: 0; color: var(--muted); }
-.connection { padding: 9px 13px; border-radius: 999px; background: rgba(255,255,255,.72); border: 1px solid var(--line); color: var(--muted); font-size: .83rem; font-weight: 700; }
-.connection.ready { color: var(--green-dark); background: var(--green-soft); border-color: #badcc8; }
-.connection.warning { color: #7a4a16; background: #fff2d7; border-color: #efd09a; }
-.status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
 .tab-button { min-height: 46px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); padding: 10px 16px; font-weight: 800; }
 .tab-button:hover { color: var(--green-dark); background: rgba(255,255,255,.72); }
@@ -403,11 +379,9 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 [hidden] { display: none !important; }
 
 @media (max-width: 780px) {
-  .shell { width: min(100% - 22px, 600px); padding-top: 24px; }
-  .hero { grid-template-columns: auto 1fr; }
+  .shell { width: min(100% - 22px, 600px); padding-top: 10px; }
   .tab-list { display: flex; overflow-x: auto; top: 6px; }
   .tab-button { flex: 1 0 auto; min-width: 112px; }
-  .status-strip .connection { flex: 1 1 auto; text-align: center; }
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
@@ -448,7 +422,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   const tabIds = ["automation", "add-cards", "repricing", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
-  const connection = document.querySelector("#connection");
   const fatal = document.querySelector("#fatal-error");
   const fatalMessage = document.querySelector("#fatal-message");
   const printerNote = document.querySelector("#printer-note");
@@ -456,7 +429,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   const saveBar = document.querySelector("#save-bar");
   const saveTitle = document.querySelector("#save-title");
   const saveDetail = document.querySelector("#save-detail");
-  const dryRunStatus = document.querySelector("#dry-run-status");
 
   function isTabId(value) {
     return tabIds.includes(value);
@@ -501,13 +473,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function selectLocationTab() {
     const hashTab = window.location.hash.slice(1);
     activateTab(isTabId(hashTab) ? hashTab : "automation");
-  }
-
-  function renderDryRunStatus() {
-    const enabled = document.querySelector("#dry-run").checked;
-    dryRunStatus.textContent = enabled ? "Dry run on" : "Dry run off";
-    dryRunStatus.classList.toggle("warning", enabled);
-    dryRunStatus.classList.toggle("ready", !enabled);
   }
 
   const el = (tag, attributes = {}, children = []) => {
@@ -653,7 +618,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function render() {
     document.querySelector("#poll-interval").value = String(state.settings.pollIntervalMinutes);
     document.querySelector("#dry-run").checked = state.settings.dryRun;
-    renderDryRunStatus();
     document.querySelector("#price-queue-enabled").checked = state.settings.priceUpdateQueue.enabled;
     document.querySelector("#price-delay").value = String(state.settings.priceUpdateQueue.delaySeconds);
     document.querySelector("#inventory-queue-enabled").checked = state.settings.inventoryAdditionQueue.enabled;
@@ -663,8 +627,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     updateSaveBarVisibility();
     printerNote.hidden = !state.settings.discoveryIssue;
     printerNote.textContent = state.settings.discoveryIssue || "";
-    connection.textContent = "Local connection";
-    connection.classList.add("ready");
     fatal.hidden = true;
     form.hidden = false;
     void loadQueue();
@@ -1120,14 +1082,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   async function loadInventoryQueue() {
-    const health = document.querySelector("#inventory-queue-health");
     try {
       const response = await fetch("/api/inventory-additions", { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Inventory queue unavailable.");
-      const active = data.counts.pending + data.counts.applying;
-      health.textContent = "Inventory: " + active + (active === 1 ? " active addition" : " active additions");
-      health.classList.add("ready");
       const jobs = data.jobs.slice(0, 50);
       document.querySelector("#inventory-queue-jobs").replaceChildren(
         ...(jobs.length === 0
@@ -1135,8 +1093,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
           : jobs.map(inventoryQueueJob)),
       );
     } catch (error) {
-      health.textContent = "Inventory queue unavailable";
-      health.classList.remove("ready");
       document.querySelector("#inventory-queue-jobs").replaceChildren(
         el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Inventory queue unavailable." }),
       );
@@ -1272,14 +1228,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   async function loadQueue() {
-    const health = document.querySelector("#queue-health");
     try {
       const response = await fetch("/api/price-updates", { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Queue unavailable.");
-      const active = data.counts.pending + data.counts.applying;
-      health.textContent = "Price updates: " + active + (active === 1 ? " active job" : " active jobs");
-      health.classList.add("ready");
       const jobs = data.jobs.slice(0, 50);
       document.querySelector("#queue-jobs").replaceChildren(
         ...(jobs.length === 0
@@ -1287,8 +1239,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
           : jobs.map(queueJob)),
       );
     } catch (error) {
-      health.textContent = "Price queue unavailable";
-      health.classList.remove("ready");
       document.querySelector("#queue-jobs").replaceChildren(
         el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Queue unavailable." }),
       );
@@ -1311,7 +1261,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   async function load() {
-    connection.textContent = "Loading settings…";
     try {
       const response = await fetch("/api/settings", { headers: { Accept: "application/json" } });
       const data = await response.json();
@@ -1322,8 +1271,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
       form.hidden = true;
       fatal.hidden = false;
       fatalMessage.textContent = error instanceof Error ? error.message : "The settings file could not be read.";
-      connection.textContent = "Configuration unavailable";
-      connection.classList.remove("ready");
     }
   }
 
@@ -1469,7 +1416,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   });
   window.addEventListener("popstate", selectLocationTab);
   window.addEventListener("hashchange", selectLocationTab);
-  document.querySelector("#dry-run").addEventListener("change", renderDryRunStatus);
   document.querySelector("#retry").addEventListener("click", load);
   restoreInventoryShippingPreference();
   activateTab(initialTab());

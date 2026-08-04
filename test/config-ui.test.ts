@@ -235,6 +235,13 @@ describe("configuration UI service", () => {
 
     expect(CONFIG_UI_HTML.match(/\srole="tab"/gu)).toHaveLength(4);
     expect(CONFIG_UI_HTML.match(/\srole="tabpanel"/gu)).toHaveLength(4);
+    expect(CONFIG_UI_HTML).not.toContain('<header class="hero">');
+    expect(CONFIG_UI_HTML).not.toContain('class="status-strip"');
+    expect(CONFIG_UI_HTML).not.toContain('id="connection"');
+    expect(CONFIG_UI_HTML).not.toContain('id="dry-run-status"');
+    expect(CONFIG_UI_HTML.indexOf('role="tablist"')).toBeLessThan(
+      CONFIG_UI_HTML.indexOf('role="tabpanel"'),
+    );
     expect(new Set(ids).size).toBe(ids.length);
     expect(CONFIG_UI_HTML).toContain(
       'id="panel-automation" class="tab-panel" role="tabpanel"',
@@ -243,6 +250,8 @@ describe("configuration UI service", () => {
       'id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden',
     );
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.active-tab");
+    expect(CONFIG_UI_JS).not.toContain("#queue-health");
+    expect(CONFIG_UI_JS).not.toContain("#inventory-queue-health");
     expect(CONFIG_UI_JS).toContain('event.key === "ArrowRight"');
     expect(CONFIG_UI_JS).toContain('window.addEventListener("popstate"');
   });
@@ -451,7 +460,7 @@ describe("configuration UI service", () => {
 
     expect(page.status).toBe(200);
     const pageText = await page.text();
-    expect(pageText).toContain("Seller workspace");
+    expect(pageText).not.toContain("Seller workspace");
     expect(pageText).toContain('role="tablist"');
     expect(pageText).toContain("Add cards");
     expect(pageText).toContain('id="inventory-card-condition"');
