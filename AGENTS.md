@@ -4,34 +4,38 @@
 
 This repository will contain a provider-agnostic automation service for TCGplayer seller fulfillment. Its core workflow is:
 
-1. Observe a mailbox for a credible TCGplayer sale notification.
-2. Confirm and retrieve the corresponding order and packing slip through the separately maintained unofficial TCGplayer seller API client.
-3. Convert the result into stable internal domain objects.
-4. Evaluate user-configurable rules.
-5. Dispatch one or more independently configurable actions, such as printing a shipping-address label or printing a packing slip.
+1. Receive a scheduled or operator-requested synchronization signal.
+2. Discover the complete authoritative ready-to-ship order queue through the separately maintained unofficial TCGplayer seller API client.
+3. Reconcile discovered orders against durable workflow state, confirm unseen orders, and retrieve their packing slips.
+4. Convert the result into stable internal domain objects.
+5. Evaluate user-configurable rules.
+6. Dispatch one or more independently configurable actions, such as printing a shipping-address label or printing a packing slip.
 
-The product must remain useful beyond one seller, mailbox, operating system, printer, or workflow. Yahoo Mail and the initial DYMO-label/network-printer workflow are the first integration targets, not assumptions that may leak into the domain model.
+The product must remain useful beyond one seller, scheduling cadence, operating system, printer, or workflow. Hourly polling is the initial default and the DYMO-label/network-printer workflow is the first action set, not assumptions that may leak into the domain model. Email may be added later as an optional wake-up adapter, but it is not part of the initial workflow.
 
 ## Current Phase
 
 The repository is in bootstrap and architecture-discovery mode. Do not begin application implementation until the user explicitly requests it. Research, design notes, small compatibility experiments, and an inventory of reusable upstream components are acceptable only when requested.
 
+The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
+
 ## Product Principles
 
-- Treat an email as a trigger, never as authoritative order data. Confirm the order with TCGplayer before producing fulfillment output.
+- Treat schedules, manual requests, and optional future notifications only as synchronization signals. TCGplayer is the authoritative order source.
 - Design around capabilities and interfaces, not named vendors. Vendor-specific behavior belongs in adapters.
-- Make actions composable. A rule may invoke zero, one, or many actions, and adding a new action must not require editing the email or TCGplayer integrations.
+- Make actions composable. A rule may invoke zero, one, or many actions, and adding a new action must not require editing synchronization or TCGplayer integrations.
 - Keep the first use case simple without hard-coding it. Default configurations may be opinionated; core behavior may not be personal.
 - Prefer a small, dependable service over adopting the referenced application's full web/database/deployment stack.
-- Make repeated processing safe. Mail polling, API retries, restarts, and duplicate notifications must not print or act twice unless a user explicitly requests a replay.
+- Make repeated processing safe. Scheduled polling, manual synchronization, API retries, restarts, and overlapping signals must not print or act twice unless a user explicitly requests a replay.
 - Preserve an auditable trail of decisions without retaining more customer data than necessary.
 
 ## Intended Boundaries
 
 Keep these concerns separated even if the first version runs as one process:
 
-- **Mail ingestion:** provider authentication, mailbox access, cursors, and message retrieval.
-- **Notification interpretation:** identify candidate sale messages and extract only identifiers/hints needed for confirmation.
+- **Synchronization triggers:** configurable schedules and an operator-requested `Sync now` capability that enter the same orchestration path.
+- **Order discovery:** complete pagination of the authoritative ready-to-ship queue, first-run baseline behavior, and reconciliation against durable state.
+- **Optional event acceleration:** future provider adapters may interpret notifications and request an immediate sync, but may not directly create authoritative orders or dispatch actions.
 - **TCGplayer access:** an application-facing adapter around the separately versioned `tcgplayer-private-api` client. Private endpoint details do not belong in this repository.
 - **Domain and orchestration:** provider-neutral orders, documents, events, rules, idempotency, retries, and workflow state.
 - **Rules:** declarative conditions and action selection, with validation and explainable evaluation results.
@@ -42,7 +46,7 @@ Keep these concerns separated even if the first version runs as one process:
 
 Initial adapters are expected to include:
 
-- Standards-based IMAP where feasible, plus OAuth-aware adapters for major providers whose authentication requires it.
+- A configurable scheduler with a 60-minute default interval and an operator-requested `Sync now` entry point.
 - A TCGplayer seller adapter that depends on the narrow public contract exposed by `Reldnahc/tcgplayer-private-api`.
 - A DYMO-compatible address-label action.
 - A generic packing-slip print action capable of targeting an operating-system or network printer.
@@ -55,7 +59,7 @@ The unofficial seller API integration is maintained separately at:
 
 - <https://github.com/Reldnahc/tcgplayer-private-api>
 
-This application repository owns email ingestion, domain orchestration, rules, actions, printing, user configuration, and end-to-end workflow state. The API repository owns only TCGplayer seller authentication/session behavior, private endpoint transport, response validation, order retrieval, and packing-slip retrieval.
+This application repository owns scheduling, manual synchronization, reconciliation, optional event accelerators, domain orchestration, rules, actions, printing, user configuration, and end-to-end workflow state. The API repository owns only TCGplayer seller authentication/session behavior, private endpoint transport, response validation, order retrieval, and packing-slip retrieval.
 
 - Consume the API client only through its documented npm package exports.
 - Use a released semantic version for normal builds. Local adjacent-repository development may use an npm-managed `file:../tcgplayer-private-api` dependency or a packed tarball.
@@ -91,10 +95,10 @@ The seller interface is private and may change without notice. Keep reverse-engi
 - The application may import the private API client only by its npm package name and declared export paths.
 - Adapters may depend inward on domain/application contracts; domain/application layers must not depend outward on adapters.
 - Model integrations with narrow interfaces and capability-oriented names. Avoid catch-all service classes.
-- Normalize provider data at the boundary. Do not pass raw email messages or raw TCGplayer responses throughout the application.
+- Normalize provider data at the boundary. Do not pass raw notification messages or raw TCGplayer responses throughout the application.
 - Represent external documents as typed metadata plus bytes/streams; do not assume every packing slip is a filesystem path or PDF until verified.
 - Side effects must accept an idempotency key and return a structured result.
-- Persist workflow state before acknowledging a source event when doing so is required to prevent loss or duplication.
+- Persist discovered-order and intended-action state before side effects when doing so is required to prevent loss or duplication.
 - Put time, randomness, filesystem access, networking, and printing behind injectable boundaries so tests remain deterministic.
 - Prefer configuration over conditionals for user-specific rules, printers, labels, and routing.
 - Version persisted schemas, rule formats, and plugin contracts from their first durable release.
@@ -105,17 +109,21 @@ The seller interface is private and may change without notice. Keep reverse-engi
 - Never commit credentials, email addresses used as credentials, passwords, OAuth refresh tokens, cookies, API/session tokens, private keys, customer addresses, packing slips, or real email bodies.
 - Do not hard-code a personal mailbox, seller identity, printer name, IP address, or network path. Supply them through local configuration or secret storage.
 - Keep `.env*`, credential stores, captured HTTP traffic, downloaded messages, generated packing slips, print spools, and local databases out of Git unless they are sanitized examples explicitly intended for source control.
-- Use least-privilege mailbox scopes and read-only access wherever the workflow allows it.
+- If a notification-provider adapter is added, use least-privilege scopes and read-only access wherever the workflow allows it.
 - Encrypt sensitive data in transit and use the platform's protected secret storage at rest when available.
 - Redact secrets and customer PII from logs, errors, metrics, test snapshots, and bug reports.
 - Give retained customer data an explicit purpose and retention period. Prefer identifiers, hashes, and minimal metadata over raw content.
 - Treat message content, API responses, filenames, rule definitions, and printer metadata as untrusted input. Validate sizes, formats, and identifiers.
-- Do not mark messages read, move them, delete them, change orders, or print documents merely while testing connectivity.
+- Connectivity tests must not mutate notification-provider messages, change orders, or print documents.
 - Require an explicit opt-in for actions that mutate remote state or incur cost.
 
 ## Reliability Requirements
 
 - Use stable event/order identifiers and a durable idempotency record to prevent duplicate actions.
+- On first synchronization, establish a baseline without dispatching actions for existing orders unless the operator explicitly chooses to process the backlog.
+- Page through the complete ready-to-ship result set before declaring a synchronization successful.
+- Prevent concurrent synchronization runs from racing; coalesce or serialize overlapping scheduled and manual requests.
+- Keep the polling interval configurable with a 60-minute default, and expose the same workflow through a manual `Sync now` operation.
 - Classify failures as retryable, permanent, authentication-related, configuration-related, or user-action-required.
 - Use bounded retries with exponential backoff and jitter for transient network failures.
 - Never retry printer submissions blindly after an ambiguous result; reconcile job state or require operator review.
@@ -152,16 +160,16 @@ All production changes must follow these rules:
 - Contract-test each adapter against sanitized fixtures that reflect observed provider behavior.
 - Integration tests may exercise local test doubles or sandbox accounts, but must be opt-in when they require network access, credentials, printers, or remote mutations.
 - End-to-end tests must use dedicated test data and default to dry-run/no-print behavior.
-- Test duplicate delivery, out-of-order events, restarts, expired authentication, malformed messages, API drift, missing printers, spool failures, and ambiguous print outcomes.
+- Test first-run baselining, pagination, duplicate discovery, overlapping scheduled/manual requests, restarts, expired authentication, API drift, missing printers, spool failures, and ambiguous print outcomes.
 - Do not use real customer PII in fixtures or snapshots. Use reserved domains and obviously synthetic addresses.
 - Keep tests deterministic; inject clocks and unique-ID sources.
 - A change is not complete while formatter, lint, type checks, tests, or security checks fail.
 
 ## Observability
 
-- Use structured logs with correlation IDs linking a mail event, confirmed order, rules evaluation, and action attempts.
-- Log outcomes and safe identifiers, not message bodies, addresses, documents, tokens, or cookies.
-- Expose actionable health states separately for mail access, TCGplayer access, persistence, and action/printing backends.
+- Use structured logs with correlation IDs linking a synchronization attempt, confirmed order, rules evaluation, and action attempts.
+- Log outcomes and safe identifiers, not notification bodies, addresses, documents, tokens, or cookies.
+- Expose actionable health states separately for scheduling, TCGplayer access, persistence, and action/printing backends. Add notification-provider health only when such an adapter exists.
 - Record why each rule matched or did not match and why each action ran, skipped, retried, or failed.
 - Provide a safe operator path to retry or replay work deliberately.
 
@@ -171,7 +179,7 @@ All production changes must follow these rules:
 - Separate secret references from ordinary configuration.
 - Give each provider/action plugin its own namespaced configuration schema.
 - Rules must use documented, versioned fields and operators; do not evaluate arbitrary code from configuration.
-- A new mail provider, marketplace adapter, rule predicate, or action should be addable without changing unrelated integrations.
+- A new synchronization trigger, notification provider, marketplace adapter, rule predicate, or action should be addable without changing unrelated integrations.
 - Printer selections must be configuration values discovered or validated through a printing adapter, not embedded constants.
 
 ## Development Workflow
@@ -204,7 +212,7 @@ Do not silently assume answers to these questions during implementation:
 
 - Runtime/language and packaging model.
 - Supported deployment targets and operating systems.
-- Mail authentication strategy per provider, including Yahoo app-password/OAuth constraints.
+- Whether and when optional notification providers should be added; provider authentication is deferred until one is selected.
 - TCGplayer authentication/session acquisition and renewal boundaries.
 - Legal/licensing status of any upstream code to be reused.
 - Durable-store choice and customer-data retention defaults.
