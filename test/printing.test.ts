@@ -76,14 +76,14 @@ describe("command printer", () => {
 });
 
 describe("Windows printer adapters", () => {
-  it("measures native label margins from the physical stock edge", () => {
-    expect(WINDOWS_PRINT_SCRIPT).toContain(
+  it("preserves native label printer hardware margins", () => {
+    expect(WINDOWS_PRINT_SCRIPT).not.toContain(
       "$eventArgs.PageSettings.HardMarginX",
     );
-    expect(WINDOWS_PRINT_SCRIPT).toContain(
+    expect(WINDOWS_PRINT_SCRIPT).not.toContain(
       "$eventArgs.PageSettings.HardMarginY",
     );
-    expect(WINDOWS_PRINT_SCRIPT).toContain(
+    expect(WINDOWS_PRINT_SCRIPT).not.toContain(
       "$eventArgs.Graphics.TranslateTransform(-$hardMarginX, -$hardMarginY)",
     );
   });

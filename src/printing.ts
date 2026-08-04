@@ -592,9 +592,6 @@ try {
     $handler = [System.Drawing.Printing.PrintPageEventHandler]{
       param($sender, $eventArgs)
       $eventArgs.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
-      $hardMarginX = [single]$eventArgs.PageSettings.HardMarginX
-      $hardMarginY = [single]$eventArgs.PageSettings.HardMarginY
-      $eventArgs.Graphics.TranslateTransform(-$hardMarginX, -$hardMarginY)
       $bounds = New-Object System.Drawing.RectangleF($margin, $margin, [single]($eventArgs.PageBounds.Width - 2 * $margin), [single]($eventArgs.PageBounds.Height - 2 * $margin))
       $format = New-Object System.Drawing.StringFormat
       try {
