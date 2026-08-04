@@ -104,6 +104,7 @@ describe("Windows printer adapters", () => {
       expect(payload).toMatchObject({
         kind: "label",
         printerName: "Synthetic Label Printer",
+        page: { landscape: true },
         lines: ["Example Recipient", "123 Example Street"],
       });
       expect(await readdir(directory)).toEqual([]);

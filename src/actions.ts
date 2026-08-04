@@ -69,6 +69,18 @@ function wrapLine(
   return lines;
 }
 
+function renderAddressLines(
+  order: FulfillmentOrder,
+  config: AddressLabelActionConfig,
+): string[] {
+  const omittedValues = new Set(
+    (config.omitLineValues ?? []).map((value) => value.trim().toUpperCase()),
+  );
+  return config.lines
+    .map((template) => renderLine(template, order).trim())
+    .filter((line) => line && !omittedValues.has(line.toUpperCase()));
+}
+
 export async function renderAddressLabel(
   order: FulfillmentOrder,
   config: AddressLabelActionConfig,
@@ -81,13 +93,10 @@ export async function renderAddressLabel(
   const font = await document.embedFont(StandardFonts.Helvetica);
   const availableWidth = width - margin * 2;
   const lineHeight = config.page.fontSize * 1.18;
-  const lines = config.lines
-    .flatMap((template) =>
-      wrapLine(
-        renderLine(template, order),
-        availableWidth,
-        config.page.fontSize,
-        (text, size) => font.widthOfTextAtSize(text, size),
+  const lines = renderAddressLines(order, config)
+    .flatMap((line) =>
+      wrapLine(line, availableWidth, config.page.fontSize, (text, size) =>
+        font.widthOfTextAtSize(text, size),
       ),
     )
     .filter(Boolean);
@@ -121,9 +130,7 @@ function addressLabelPrintJob(
     jobName,
     mediaType: "application/vnd.tcgplayer-alert.address-label+json",
     page: config.page,
-    lines: config.lines
-      .map((template) => renderLine(template, context.order).trim())
-      .filter(Boolean),
+    lines: renderAddressLines(context.order, config),
   };
 }
 

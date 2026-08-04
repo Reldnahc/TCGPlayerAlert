@@ -35,7 +35,7 @@
         "widthMm": 89,
         "heightMm": 28,
         "marginMm": 3,
-        "fontSize": 10
+        "fontSize": 14
       },
       "lines": [
         "{recipientName}",
@@ -43,7 +43,8 @@
         "{addressTwo}",
         "{city}, {territory} {postalCode}",
         "{country}"
-      ]
+      ],
+      "omitLineValues": ["US", "USA"]
     },
     "print-packing-slip": {
       "type": "print-packing-slip",

@@ -67,6 +67,8 @@ export interface AddressLabelActionConfig {
     readonly fontSize: number;
   };
   readonly lines: readonly string[];
+  /** Case-insensitive exact rendered lines to omit, such as domestic country codes. */
+  readonly omitLineValues?: readonly string[];
 }
 
 export interface PackingSlipActionConfig {
@@ -408,6 +410,15 @@ export function parseConfig(value: unknown): AppConfig {
         `config.actions.${rawId}.lines`,
         issues,
       );
+      const omitLineValues =
+        source?.omitLineValues === undefined
+          ? []
+          : parseStringArray(
+              source.omitLineValues,
+              `config.actions.${rawId}.omitLineValues`,
+              issues,
+              true,
+            );
       for (const line of lines) {
         for (const match of line.matchAll(/\{([^{}]+)\}/gu)) {
           if (!ADDRESS_TEMPLATE_FIELDS.has(match[1] ?? "")) {
@@ -455,6 +466,7 @@ export function parseConfig(value: unknown): AppConfig {
           ),
         },
         lines,
+        omitLineValues,
       };
     } else if (type === "print-packing-slip") {
       if (printers[printer]?.adapter === "windows-native-label") {

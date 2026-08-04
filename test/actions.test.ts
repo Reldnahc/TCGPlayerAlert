@@ -26,13 +26,13 @@ describe("address-label action", () => {
   });
 
   it("uses structured label media when the printer supports native labels", async () => {
-    let submitted: PrintJob | undefined;
+    const submitted: PrintJob[] = [];
     const printer: Printer = {
       acceptedMediaTypes: new Set([
         "application/vnd.tcgplayer-alert.address-label+json",
       ]),
       submit: (job) => {
-        submitted = job;
+        submitted.push(job);
         return Promise.resolve();
       },
     };
@@ -40,7 +40,8 @@ describe("address-label action", () => {
       type: "print-address-label" as const,
       printer: "synthetic",
       page: { widthMm: 89, heightMm: 36, marginMm: 3, fontSize: 9 },
-      lines: ["{recipientName}", "{addressOne}", "{addressTwo}"],
+      lines: ["{recipientName}", "{addressOne}", "{addressTwo}", "{country}"],
+      omitLineValues: ["US", "USA"],
     };
     const action = createActions(
       appConfig({ actions: { label: labelConfig } }),
@@ -53,9 +54,23 @@ describe("address-label action", () => {
       idempotencyKey: "synthetic:order:label",
     });
 
-    expect(submitted).toMatchObject({
+    expect(submitted[0]).toMatchObject({
       mediaType: "application/vnd.tcgplayer-alert.address-label+json",
       lines: ["Example Recipient", "123 Example Street", "Unit 4"],
+    });
+
+    await action.execute({
+      order: {
+        ...syntheticOrder,
+        shippingAddress: {
+          ...syntheticOrder.shippingAddress,
+          country: "Canada",
+        },
+      },
+      idempotencyKey: "synthetic:international-order:label",
+    });
+    expect(submitted[1]).toMatchObject({
+      lines: ["Example Recipient", "123 Example Street", "Unit 4", "Canada"],
     });
   });
 });

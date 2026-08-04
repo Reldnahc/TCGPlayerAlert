@@ -13,6 +13,10 @@ describe("application configuration", () => {
     expect(config.version).toBe(1);
     expect(config.dryRun).toBe(true);
     expect(config.rules).toHaveLength(1);
+    expect(config.actions["print-address-label"]).toMatchObject({
+      omitLineValues: ["US", "USA"],
+      page: { fontSize: 14 },
+    });
   });
 
   it("reports multiple actionable configuration issues together", () => {

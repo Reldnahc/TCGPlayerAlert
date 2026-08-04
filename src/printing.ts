@@ -206,7 +206,9 @@ interface WindowsSpoolPayloadBase {
 
 interface WindowsLabelPayload extends WindowsSpoolPayloadBase {
   readonly kind: "label";
-  readonly page: AddressLabelPrintJob["page"];
+  readonly page: AddressLabelPrintJob["page"] & {
+    readonly landscape: boolean;
+  };
   readonly lines: readonly string[];
 }
 
@@ -252,7 +254,10 @@ export class WindowsNativeLabelPrinter implements Printer {
           kind: "label",
           printerName: this.config.printerName,
           jobName: safeJobName(job.jobName),
-          page: job.page,
+          page: {
+            ...job.page,
+            landscape: job.page.widthMm > job.page.heightMm,
+          },
           lines: job.lines,
         };
         const payloadPath = join(directory, "payload.json");
@@ -575,9 +580,12 @@ try {
   $document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 
   if ($payload.kind -eq 'label') {
-    $width = [Math]::Max(1, [int][Math]::Round([double]$payload.page.widthMm / 25.4 * 100))
-    $height = [Math]::Max(1, [int][Math]::Round([double]$payload.page.heightMm / 25.4 * 100))
-    $document.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('TCGPlayerAlert label', $width, $height)
+    $configuredWidth = [Math]::Max(1, [int][Math]::Round([double]$payload.page.widthMm / 25.4 * 100))
+    $configuredHeight = [Math]::Max(1, [int][Math]::Round([double]$payload.page.heightMm / 25.4 * 100))
+    $portraitWidth = [Math]::Min($configuredWidth, $configuredHeight)
+    $portraitHeight = [Math]::Max($configuredWidth, $configuredHeight)
+    $document.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('TCGPlayerAlert label', $portraitWidth, $portraitHeight)
+    $document.DefaultPageSettings.Landscape = [bool]$payload.page.landscape
     $font = New-Object System.Drawing.Font('Arial', [single]$payload.page.fontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $text = [String]::Join([Environment]::NewLine, @($payload.lines))
     $margin = [single]([double]$payload.page.marginMm / 25.4 * 100)
