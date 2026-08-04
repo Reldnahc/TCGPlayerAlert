@@ -1142,18 +1142,26 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   const catalogMatchOrder = { exact: 0, variant: 1, related: 2 };
 
+  function compareCatalogRanks(left, right) {
+    const length = Math.max(left.length, right.length);
+    for (let index = 0; index < length; index += 1) {
+      const difference = (left[index] || 0) - (right[index] || 0);
+      if (difference !== 0) return difference;
+    }
+    return 0;
+  }
+
   function sortLoadedCatalogProducts(products) {
     return [...new Map(products.map((product) => [product.productId, product])).values()].sort((left, right) => {
       const categoryDifference = catalogMatchOrder[left.matchKind] - catalogMatchOrder[right.matchKind];
       if (categoryDifference !== 0) return categoryDifference;
-      if (left.matchKind === "related" && right.matchKind === "related") {
-        return left.loadedOrder - right.loadedOrder;
-      }
-      return left.productName.localeCompare(right.productName)
+      return compareCatalogRanks(left.matchRank, right.matchRank)
+        || left.productName.localeCompare(right.productName)
         || left.productLineName.localeCompare(right.productLineName)
         || left.setName.localeCompare(right.setName)
         || left.cardNumber.localeCompare(right.cardNumber)
-        || left.productId - right.productId;
+        || left.productId - right.productId
+        || left.loadedOrder - right.loadedOrder;
     });
   }
 
@@ -1192,6 +1200,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
       sections.push(el("div", { className: "queue-empty", text: "No products matched this search and product line." }));
     }
     if (search.hasMore) {
+      if (exact.length === 0) {
+        const findExact = el("button", { id: "catalog-find-exact", className: "quiet-button", type: "button", text: "Find exact name" });
+        findExact.addEventListener("click", () => void searchCatalog(true, findExact, true));
+        sections.push(el("div", { className: "catalog-load-more" }, [
+          el("span", { text: "Scan later results until this exact card name appears." }),
+          findExact,
+        ]));
+      }
       const loadMore = el("button", { id: "catalog-load-more", className: "quiet-button", type: "button", text: "Load more" });
       loadMore.addEventListener("click", () => void searchCatalog(true, loadMore));
       sections.push(el("div", { className: "catalog-load-more" }, [
@@ -1206,7 +1222,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     message.textContent = search.products.length + " results · " + exact.length + " exact";
   }
 
-  async function searchCatalog(append = false, triggerButton) {
+  async function searchCatalog(append = false, triggerButton, findExact = false) {
     const current = state.catalogSearch;
     const query = append && current ? current.query : document.querySelector("#catalog-query").value.trim();
     const productLine = append && current ? current.productLine : document.querySelector("#catalog-product-line").value.trim();
@@ -1223,7 +1239,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return;
     }
     const button = triggerButton || document.querySelector("#catalog-search");
-    const idleText = append ? "Load more" : "Search catalog";
+    const idleText = findExact ? "Find exact name" : append ? "Load more" : "Search catalog";
     const requestController = new AbortController();
     state.catalogSearchController = requestController;
     button.disabled = true;
@@ -1241,6 +1257,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     try {
       const parameters = new URLSearchParams({ q: query, offset: String(offset) });
       if (productLine) parameters.set("productLine", productLine);
+      if (findExact) parameters.set("findExact", "true");
       const response = await fetch("/api/catalog/search?" + parameters.toString(), {
         headers: { Accept: "application/json" },
         signal: requestController.signal,

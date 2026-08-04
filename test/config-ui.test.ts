@@ -153,6 +153,11 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
     expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
     expect(CONFIG_UI_JS).toContain("state.catalogSearchController?.abort()");
+    expect(CONFIG_UI_JS).toContain('text: "Find exact name"');
+    expect(CONFIG_UI_JS).toContain('parameters.set("findExact", "true")');
+    expect(CONFIG_UI_JS).toContain(
+      "compareCatalogRanks(left.matchRank, right.matchRank)",
+    );
     expect(CONFIG_UI_JS).toContain("signal: requestController.signal");
     expect(CONFIG_UI_JS).toContain(
       "new URLSearchParams({ q: query, offset: String(offset) })",
@@ -716,6 +721,9 @@ describe("configuration UI service", () => {
     const invalidCatalogOffset = await fetch(
       `${server.url}/api/catalog/search?q=Synthetic&offset=-1`,
     );
+    const invalidExactSearch = await fetch(
+      `${server.url}/api/catalog/search?q=Synthetic&findExact=maybe`,
+    );
     const catalogDetails = await fetch(
       `${server.url}/api/catalog/products/123`,
     );
@@ -783,6 +791,7 @@ describe("configuration UI service", () => {
       products: [{ productId: 123, matchKind: "variant" }],
     });
     expect(invalidCatalogOffset.status).toBe(400);
+    expect(invalidExactSearch.status).toBe(400);
     expect(catalogDetails.status).toBe(200);
     expect(await catalogDetails.json()).toMatchObject({ productId: 123 });
     expect(inventoryPreviewResponse.status).toBe(200);

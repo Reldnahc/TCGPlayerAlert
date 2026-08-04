@@ -207,6 +207,32 @@ describe("inventory additions", () => {
     ]);
   });
 
+  it("ranks typo and partial-name matches by likeness", () => {
+    const ranked = rankCatalogSearchProducts(
+      [
+        { ...product, productId: 3, productName: "Bolt Hound" },
+        { ...product, productId: 2, productName: "Light of Hope" },
+        { ...product, productId: 1, productName: "Lightning Bolt" },
+        { ...product, productId: 4, productName: "Bolt of Lightning" },
+      ],
+      "Lightnig Bolt",
+    );
+
+    expect(ranked.map((candidate) => candidate.productId)).toEqual([
+      1, 4, 3, 2,
+    ]);
+    expect(ranked[0]).toMatchObject({
+      matchKind: "related",
+      matchRank: [4, 0.5, 1 / 14],
+    });
+    expect(
+      rankCatalogSearchProducts(
+        [{ ...product, productName: "Bolt of Lightning" }],
+        "Lightning Bolt",
+      )[0],
+    ).toMatchObject({ matchKind: "variant", matchRank: [3, 1] });
+  });
+
   it("stops after enough exact matches and briefly caches identical searches", async () => {
     let now = new Date("2026-08-04T12:00:00.000Z");
     const signal = new AbortController().signal;
@@ -279,6 +305,47 @@ describe("inventory additions", () => {
       limit: 24,
     });
     expect(result).toMatchObject({ nextOffset: 96, hasMore: true });
+  });
+
+  it("scans a bounded later batch until an exact name is found", async () => {
+    const searchCatalogProducts = vi.fn((input: { offset?: number }) =>
+      Promise.resolve({
+        totalProducts: 500,
+        products: [
+          {
+            ...product,
+            productId: input.offset ?? 1,
+            productName:
+              input.offset === 120 ? "Synthetic Card" : "Synthetic Box",
+          },
+        ],
+      }),
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts,
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const result = await service.search(
+      "Synthetic Card",
+      undefined,
+      72,
+      undefined,
+      true,
+    );
+
+    expect(
+      searchCatalogProducts.mock.calls.map(([input]) => input.offset),
+    ).toEqual([72, 96, 120]);
+    expect(result).toMatchObject({ nextOffset: 144, hasMore: true });
+    expect(result.products[0]).toMatchObject({
+      productId: 120,
+      matchKind: "exact",
+    });
   });
 
   it("previews an exact SKU and prices it against a better condition", async () => {

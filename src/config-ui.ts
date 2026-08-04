@@ -802,6 +802,13 @@ async function handleRequest(
         return;
       }
       const productLine = url.searchParams.get("productLine")?.trim();
+      const findExactText = url.searchParams.get("findExact") ?? "false";
+      if (findExactText !== "true" && findExactText !== "false") {
+        sendJson(response, 400, {
+          message: "findExact must be true or false.",
+        });
+        return;
+      }
       const offsetText = url.searchParams.get("offset") ?? "0";
       if (!/^\d{1,7}$/u.test(offsetText) || Number(offsetText) > 1_000_000) {
         sendJson(response, 400, {
@@ -815,6 +822,7 @@ async function handleRequest(
           productLine === "" ? undefined : productLine,
           Number(offsetText),
           signal,
+          findExactText === "true",
         ),
       );
       if (!response.destroyed) sendJson(response, 200, searchResult);

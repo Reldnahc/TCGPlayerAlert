@@ -30,6 +30,7 @@ type UnknownRecord = Record<string, unknown>;
 
 const CATALOG_SEARCH_PAGE_SIZE = 24;
 const CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES = 3;
+const CATALOG_EXACT_SCAN_MAXIMUM_PAGES = 8;
 const CATALOG_SEARCH_MATCH_TARGET = 8;
 const CATALOG_SEARCH_CACHE_TTL_MS = 60_000;
 const CATALOG_SEARCH_CACHE_LIMIT = 100;
@@ -68,6 +69,7 @@ export type CatalogMatchKind = "exact" | "variant" | "related";
 
 export interface CatalogSearchProduct extends CatalogProductSummary {
   readonly matchKind: CatalogMatchKind;
+  readonly matchRank: readonly number[];
 }
 
 export interface CatalogSearchResult {
@@ -162,6 +164,28 @@ function normalizeCatalogName(value: string): string {
     .replace(/\s+/gu, " ");
 }
 
+function editDistance(left: string, right: string): number {
+  const previous = Array.from(
+    { length: right.length + 1 },
+    (_, index) => index,
+  );
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitution =
+        (previous[rightIndex - 1] ?? 0) +
+        (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1);
+      current[rightIndex] = Math.min(
+        (previous[rightIndex] ?? 0) + 1,
+        (current[rightIndex - 1] ?? 0) + 1,
+        substitution,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? 0;
+}
+
 function catalogNameRank(
   normalizedQuery: string,
   productName: string,
@@ -178,7 +202,15 @@ function catalogNameRank(
   const queryTokens = normalizedQuery.split(" ");
   const nameTokens = new Set(name.split(" "));
   const matchedTokens = queryTokens.filter((token) => nameTokens.has(token));
-  return [3, 1 - matchedTokens.length / queryTokens.length];
+  if (matchedTokens.length === queryTokens.length) {
+    return [3, nameTokens.size - queryTokens.length];
+  }
+  const maximumLength = Math.max(normalizedQuery.length, name.length, 1);
+  return [
+    4,
+    1 - matchedTokens.length / queryTokens.length,
+    editDistance(normalizedQuery, name) / maximumLength,
+  ];
 }
 
 function compareRank(
@@ -218,13 +250,15 @@ export function rankCatalogSearchProducts(
       );
     })
     .map((product) => {
-      const category = catalogNameRank(normalizedQuery, product.productName)[0];
+      const matchRank = catalogNameRank(normalizedQuery, product.productName);
+      const category = matchRank[0];
       return {
         ...product,
+        matchRank,
         matchKind:
           category === 0
             ? "exact"
-            : category === 1 || category === 2
+            : category === 1 || category === 2 || category === 3
               ? "variant"
               : "related",
       };
@@ -377,6 +411,7 @@ export class InventoryAdditionService {
     productLineName?: string,
     offset = 0,
     signal?: AbortSignal,
+    findExact = false,
   ): Promise<CatalogSearchResult> {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
       throw new ConfigurationError([
@@ -389,14 +424,18 @@ export class InventoryAdditionService {
       query.trim().toLocaleLowerCase("en-US"),
       productLineName?.trim().toLocaleLowerCase("en-US") ?? "",
       offset,
+      findExact,
     ]);
     const cached = this.catalogSearches.get(cacheKey);
     if (cached !== undefined) return cached.result;
     const products: CatalogProductSummary[] = [];
     let totalProducts = 0;
     let nextOffset = offset;
-    const maximumPages =
-      offset === 0 ? CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES : 1;
+    const maximumPages = findExact
+      ? CATALOG_EXACT_SCAN_MAXIMUM_PAGES
+      : offset === 0
+        ? CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES
+        : 1;
     for (let page = 0; page < maximumPages; page += 1) {
       const result = await this.client.searchCatalogProducts(
         {
@@ -423,9 +462,11 @@ export class InventoryAdditionService {
       const variantCount = ranked.filter(
         (product) => product.matchKind === "variant",
       ).length;
+      if (findExact && exactCount > 0) break;
       if (
-        exactCount >= CATALOG_SEARCH_MATCH_TARGET ||
-        (exactCount === 0 && variantCount >= CATALOG_SEARCH_MATCH_TARGET)
+        !findExact &&
+        (exactCount >= CATALOG_SEARCH_MATCH_TARGET ||
+          (exactCount === 0 && variantCount >= CATALOG_SEARCH_MATCH_TARGET))
       ) {
         break;
       }
