@@ -9,6 +9,7 @@ import {
   InventoryAdditionQueueStore,
   InventoryAdditionService,
   loadConfig,
+  OrderManagementService,
   PriceUpdateQueueStore,
   RepricingService,
   startConfigurationUi,
@@ -193,7 +194,7 @@ describe("configuration UI service", () => {
     for (const phrase of removedPhrases) {
       expect(interfaceSource).not.toContain(phrase);
     }
-    expect(CONFIG_UI_HTML).toContain("Prevents printing and listing changes.");
+    expect(CONFIG_UI_HTML).toContain("Prevents printing and remote changes.");
     expect(CONFIG_UI_HTML).toContain(
       "For items under $5, effective shipping is at least $1.49.",
     );
@@ -264,13 +265,124 @@ describe("configuration UI service", () => {
     expect(await readFile(fixture.path, "utf8")).toBe(originalFile);
   });
 
+  it("serves order lists, documents, printing, tracking, and shipment actions", async () => {
+    const fixture = await configurationFixture();
+    const order = {
+      orderNumber: "synthetic-order",
+      orderDate: "2026-08-01T12:00:00.000Z",
+      orderChannel: "Marketplace",
+      orderStatus: "ReadyToShip",
+      buyerName: "Synthetic Buyer",
+      shippingType: "Standard",
+      productAmount: 12,
+      shippingAmount: 1.49,
+      totalAmount: 13.49,
+      buyerPaid: true,
+      orderFulfillment: "Seller",
+    };
+    const executePrint = vi.fn(() => Promise.resolve());
+    const orderClient = {
+      searchOrders: vi.fn(() =>
+        Promise.resolve({ totalOrders: 1, orders: [order] }),
+      ),
+      getPackingSlip: vi.fn(() =>
+        Promise.resolve({
+          bytes: new Uint8Array([37, 80, 68, 70]),
+          contentType: "application/pdf" as const,
+          fileName: "packing-slip.pdf",
+          orderNumbers: [order.orderNumber],
+        }),
+      ),
+      detectCarrier: vi.fn(() => Promise.resolve({ carrier: "USPS" })),
+      addOrderTracking: vi.fn(() =>
+        Promise.resolve({
+          orderNumber: order.orderNumber,
+          outcome: "applied" as const,
+        }),
+      ),
+      markOrdersShipped: vi.fn(() =>
+        Promise.resolve({
+          updatedOrderNumbers: [order.orderNumber],
+          alreadyShippedOrderNumbers: [],
+          errors: [],
+        }),
+      ),
+    };
+    const orderService = new OrderManagementService({
+      client: orderClient,
+      sellerKey: "synthetic-seller",
+      pageSize: 100,
+      maximumPages: 10,
+      timezoneOffsetMinutes: 300,
+      executePrint,
+    });
+    server = await startConfigurationUi({
+      configPath: fixture.path,
+      port: 0,
+      service: fixture.service,
+      orderService,
+    });
+    const serverUrl = server.url;
+    const mutation = (path: string, body: unknown) =>
+      fetch(`${serverUrl}/api/orders/synthetic-order/${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: serverUrl,
+        },
+        body: JSON.stringify(body),
+      });
+
+    const orders = await fetch(`${serverUrl}/api/orders?status=ready-to-ship`);
+    const invalidOrders = await fetch(
+      `${serverUrl}/api/orders?status=unsupported`,
+    );
+    const document = await fetch(
+      `${serverUrl}/api/orders/synthetic-order/packing-slip`,
+    );
+    const printed = await mutation("print", {
+      actionType: "print-address-label",
+    });
+    const tracking = await mutation("tracking", {
+      trackingNumber: "synthetic-tracking",
+    });
+    const shipped = await mutation("mark-shipped", {});
+
+    expect(orders.status).toBe(200);
+    expect(invalidOrders.status).toBe(400);
+    expect(await orders.json()).toMatchObject({
+      orders: [
+        {
+          orderNumber: order.orderNumber,
+          buyerName: order.buyerName,
+          status: "ReadyToShip",
+        },
+      ],
+    });
+    expect(document.status).toBe(200);
+    expect(document.headers.get("Content-Type")).toBe("application/pdf");
+    expect(new Uint8Array(await document.arrayBuffer())).toEqual(
+      new Uint8Array([37, 80, 68, 70]),
+    );
+    expect(printed.status).toBe(200);
+    expect(tracking.status).toBe(200);
+    expect(shipped.status).toBe(200);
+    expect(executePrint).toHaveBeenCalledWith(
+      order.orderNumber,
+      "print-address-label",
+      expect.any(AbortSignal),
+    );
+    expect(orderClient.addOrderTracking).toHaveBeenCalledOnce();
+    expect(orderClient.markOrdersShipped).toHaveBeenCalledOnce();
+  });
+
   it("organizes the workspace into accessible persistent tabs", () => {
     const ids = [...CONFIG_UI_HTML.matchAll(/\sid="([^"]+)"/gu)].map(
       (match) => match[1],
     );
 
-    expect(CONFIG_UI_HTML.match(/\srole="tab"/gu)).toHaveLength(4);
-    expect(CONFIG_UI_HTML.match(/\srole="tabpanel"/gu)).toHaveLength(4);
+    expect(CONFIG_UI_HTML.match(/\srole="tab"/gu)).toHaveLength(6);
+    expect(CONFIG_UI_HTML.match(/\srole="tabpanel"/gu)).toHaveLength(6);
     expect(CONFIG_UI_HTML).not.toContain('<header class="hero">');
     expect(CONFIG_UI_HTML).not.toContain('class="status-strip"');
     expect(CONFIG_UI_HTML).not.toContain('id="connection"');
@@ -289,7 +401,20 @@ describe("configuration UI service", () => {
       [...CONFIG_UI_HTML.matchAll(/\sdata-tab="([^"]+)"/gu)].map(
         (match) => match[1],
       ),
-    ).toEqual(["add-cards", "inventory", "settings", "jobs"]);
+    ).toEqual([
+      "dashboard",
+      "orders",
+      "add-cards",
+      "inventory",
+      "settings",
+      "jobs",
+    ]);
+    expect(CONFIG_UI_HTML).toContain(
+      'id="panel-dashboard" class="tab-panel" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="0" data-panel="dashboard"',
+    );
+    expect(CONFIG_UI_HTML).toContain(
+      'id="panel-orders" class="tab-panel" role="tabpanel" aria-labelledby="tab-orders" tabindex="0" data-panel="orders" hidden',
+    );
     expect(CONFIG_UI_HTML).toContain(
       'id="tab-inventory" class="tab-button" type="button" role="tab" aria-controls="panel-inventory" aria-selected="false" tabindex="-1" data-tab="inventory">Inventory</button>',
     );
@@ -304,6 +429,29 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain("#inventory-queue-health");
     expect(CONFIG_UI_JS).toContain('event.key === "ArrowRight"');
     expect(CONFIG_UI_JS).toContain('window.addEventListener("popstate"');
+    expect(CONFIG_UI_JS).toContain('return "dashboard"');
+  });
+
+  it("keeps dashboard automation controls compact and exposes order actions", () => {
+    expect(CONFIG_UI_HTML).toContain('id="dashboard-automation-controls"');
+    expect(CONFIG_UI_HTML).toContain('id="dashboard-order-rows"');
+    expect(CONFIG_UI_HTML).toContain('id="order-rows"');
+    expect(CONFIG_UI_HTML).toContain(
+      "<th>Products</th><th>Shipping</th><th>Total</th>",
+    );
+    expect(CONFIG_UI_JS).toContain('dashboardToggle("Dry run"');
+    expect(CONFIG_UI_JS).toContain('"Print address label"');
+    expect(CONFIG_UI_JS).toContain('"Print packing slip"');
+    expect(CONFIG_UI_JS).toContain('"Download packing slip"');
+    expect(CONFIG_UI_JS).toContain('"Add tracking"');
+    expect(CONFIG_UI_JS).toContain('"Mark shipped"');
+    expect(CONFIG_UI_JS).toContain('text: "Manage order"');
+    expect(CONFIG_UI_JS).toContain(
+      '"https://sellerportal.tcgplayer.com/orders/"',
+    );
+    expect(CONFIG_UI_JS).toContain(
+      "Turn off dry run and save settings before changing or printing a real order.",
+    );
   });
 
   it("keeps persistent configuration in Settings and job pages focused", () => {
@@ -342,9 +490,8 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain(
       'form.addEventListener("input", updateSaveBarVisibility)',
     );
-    expect(CONFIG_UI_JS).toContain(
-      'form.addEventListener("change", updateSaveBarVisibility)',
-    );
+    expect(CONFIG_UI_JS).toContain('form.addEventListener("change", () =>');
+    expect(CONFIG_UI_JS).toContain("syncDashboardAutomation()");
     expect(CONFIG_UI_JS).not.toContain(
       'saveBar.hidden = selectedTab !== "settings"',
     );

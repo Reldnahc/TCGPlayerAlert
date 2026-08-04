@@ -29,6 +29,10 @@ import {
   type PrinterDiscoveryResult,
 } from "./printer-discovery.js";
 import type { RepricingService } from "./repricing.js";
+import type {
+  ManualPrintActionType,
+  OrderManagementService,
+} from "./order-management.js";
 
 interface OutputSettingsBase {
   readonly actionId: string;
@@ -211,6 +215,7 @@ export interface StartConfigurationUiOptions {
   readonly inventoryQueue?: InventoryAdditionQueueStore;
   readonly inventoryWorkerRunning?: boolean;
   readonly inventoryService?: InventoryAdditionService;
+  readonly orderService?: OrderManagementService;
   readonly executePrintTest?: ConfigurationPrintTest;
 }
 
@@ -237,6 +242,7 @@ export async function startConfigurationUi(
       options.inventoryQueue,
       options.inventoryWorkerRunning === true,
       options.inventoryService,
+      options.orderService,
       options.executePrintTest,
     );
   });
@@ -566,6 +572,7 @@ async function handleRequest(
   inventoryQueue: InventoryAdditionQueueStore | undefined,
   inventoryWorkerRunning: boolean,
   inventoryService: InventoryAdditionService | undefined,
+  orderService: OrderManagementService | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
 ): Promise<void> {
   setSecurityHeaders(response);
@@ -585,6 +592,106 @@ async function handleRequest(
       send(response, 200, "text/javascript; charset=utf-8", CONFIG_UI_JS);
     } else if (request.method === "GET" && url.pathname === "/api/settings") {
       sendJson(response, 200, await service.read());
+    } else if (request.method === "GET" && url.pathname === "/api/orders") {
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const status = url.searchParams.get("status");
+      if (status !== null && status !== "ready-to-ship") {
+        sendJson(response, 400, {
+          message: "The order status filter is invalid.",
+        });
+        return;
+      }
+      const scope = status === "ready-to-ship" ? "ready-to-ship" : "all";
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.listOrders(scope, {
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
+      /^\/api\/orders\/[^/]{1,384}\/packing-slip$/u.test(url.pathname)
+    ) {
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "packing-slip");
+      const document = await withRequestAbort(request, response, (signal) =>
+        orderService.getPackingSlip(orderNumber, signal),
+      );
+      if (!response.destroyed) {
+        response.setHeader(
+          "Content-Disposition",
+          'attachment; filename="packing-slip.pdf"',
+        );
+        sendBytes(response, 200, "application/pdf", document.bytes);
+      }
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/orders\/[^/]{1,384}\/print$/u.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "print");
+      const actionType = parseManualPrintAction(await readJsonBody(request));
+      await withRequestAbort(request, response, (signal) =>
+        orderService.print(orderNumber, actionType, signal),
+      );
+      if (!response.destroyed) {
+        sendJson(response, 200, { printed: true, orderNumber, actionType });
+      }
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/orders\/[^/]{1,384}\/tracking$/u.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "tracking");
+      const body = objectValue(await readJsonBody(request));
+      const trackingNumber = body?.trackingNumber;
+      if (!safeText(trackingNumber) || trackingNumber.length > 256) {
+        throw new ConfigurationError(["A valid tracking number is required."]);
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.addTracking(orderNumber, trackingNumber, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/orders\/[^/]{1,384}\/mark-shipped$/u.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "mark-shipped");
+      await readJsonBody(request);
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.markShipped(orderNumber, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
     } else if (request.method === "PUT" && url.pathname === "/api/settings") {
       if (!isAllowedOrigin(request.headers.origin, request.headers.host)) {
         sendJson(response, 403, {
@@ -963,6 +1070,35 @@ function send(
   response.setHeader("Content-Type", contentType);
   response.setHeader("Content-Length", Buffer.byteLength(body));
   response.end(body);
+}
+
+function sendBytes(
+  response: ServerResponse,
+  status: number,
+  contentType: string,
+  body: Uint8Array,
+): void {
+  response.statusCode = status;
+  response.setHeader("Content-Type", contentType);
+  response.setHeader("Content-Length", body.byteLength);
+  response.end(Buffer.from(body));
+}
+
+function decodeOrderNumber(pathname: string, action: string): string {
+  const suffix = `/${action}`;
+  const encoded = pathname.slice("/api/orders/".length, -suffix.length);
+  return decodeURIComponent(encoded);
+}
+
+function parseManualPrintAction(value: unknown): ManualPrintActionType {
+  const actionType = objectValue(value)?.actionType;
+  if (
+    actionType !== "print-address-label" &&
+    actionType !== "print-packing-slip"
+  ) {
+    throw new ConfigurationError(["A valid order print action is required."]);
+  }
+  return actionType;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {

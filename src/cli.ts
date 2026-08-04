@@ -8,6 +8,7 @@ import {
   createInventoryAdditionExecutor,
   createInventoryAdditionQueue,
   createInventoryAdditionService,
+  createOrderManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   executeConfiguredSyntheticPrintTest,
@@ -77,6 +78,7 @@ try {
       repricingService: createRepricingService(config),
       inventoryQueue: createInventoryAdditionQueue(config),
       inventoryService: createInventoryAdditionService(config),
+      orderService: createOrderManagementService(config, configPath),
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
@@ -132,6 +134,7 @@ try {
       inventoryQueue,
       inventoryWorkerRunning: true,
       inventoryService: createInventoryAdditionService(initialConfig),
+      orderService: createOrderManagementService(initialConfig, configPath),
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     const priceWorkerPromise = priceWorker

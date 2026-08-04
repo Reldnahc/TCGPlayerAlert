@@ -3,7 +3,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TCGPlayerAlert Settings</title>
+    <title>TCGPlayerAlert</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -11,13 +11,52 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
       <main>
         <form id="settings-form" hidden>
           <nav class="tab-list" role="tablist" aria-label="Workspace sections">
+            <button id="tab-dashboard" class="tab-button" type="button" role="tab" aria-controls="panel-dashboard" aria-selected="true" tabindex="0" data-tab="dashboard">Dashboard</button>
+            <button id="tab-orders" class="tab-button" type="button" role="tab" aria-controls="panel-orders" aria-selected="false" tabindex="-1" data-tab="orders">Orders</button>
             <button id="tab-add-cards" class="tab-button" type="button" role="tab" aria-controls="panel-add-cards" aria-selected="false" tabindex="-1" data-tab="add-cards">Add cards</button>
             <button id="tab-inventory" class="tab-button" type="button" role="tab" aria-controls="panel-inventory" aria-selected="false" tabindex="-1" data-tab="inventory">Inventory</button>
-            <button id="tab-settings" class="tab-button" type="button" role="tab" aria-controls="panel-settings" aria-selected="true" tabindex="0" data-tab="settings">Settings</button>
+            <button id="tab-settings" class="tab-button" type="button" role="tab" aria-controls="panel-settings" aria-selected="false" tabindex="-1" data-tab="settings">Settings</button>
             <button id="tab-jobs" class="tab-button" type="button" role="tab" aria-controls="panel-jobs" aria-selected="false" tabindex="-1" data-tab="jobs">Jobs</button>
           </nav>
 
-          <div id="panel-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" data-panel="settings">
+          <div id="panel-dashboard" class="tab-panel" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="0" data-panel="dashboard">
+          <div class="section-heading first-heading">
+            <div><h2 id="dashboard-automation-title">Automation</h2></div>
+          </div>
+          <section id="dashboard-automation-controls" class="panel dashboard-automation" aria-labelledby="dashboard-automation-title"></section>
+
+          <div class="section-heading">
+            <div><h2 id="dashboard-orders-title">Ready to ship</h2></div>
+            <button id="refresh-dashboard-orders" class="quiet-button" type="button">Refresh</button>
+          </div>
+          <section class="panel order-panel" aria-labelledby="dashboard-orders-title">
+            <p id="dashboard-orders-message" class="order-message" aria-live="polite"></p>
+            <div class="order-table-wrap">
+              <table class="order-table dashboard-order-table">
+                <thead><tr><th>Buyer</th><th>Order date</th><th>Shipping type</th><th>Total</th><th>Add tracking</th><th>Mark shipped</th></tr></thead>
+                <tbody id="dashboard-order-rows"></tbody>
+              </table>
+            </div>
+          </section>
+          </div>
+
+          <div id="panel-orders" class="tab-panel" role="tabpanel" aria-labelledby="tab-orders" tabindex="0" data-panel="orders" hidden>
+          <div class="section-heading first-heading">
+            <div><h2 id="orders-title">Orders</h2></div>
+            <button id="refresh-orders" class="quiet-button" type="button">Refresh</button>
+          </div>
+          <section class="panel order-panel" aria-labelledby="orders-title">
+            <p id="orders-message" class="order-message" aria-live="polite"></p>
+            <div class="order-table-wrap">
+              <table class="order-table full-order-table">
+                <thead><tr><th>Order #</th><th>Buyer</th><th>Order date</th><th>Status</th><th>Shipping type</th><th>Products</th><th>Shipping</th><th>Total</th><th>Actions</th></tr></thead>
+                <tbody id="order-rows"></tbody>
+              </table>
+            </div>
+          </section>
+          </div>
+
+          <div id="panel-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" data-panel="settings" hidden>
           <section class="panel general-panel" aria-labelledby="general-title">
             <div>
               <h2 id="general-title">General</h2>
@@ -32,7 +71,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <label class="switch-row warning-switch">
               <span>
                 <strong>Dry run</strong>
-                <small>Prevents printing and listing changes.</small>
+                <small>Prevents printing and remote changes.</small>
               </span>
               <input id="dry-run" type="checkbox" />
               <span class="switch" aria-hidden="true"></span>
@@ -222,7 +261,7 @@ button { cursor: pointer; }
 .shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 20px 0 112px; }
 h2, p { margin-top: 0; }
 h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
-.tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
+.tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
 .tab-button { min-height: 46px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); padding: 10px 16px; font-weight: 800; }
 .tab-button:hover { color: var(--green-dark); background: rgba(255,255,255,.72); }
 .tab-button[aria-selected="true"] { color: white; background: var(--green); box-shadow: 0 7px 16px rgba(22,107,73,.2); }
@@ -248,6 +287,34 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .switch-row input:checked + .switch::after { transform: translateX(20px); }
 .switch-row input:focus-visible + .switch { outline: 3px solid rgba(22,107,73,.25); outline-offset: 2px; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; margin: 40px 2px 15px; }
+.dashboard-automation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; }
+.dashboard-toggle { padding: 20px 22px; }
+.dashboard-toggle + .dashboard-toggle { border-left: 1px solid var(--line); }
+.dashboard-toggle strong { font-size: .9rem; }
+.order-panel { overflow: hidden; margin-bottom: 22px; }
+.order-message { margin: 0; padding: 14px 18px; color: var(--muted); font-size: .84rem; }
+.order-message:empty { display: none; }
+.order-message.error { color: #93401c; background: #fff5f1; }
+.order-message.success { color: var(--green-dark); background: var(--green-soft); }
+.order-table-wrap { overflow: auto; }
+.order-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.dashboard-order-table { min-width: 760px; }
+.full-order-table { min-width: 1320px; }
+.order-table th { padding: 11px 12px; background: #f1f3ed; color: var(--muted); text-align: left; font-size: .69rem; letter-spacing: .035em; text-transform: uppercase; white-space: nowrap; }
+.order-table td { padding: 12px; border-top: 1px solid var(--line); vertical-align: middle; }
+.order-table .money-cell { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.order-table .date-cell { white-space: nowrap; }
+.order-table .empty-cell { padding: 28px 18px; color: var(--muted); text-align: center; }
+.order-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 360px; }
+.order-action { border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--green-dark); padding: 7px 9px; font-size: .73rem; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.order-action:hover { background: var(--green-soft); }
+.order-action:disabled { cursor: wait; opacity: .6; }
+.order-action.ship-action { border-color: #c9d8cf; background: var(--green-soft); }
+.tracking-row td { padding: 10px 12px; background: #f7f8f3; }
+.tracking-form { display: flex; align-items: end; justify-content: flex-end; gap: 8px; }
+.tracking-form .field { width: min(360px, 100%); }
+.tracking-form input { min-height: 38px; }
+.tracking-form .order-action { min-height: 38px; }
 .quiet-button { border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.7); color: var(--green-dark); padding: 9px 13px; font-weight: 750; }
 .quiet-button:hover { background: white; }
 .printer-note { background: #fff4dc; color: #774416; border: 1px solid #eed4a1; border-radius: 12px; padding: 11px 14px; font-size: .9rem; }
@@ -366,6 +433,8 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .tab-list { display: flex; overflow-x: auto; top: 6px; }
   .tab-button { flex: 1 0 auto; min-width: 112px; }
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
+  .dashboard-automation { grid-template-columns: 1fr; }
+  .dashboard-toggle + .dashboard-toggle { border-left: 0; border-top: 1px solid var(--line); }
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
   .repricing-rules { grid-template-columns: 1fr 1fr; }
@@ -406,10 +475,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     catalogSearch: null,
     catalogSearchToken: 0,
     catalogSearchController: null,
+    orderLists: { all: null, "ready-to-ship": null },
+    orderLoading: { all: false, "ready-to-ship": false },
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
-  const tabIds = ["add-cards", "inventory", "settings", "jobs"];
+  const tabIds = ["dashboard", "orders", "add-cards", "inventory", "settings", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
   const fatal = document.querySelector("#fatal-error");
@@ -431,7 +502,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function activateTab(tabId, updateHistory = false, focusTab = false) {
-    const selectedTab = normalizeTabId(tabId) || "settings";
+    const selectedTab = normalizeTabId(tabId) || "dashboard";
     for (const button of document.querySelectorAll('[role="tab"][data-tab]')) {
       const selected = button.dataset.tab === selectedTab;
       button.setAttribute("aria-selected", String(selected));
@@ -452,6 +523,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (updateHistory) window.history.pushState(null, "", url);
       else window.history.replaceState(null, "", url);
     }
+    if (state.settings !== null) {
+      if (selectedTab === "dashboard") void loadOrders("ready-to-ship");
+      if (selectedTab === "orders") void loadOrders("all");
+    }
   }
 
   function initialTab() {
@@ -463,14 +538,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const normalizedStoredTab = normalizeTabId(stored);
       if (normalizedStoredTab) return normalizedStoredTab;
     } catch {
-      // Settings remains the default when browser storage is unavailable.
+      // Dashboard remains the default when browser storage is unavailable.
     }
-    return "settings";
+    return "dashboard";
   }
 
   function selectLocationTab() {
     const hashTab = window.location.hash.slice(1);
-    activateTab(normalizeTabId(hashTab) || "settings");
+    activateTab(normalizeTabId(hashTab) || "dashboard");
   }
 
   const el = (tag, attributes = {}, children = []) => {
@@ -609,6 +684,48 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
   }
 
+  function dashboardToggle(label, checked, onChange, actionId) {
+    const input = el("input", { type: "checkbox", "aria-label": label });
+    input.checked = checked;
+    if (actionId) input.dataset.actionId = actionId;
+    input.addEventListener("change", () => onChange(input.checked));
+    return el("label", { className: "switch-row dashboard-toggle" }, [
+      el("span", {}, [el("strong", { text: label })]),
+      input,
+      el("span", { className: "switch", "aria-hidden": "true" }),
+    ]);
+  }
+
+  function renderDashboardAutomation() {
+    const container = document.querySelector("#dashboard-automation-controls");
+    const controls = [
+      dashboardToggle("Dry run", state.settings.dryRun, (checked) => {
+        const settingsControl = document.querySelector("#dry-run");
+        settingsControl.checked = checked;
+        settingsControl.dispatchEvent(new Event("change", { bubbles: true }));
+      }),
+    ];
+    for (const [type, label] of [["print-address-label", "Address labels"], ["print-packing-slip", "Packing slips"]]) {
+      const output = state.settings.outputs.find((candidate) => candidate.type === type);
+      if (!output) continue;
+      controls.push(dashboardToggle(label, output.enabled, (checked) => {
+        const settingsControl = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"] [name="enabled"]');
+        settingsControl.checked = checked;
+        settingsControl.dispatchEvent(new Event("change", { bubbles: true }));
+      }, output.actionId));
+    }
+    container.replaceChildren(...controls);
+  }
+
+  function syncDashboardAutomation() {
+    const dryRun = document.querySelector('#dashboard-automation-controls input[aria-label="Dry run"]');
+    if (dryRun) dryRun.checked = document.querySelector("#dry-run").checked;
+    for (const control of document.querySelectorAll("#dashboard-automation-controls input[data-action-id]")) {
+      const settingsControl = form.querySelector('[data-action-id="' + CSS.escape(control.dataset.actionId) + '"] [name="enabled"]');
+      if (settingsControl) control.checked = settingsControl.checked;
+    }
+  }
+
   function render() {
     document.querySelector("#poll-interval").value = String(state.settings.pollIntervalMinutes);
     document.querySelector("#dry-run").checked = state.settings.dryRun;
@@ -617,6 +734,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#inventory-queue-enabled").checked = state.settings.inventoryAdditionQueue.enabled;
     document.querySelector("#inventory-delay").value = String(state.settings.inventoryAdditionQueue.delaySeconds);
     outputs.replaceChildren(...state.settings.outputs.map(renderOutput));
+    renderDashboardAutomation();
     state.savedSettingsFingerprint = settingsFingerprint();
     updateSaveBarVisibility();
     printerNote.hidden = !state.settings.discoveryIssue;
@@ -625,6 +743,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     form.hidden = false;
     void loadQueue();
     void loadInventoryQueue();
+    const selectedTab = document.querySelector('[role="tab"][aria-selected="true"]')?.dataset.tab;
+    if (selectedTab === "dashboard") void loadOrders("ready-to-ship");
+    if (selectedTab === "orders") void loadOrders("all");
   }
 
   function queueJob(job) {
@@ -646,6 +767,281 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   const money = (value) => "$" + Number(value).toFixed(2);
+
+  function orderUi(scope) {
+    return scope === "ready-to-ship"
+      ? {
+          rows: document.querySelector("#dashboard-order-rows"),
+          message: document.querySelector("#dashboard-orders-message"),
+          columns: 6,
+        }
+      : {
+          rows: document.querySelector("#order-rows"),
+          message: document.querySelector("#orders-message"),
+          columns: 9,
+        };
+  }
+
+  function showOrderMessage(scope, text, kind = "") {
+    const message = orderUi(scope).message;
+    message.className = "order-message" + (kind ? " " + kind : "");
+    message.textContent = text;
+  }
+
+  function orderButton(text, handler, className = "") {
+    const button = el("button", {
+      className: "order-action" + (className ? " " + className : ""),
+      type: "button",
+      text,
+    });
+    button.addEventListener("click", () => void handler(button));
+    return button;
+  }
+
+  function dateText(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+  }
+
+  function trackingRow(order, scope, columns) {
+    const input = el("input", {
+      type: "text",
+      maxlength: "256",
+      autocomplete: "off",
+      placeholder: "Tracking number",
+      "aria-label": "Tracking number for order " + order.orderNumber,
+    });
+    const row = el("tr", { className: "tracking-row" });
+    row.hidden = true;
+    const cancel = orderButton("Cancel", () => {
+      row.hidden = true;
+      input.value = "";
+    });
+    const submit = orderButton("Add tracking", async (button) => {
+      const trackingNumber = input.value.trim();
+      if (!trackingNumber) {
+        showOrderMessage(scope, "Enter a tracking number.", "error");
+        input.focus();
+        return;
+      }
+      await runOrderMutation(
+        order,
+        scope,
+        "tracking",
+        { trackingNumber },
+        button,
+        "Adding...",
+        (result) => "Tracking added (" + result.carrier + ").",
+      );
+    }, "ship-action");
+    const field = el("label", { className: "field" }, [
+      el("span", { text: "Tracking number" }),
+      input,
+    ]);
+    const cell = el("td", { colspan: String(columns) }, [
+      el("div", { className: "tracking-form" }, [field, cancel, submit]),
+    ]);
+    row.append(cell);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submit.click();
+      }
+    });
+    return row;
+  }
+
+  function trackingOpenButton(order, row) {
+    return orderButton("Add tracking", () => {
+      row.hidden = !row.hidden;
+      if (!row.hidden) row.querySelector("input").focus();
+    });
+  }
+
+  function markShippedButton(order, scope) {
+    return orderButton("Mark shipped", async (button) => {
+      if (!window.confirm("Mark order " + order.orderNumber + " as shipped?")) return;
+      await runOrderMutation(
+        order,
+        scope,
+        "mark-shipped",
+        {},
+        button,
+        "Marking...",
+        (result) => result.outcome === "already-applied" ? "Order was already shipped." : "Order marked shipped.",
+      );
+    }, "ship-action");
+  }
+
+  function dashboardOrderRows(order) {
+    const tracking = trackingRow(order, "ready-to-ship", 6);
+    const row = el("tr", {}, [
+      el("td", { text: order.buyerName }),
+      el("td", { className: "date-cell", text: dateText(order.orderDate) }),
+      el("td", { text: order.shippingType }),
+      el("td", { className: "money-cell", text: money(order.totalAmount) }),
+      el("td", {}, [trackingOpenButton(order, tracking)]),
+      el("td", {}, [markShippedButton(order, "ready-to-ship")]),
+    ]);
+    return [row, tracking];
+  }
+
+  function fullOrderRows(order) {
+    const tracking = trackingRow(order, "all", 9);
+    const actions = el("div", { className: "order-actions" });
+    actions.append(
+      orderButton("Print address label", (button) => runOrderPrint(order, "print-address-label", "address label", button, "all")),
+      orderButton("Print packing slip", (button) => runOrderPrint(order, "print-packing-slip", "packing slip", button, "all")),
+      orderButton("Download packing slip", (button) => downloadPackingSlip(order, button, "all")),
+      trackingOpenButton(order, tracking),
+      markShippedButton(order, "all"),
+      el("a", {
+        className: "order-action",
+        text: "Manage order",
+        href: "https://sellerportal.tcgplayer.com/orders/" + encodeURIComponent(order.orderNumber),
+        target: "_blank",
+        rel: "noopener noreferrer",
+      }),
+    );
+    const row = el("tr", {}, [
+      el("td", {}, [el("strong", { text: order.orderNumber })]),
+      el("td", { text: order.buyerName }),
+      el("td", { className: "date-cell", text: dateText(order.orderDate) }),
+      el("td", {}, [el("span", { className: "status-pill", text: order.status })]),
+      el("td", { text: order.shippingType }),
+      el("td", { className: "money-cell", text: money(order.productAmount) }),
+      el("td", { className: "money-cell", text: money(order.shippingAmount) }),
+      el("td", { className: "money-cell", text: money(order.totalAmount) }),
+      el("td", {}, [actions]),
+    ]);
+    return [row, tracking];
+  }
+
+  function renderOrderList(scope) {
+    const ui = orderUi(scope);
+    const list = state.orderLists[scope];
+    if (list === null) {
+      ui.rows.replaceChildren(el("tr", {}, [
+        el("td", { className: "empty-cell", colspan: String(ui.columns), text: state.orderLoading[scope] ? "Loading orders..." : "Orders have not been loaded." }),
+      ]));
+      return;
+    }
+    if (list.orders.length === 0) {
+      ui.rows.replaceChildren(el("tr", {}, [
+        el("td", { className: "empty-cell", colspan: String(ui.columns), text: scope === "ready-to-ship" ? "No orders are ready to ship." : "No orders found." }),
+      ]));
+      return;
+    }
+    ui.rows.replaceChildren(...list.orders.flatMap((order) =>
+      scope === "ready-to-ship" ? dashboardOrderRows(order) : fullOrderRows(order),
+    ));
+  }
+
+  async function loadOrders(scope, force = false) {
+    if (state.orderLoading[scope]) return;
+    if (!force && state.orderLists[scope] !== null) return;
+    state.orderLoading[scope] = true;
+    showOrderMessage(scope, "");
+    renderOrderList(scope);
+    try {
+      const query = new URLSearchParams();
+      if (scope === "ready-to-ship") query.set("status", "ready-to-ship");
+      if (force) query.set("refresh", "1");
+      const response = await fetch("/api/orders?" + query.toString(), {
+        headers: { Accept: "application/json" },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Orders could not be loaded.");
+      state.orderLists[scope] = data;
+    } catch (error) {
+      showOrderMessage(scope, error instanceof Error ? error.message : "Orders could not be loaded.", "error");
+    } finally {
+      state.orderLoading[scope] = false;
+      renderOrderList(scope);
+    }
+  }
+
+  async function orderMutationRequest(order, path, body) {
+    if (document.querySelector("#dry-run").checked) {
+      throw new Error("Turn off dry run and save settings before changing or printing a real order.");
+    }
+    const response = await fetch(
+      "/api/orders/" + encodeURIComponent(order.orderNumber) + "/" + path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error((data.issues || []).join(" ") || data.message || "The order action failed.");
+    }
+    return data;
+  }
+
+  async function runOrderMutation(order, scope, path, body, button, busyText, successText) {
+    const idleText = button.textContent;
+    button.disabled = true;
+    button.textContent = busyText;
+    showOrderMessage(scope, "");
+    try {
+      const result = await orderMutationRequest(order, path, body);
+      const success = successText(result);
+      state.orderLists[scope] = null;
+      await loadOrders(scope, true);
+      showOrderMessage(scope, success, "success");
+    } catch (error) {
+      showOrderMessage(scope, error instanceof Error ? error.message : "The order action failed.", "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = idleText;
+    }
+  }
+
+  async function runOrderPrint(order, actionType, label, button, scope) {
+    const idleText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Printing...";
+    showOrderMessage(scope, "");
+    try {
+      await orderMutationRequest(order, "print", { actionType });
+      showOrderMessage(scope, "The " + label + " was sent to the printer.", "success");
+    } catch (error) {
+      showOrderMessage(scope, error instanceof Error ? error.message : "The order could not be printed.", "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = idleText;
+    }
+  }
+
+  async function downloadPackingSlip(order, button, scope) {
+    const idleText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Downloading...";
+    showOrderMessage(scope, "");
+    try {
+      const response = await fetch("/api/orders/" + encodeURIComponent(order.orderNumber) + "/packing-slip", {
+        headers: { Accept: "application/pdf" },
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || "The packing slip could not be downloaded.");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = el("a", { href: url, download: "packing-slip-" + order.orderNumber + ".pdf" });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showOrderMessage(scope, "Packing slip downloaded.", "success");
+    } catch (error) {
+      showOrderMessage(scope, error instanceof Error ? error.message : "The packing slip could not be downloaded.", "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = idleText;
+    }
+  }
 
   function productImage(product) {
     const image = el("img", {
@@ -1455,9 +1851,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
   });
 
   form.addEventListener("input", updateSaveBarVisibility);
-  form.addEventListener("change", updateSaveBarVisibility);
+  form.addEventListener("change", () => {
+    updateSaveBarVisibility();
+    syncDashboardAutomation();
+  });
 
   document.querySelector("#refresh-printers").addEventListener("click", load);
+  document.querySelector("#refresh-dashboard-orders").addEventListener("click", () => void loadOrders("ready-to-ship", true));
+  document.querySelector("#refresh-orders").addEventListener("click", () => void loadOrders("all", true));
   document.querySelector("#refresh-queue").addEventListener("click", loadQueue);
   document.querySelector("#refresh-inventory-queue").addEventListener("click", loadInventoryQueue);
   document.querySelector("#catalog-search").addEventListener("click", () => void searchCatalog());

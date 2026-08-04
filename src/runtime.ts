@@ -1,4 +1,5 @@
-import type { AppConfig } from "./config.js";
+import { randomUUID } from "node:crypto";
+import { loadConfig, type AppConfig } from "./config.js";
 import { createTcgplayerSellerClient } from "tcgplayer-private-api";
 import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError } from "./errors.js";
@@ -18,6 +19,10 @@ import {
   InventoryAdditionQueueStore,
   InventoryAdditionService,
 } from "./inventory-additions.js";
+import {
+  OrderManagementService,
+  type ManualPrintActionType,
+} from "./order-management.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -87,6 +92,47 @@ export async function executeConfiguredSyntheticPrintTest(
   await executeSyntheticPrintTest(action, testActionConfig);
 }
 
+export async function executeConfiguredOrderPrint(
+  config: AppConfig,
+  orderNumber: string,
+  actionType: ManualPrintActionType,
+  environment: NodeJS.ProcessEnv = process.env,
+  signal?: AbortSignal,
+): Promise<void> {
+  const selected = Object.entries(config.actions).find(
+    ([, action]) => action.type === actionType,
+  );
+  if (selected === undefined) {
+    throw new ConfigurationError([
+      `No ${actionType === "print-address-label" ? "address-label" : "packing-slip"} action is configured.`,
+    ]);
+  }
+  const [actionId, actionConfig] = selected;
+  const manualConfig: AppConfig = {
+    ...config,
+    actions: { [actionId]: { ...actionConfig, enabled: true } },
+  };
+  const action = createActions(manualConfig, createPrinters(manualConfig))[
+    actionId
+  ];
+  if (action === undefined) {
+    throw new ConfigurationError([
+      "The selected order print action is unavailable.",
+    ]);
+  }
+  const provider = createOrderProvider(config, environment);
+  const order = await provider.confirmOrder(orderNumber, signal);
+  const packingSlip = action.requiresPackingSlip
+    ? await provider.getPackingSlip(orderNumber, signal)
+    : undefined;
+  await action.execute({
+    order,
+    idempotencyKey: `manual-order-print:${orderNumber}:${actionId}:${randomUUID()}`,
+    ...(packingSlip === undefined ? {} : { packingSlip }),
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
 export function createPriceUpdateQueue(
   config: AppConfig,
 ): PriceUpdateQueueStore {
@@ -152,6 +198,61 @@ export function createInventoryAdditionService(
   return new InventoryAdditionService({
     client: createTcgplayerSellerClient({ session: { authCookie } }),
     sellerKey,
+  });
+}
+
+export function createOrderManagementService(
+  config: AppConfig,
+  configPath: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): OrderManagementService {
+  const authCookie = secretFromEnvironment(
+    config.provider.authCookieEnv,
+    environment,
+  );
+  const sellerKey = secretFromEnvironment(
+    config.provider.sellerKeyEnv,
+    environment,
+  );
+  const timezoneOffsetMinutes =
+    config.timezoneOffsetMinutes === "local"
+      ? new Date().getTimezoneOffset()
+      : config.timezoneOffsetMinutes;
+  return new OrderManagementService({
+    client: createTcgplayerSellerClient({ session: { authCookie } }),
+    sellerKey,
+    pageSize: config.provider.pageSize,
+    maximumPages: config.provider.maximumPages,
+    timezoneOffsetMinutes,
+    liveMode: async () => !(await loadConfig(configPath)).dryRun,
+    executePrint: async (orderNumber, actionType, signal) => {
+      await executeConfiguredOrderPrint(
+        await loadConfig(configPath),
+        orderNumber,
+        actionType,
+        environment,
+        signal,
+      );
+    },
+  });
+}
+
+function createOrderProvider(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv,
+): TcgplayerOrderProvider {
+  return new TcgplayerOrderProvider({
+    authCookie: secretFromEnvironment(
+      config.provider.authCookieEnv,
+      environment,
+    ),
+    sellerKey: secretFromEnvironment(config.provider.sellerKeyEnv, environment),
+    pageSize: config.provider.pageSize,
+    maximumPages: config.provider.maximumPages,
+    timezoneOffsetMinutes:
+      config.timezoneOffsetMinutes === "local"
+        ? new Date().getTimezoneOffset()
+        : config.timezoneOffsetMinutes,
   });
 }
 

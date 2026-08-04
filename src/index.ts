@@ -37,13 +37,17 @@ export {
   createInventoryAdditionExecutor,
   createInventoryAdditionQueue,
   createInventoryAdditionService,
+  createOrderManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
   createRepricingService,
   createWorkflow,
   executeConfiguredSyntheticPrintTest,
+  executeConfiguredOrderPrint,
 } from "./runtime.js";
+export { OrderManagementService } from "./order-management.js";
+export type * from "./order-management.js";
 export {
   createTcgplayerInventoryAdditionExecutor,
   InventoryAdditionQueueStore,
