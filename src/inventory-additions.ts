@@ -28,6 +28,9 @@ import { FileSyncLease, type SyncLease } from "./sync-lease.js";
 
 type UnknownRecord = Record<string, unknown>;
 
+const CATALOG_SEARCH_PAGE_SIZE = 24;
+const CATALOG_SEARCH_BATCH_PAGES = 3;
+
 export interface InventoryPricingRules {
   readonly minimumPrice: number;
   readonly conditionPolicy: RepricingConditionPolicy;
@@ -56,6 +59,19 @@ export interface InventoryAdditionPreview {
   readonly queueable: boolean;
   readonly reason: string;
   readonly rules: InventoryPricingRules;
+}
+
+export type CatalogMatchKind = "exact" | "variant" | "related";
+
+export interface CatalogSearchProduct extends CatalogProductSummary {
+  readonly matchKind: CatalogMatchKind;
+}
+
+export interface CatalogSearchResult {
+  readonly totalProducts: number;
+  readonly products: readonly CatalogSearchProduct[];
+  readonly nextOffset: number;
+  readonly hasMore: boolean;
 }
 
 interface StoredAdditionPreview {
@@ -125,6 +141,86 @@ function whole(
     return minimum;
   }
   return value;
+}
+
+function normalizeCatalogName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{Mark}/gu, "")
+    .toLocaleLowerCase("en-US")
+    .replace(/['’]/gu, "")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
+    .trim()
+    .replace(/\s+/gu, " ");
+}
+
+function catalogNameRank(
+  normalizedQuery: string,
+  productName: string,
+): readonly number[] {
+  const name = normalizeCatalogName(productName);
+  if (name === normalizedQuery) return [0, 0];
+  if (name.startsWith(normalizedQuery)) {
+    return [1, name.length - normalizedQuery.length];
+  }
+  const containedAt = name.indexOf(normalizedQuery);
+  if (containedAt >= 0) {
+    return [2, containedAt, name.length - normalizedQuery.length];
+  }
+  const queryTokens = normalizedQuery.split(" ");
+  const nameTokens = new Set(name.split(" "));
+  const matchedTokens = queryTokens.filter((token) => nameTokens.has(token));
+  return [3, 1 - matchedTokens.length / queryTokens.length];
+}
+
+function compareRank(
+  left: readonly number[],
+  right: readonly number[],
+): number {
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+export function rankCatalogSearchProducts(
+  products: readonly CatalogProductSummary[],
+  query: string,
+): readonly CatalogSearchProduct[] {
+  const normalizedQuery = normalizeCatalogName(query);
+  return [
+    ...new Map(
+      products.map((product) => [product.productId, product]),
+    ).values(),
+  ]
+    .sort((left, right) => {
+      const rankDifference = compareRank(
+        catalogNameRank(normalizedQuery, left.productName),
+        catalogNameRank(normalizedQuery, right.productName),
+      );
+      return (
+        rankDifference ||
+        left.productName.localeCompare(right.productName) ||
+        left.productLineName.localeCompare(right.productLineName) ||
+        left.setName.localeCompare(right.setName) ||
+        left.cardNumber.localeCompare(right.cardNumber) ||
+        left.productId - right.productId
+      );
+    })
+    .map((product) => {
+      const category = catalogNameRank(normalizedQuery, product.productName)[0];
+      return {
+        ...product,
+        matchKind:
+          category === 0
+            ? "exact"
+            : category === 1 || category === 2
+              ? "variant"
+              : "related",
+      };
+    });
 }
 
 function money(
@@ -267,14 +363,42 @@ export class InventoryAdditionService {
     this.previewLifetimeMs = options.previewLifetimeMs ?? 15 * 60_000;
   }
 
-  search(query: string, productLineName?: string) {
-    return this.client.searchCatalogProducts({
-      query,
-      ...(productLineName === undefined || productLineName.trim() === ""
-        ? {}
-        : { productLineName }),
-      limit: 20,
-    });
+  async search(
+    query: string,
+    productLineName?: string,
+    offset = 0,
+  ): Promise<CatalogSearchResult> {
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
+      throw new ConfigurationError([
+        "Catalog search offset must be between 0 and 1000000.",
+      ]);
+    }
+    const products: CatalogProductSummary[] = [];
+    let totalProducts = 0;
+    let nextOffset = offset;
+    for (let page = 0; page < CATALOG_SEARCH_BATCH_PAGES; page += 1) {
+      const result = await this.client.searchCatalogProducts({
+        query,
+        ...(productLineName === undefined || productLineName.trim() === ""
+          ? {}
+          : { productLineName }),
+        offset: nextOffset,
+        limit: CATALOG_SEARCH_PAGE_SIZE,
+      });
+      totalProducts = Math.max(totalProducts, result.totalProducts);
+      products.push(...result.products);
+      nextOffset = Math.min(
+        nextOffset + CATALOG_SEARCH_PAGE_SIZE,
+        totalProducts,
+      );
+      if (result.products.length === 0 || nextOffset >= totalProducts) break;
+    }
+    return {
+      totalProducts,
+      products: rankCatalogSearchProducts(products, query),
+      nextOffset,
+      hasMore: nextOffset < totalProducts,
+    };
   }
 
   getProduct(productId: number): Promise<CatalogProductDetails> {

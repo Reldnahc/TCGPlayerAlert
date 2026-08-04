@@ -81,7 +81,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
             <div class="catalog-search-row">
               <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
-              <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" maxlength="100" placeholder="Magic: The Gathering, Pokemon..." /></label>
+              <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" list="catalog-product-lines" maxlength="100" placeholder="All product lines" /><datalist id="catalog-product-lines"></datalist><small class="field-note">Suggestions appear from loaded catalog results.</small></label>
               <button id="catalog-search" class="primary-button dark-button" type="button">Search catalog</button>
             </div>
             <p id="inventory-message" class="repricing-message">Search for a card to begin. Nothing is listed until you preview and queue it.</p>
@@ -338,7 +338,12 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .inventory-copy h3 { margin: 0 0 6px; }
 .inventory-copy p { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
 .catalog-search-row { display: grid; grid-template-columns: 1.35fr 1fr auto; align-items: end; gap: 14px; padding: 16px 25px 20px; }
-.catalog-results { display: grid; gap: 8px; max-height: 360px; overflow: auto; padding: 0 25px 22px; }
+.catalog-results { display: grid; gap: 16px; max-height: 560px; overflow: auto; padding: 0 25px 22px; }
+.catalog-section { display: grid; gap: 8px; }
+.catalog-section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 2px 2px 0; }
+.catalog-section-head h4 { margin: 0; font-size: .9rem; }
+.catalog-section-head span { color: var(--muted); font-size: .75rem; }
+.catalog-section-list { display: grid; gap: 8px; }
 .catalog-result { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 15px 10px 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .product-image { display: grid; place-items: center; width: 64px; aspect-ratio: 200 / 279; overflow: hidden; border-radius: 7px; background: #eef0e8; color: var(--muted); font-size: .62rem; text-align: center; }
 .product-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
@@ -346,6 +351,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-result-copy { min-width: 0; display: grid; gap: 3px; }
 .catalog-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-result-copy small, .selected-product small { color: var(--muted); }
+.catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
 .inventory-editor { border-top: 1px solid var(--line); }
 .selected-product { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 14px; padding: 18px 25px 4px; }
 .selected-product-copy { display: grid; gap: 4px; min-width: 0; }
@@ -433,6 +439,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     repricingPreview: null,
     inventoryProduct: null,
     inventoryPreview: null,
+    catalogSearch: null,
+    catalogSearchToken: 0,
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
@@ -712,9 +720,80 @@ export const CONFIG_UI_JS = String.raw`(() => {
     ]);
   }
 
-  async function searchCatalog() {
-    const query = document.querySelector("#catalog-query").value.trim();
-    const productLine = document.querySelector("#catalog-product-line").value.trim();
+  const catalogMatchOrder = { exact: 0, variant: 1, related: 2 };
+
+  function sortLoadedCatalogProducts(products) {
+    return [...new Map(products.map((product) => [product.productId, product])).values()].sort((left, right) => {
+      const categoryDifference = catalogMatchOrder[left.matchKind] - catalogMatchOrder[right.matchKind];
+      if (categoryDifference !== 0) return categoryDifference;
+      if (left.matchKind === "related" && right.matchKind === "related") {
+        return left.loadedOrder - right.loadedOrder;
+      }
+      return left.productName.localeCompare(right.productName)
+        || left.productLineName.localeCompare(right.productLineName)
+        || left.setName.localeCompare(right.setName)
+        || left.cardNumber.localeCompare(right.cardNumber)
+        || left.productId - right.productId;
+    });
+  }
+
+  function catalogSection(title, description, products) {
+    if (products.length === 0) return null;
+    return el("section", { className: "catalog-section", "aria-label": title }, [
+      el("div", { className: "catalog-section-head" }, [
+        el("div", {}, [el("h4", { text: title }), el("span", { text: description })]),
+        el("span", { text: String(products.length) + " loaded" }),
+      ]),
+      el("div", { className: "catalog-section-list" }, products.map(catalogResult)),
+    ]);
+  }
+
+  function updateCatalogProductLineSuggestions(products, selectedProductLine) {
+    const names = distinct(products.map((product) => product.productLineName)).sort((left, right) => left.localeCompare(right));
+    if (selectedProductLine && !names.includes(selectedProductLine)) names.unshift(selectedProductLine);
+    document.querySelector("#catalog-product-lines").replaceChildren(
+      ...names.map((name) => el("option", { value: name })),
+    );
+  }
+
+  function renderCatalogSearch() {
+    const search = state.catalogSearch;
+    const message = document.querySelector("#inventory-message");
+    const results = document.querySelector("#catalog-results");
+    const exact = search.products.filter((product) => product.matchKind === "exact");
+    const variants = search.products.filter((product) => product.matchKind === "variant");
+    const related = search.products.filter((product) => product.matchKind === "related");
+    const sections = [
+      catalogSection("Exact name", "Every loaded set and printing with the same normalized name.", exact),
+      catalogSection("Name variants", "Qualified or extended versions of the searched name.", variants),
+      catalogSection("Related results", "Broader fuzzy matches returned by TCGplayer.", related),
+    ].filter(Boolean);
+    if (sections.length === 0) {
+      sections.push(el("div", { className: "queue-empty", text: "No products matched this search and product line." }));
+    }
+    if (search.hasMore) {
+      const loadMore = el("button", { id: "catalog-load-more", className: "quiet-button", type: "button", text: "Load more" });
+      loadMore.addEventListener("click", () => searchCatalog(true, loadMore));
+      sections.push(el("div", { className: "catalog-load-more" }, [
+        el("span", { text: "Scanned " + search.nextOffset + " of " + search.totalProducts + " TCGplayer matches." }),
+        loadMore,
+      ]));
+    }
+    results.replaceChildren(...sections);
+    results.hidden = false;
+    updateCatalogProductLineSuggestions(search.products, search.productLine);
+    message.className = "repricing-message success";
+    const exactSummary = exact.length === 0
+      ? "No exact-name printing is loaded yet."
+      : String(exact.length) + (exact.length === 1 ? " exact-name printing loaded." : " exact-name printings loaded.");
+    message.textContent = "Showing " + search.products.length + " unique products after scanning " + search.nextOffset + " of " + search.totalProducts + " TCGplayer matches. " + exactSummary;
+  }
+
+  async function searchCatalog(append = false, triggerButton) {
+    const current = state.catalogSearch;
+    const query = append && current ? current.query : document.querySelector("#catalog-query").value.trim();
+    const productLine = append && current ? current.productLine : document.querySelector("#catalog-product-line").value.trim();
+    const offset = append && current ? current.nextOffset : 0;
     const message = document.querySelector("#inventory-message");
     const results = document.querySelector("#catalog-results");
     if (query.length < 2) {
@@ -722,32 +801,50 @@ export const CONFIG_UI_JS = String.raw`(() => {
       message.textContent = "Enter at least two characters of the card name.";
       return;
     }
-    const button = document.querySelector("#catalog-search");
+    const button = triggerButton || document.querySelector("#catalog-search");
+    const idleText = append ? "Load more" : "Search catalog";
+    const requestToken = state.catalogSearchToken + 1;
+    state.catalogSearchToken = requestToken;
     button.disabled = true;
-    button.textContent = "Searching...";
+    button.textContent = append ? "Loading..." : "Searching...";
     message.className = "repricing-message";
-    message.textContent = "Searching the TCGplayer catalog for exact products...";
+    message.textContent = append ? "Loading more catalog matches..." : "Searching several TCGplayer catalog pages for exact products...";
+    if (!append) {
+      state.catalogSearch = null;
+      state.inventoryProduct = null;
+      state.inventoryPreview = null;
+      results.hidden = true;
+      document.querySelector("#inventory-editor").hidden = true;
+      document.querySelector("#inventory-preview-result").hidden = true;
+    }
     try {
-      const parameters = new URLSearchParams({ q: query });
+      const parameters = new URLSearchParams({ q: query, offset: String(offset) });
       if (productLine) parameters.set("productLine", productLine);
       const response = await fetch("/api/catalog/search?" + parameters.toString(), { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Catalog search failed.");
-      const products = data.products;
-      results.replaceChildren(
-        ...(products.length === 0
-          ? [el("div", { className: "queue-empty", text: "No products matched. Try a more exact name or product line." })]
-          : products.map(catalogResult)),
-      );
-      results.hidden = false;
-      message.className = "repricing-message success";
-      message.textContent = products.length + (products.length === 1 ? " product found. Choose it to select a condition." : " products found. Choose the exact printing and set.");
+      if (requestToken !== state.catalogSearchToken) return;
+      const existing = append && current ? current.products : [];
+      const loadedOrderStart = existing.reduce((maximum, product) => Math.max(maximum, product.loadedOrder), -1) + 1;
+      const received = data.products.map((product, index) => ({ ...product, loadedOrder: loadedOrderStart + index }));
+      state.catalogSearch = {
+        query,
+        productLine,
+        totalProducts: data.totalProducts,
+        nextOffset: data.nextOffset,
+        hasMore: data.hasMore,
+        products: sortLoadedCatalogProducts([...existing, ...received]),
+      };
+      renderCatalogSearch();
     } catch (error) {
+      if (requestToken !== state.catalogSearchToken) return;
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "Catalog search failed.";
     } finally {
-      button.disabled = false;
-      button.textContent = "Search catalog";
+      if (requestToken === state.catalogSearchToken) {
+        button.disabled = false;
+        button.textContent = idleText;
+      }
     }
   }
 
@@ -1308,13 +1405,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#refresh-printers").addEventListener("click", load);
   document.querySelector("#refresh-queue").addEventListener("click", loadQueue);
   document.querySelector("#refresh-inventory-queue").addEventListener("click", loadInventoryQueue);
-  document.querySelector("#catalog-search").addEventListener("click", searchCatalog);
-  document.querySelector("#catalog-query").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      void searchCatalog();
-    }
-  });
+  document.querySelector("#catalog-search").addEventListener("click", () => void searchCatalog());
+  for (const selector of ["#catalog-query", "#catalog-product-line"]) {
+    document.querySelector(selector).addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void searchCatalog();
+      }
+    });
+  }
   document.querySelector("#inventory-preview").addEventListener("click", previewInventoryAddition);
   document.querySelector("#inventory-card-condition").addEventListener("change", () => {
     invalidateInventoryPreview();

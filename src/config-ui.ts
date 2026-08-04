@@ -680,12 +680,20 @@ async function handleRequest(
         return;
       }
       const productLine = url.searchParams.get("productLine")?.trim();
+      const offsetText = url.searchParams.get("offset") ?? "0";
+      if (!/^\d{1,7}$/u.test(offsetText) || Number(offsetText) > 1_000_000) {
+        sendJson(response, 400, {
+          message: "Catalog offset must be between 0 and 1000000.",
+        });
+        return;
+      }
       sendJson(
         response,
         200,
         await inventoryService.search(
           query,
           productLine === "" ? undefined : productLine,
+          Number(offsetText),
         ),
       );
     } else if (

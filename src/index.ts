@@ -50,6 +50,7 @@ export {
   InventoryAdditionService,
   InventoryAdditionWorker,
   parseInventoryPricingRules,
+  rankCatalogSearchProducts,
 } from "./inventory-additions.js";
 export type * from "./inventory-additions.js";
 export {

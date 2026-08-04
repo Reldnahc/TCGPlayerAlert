@@ -142,6 +142,16 @@ describe("configuration UI service", () => {
     );
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-shipping");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
+    expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
+    expect(CONFIG_UI_JS).toContain('text: "Load more"');
+    expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
+    expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
+    expect(CONFIG_UI_JS).toContain(
+      "new URLSearchParams({ q: query, offset: String(offset) })",
+    );
+    expect(CONFIG_UI_JS).not.toContain(
+      "message.textContent = products.length +",
+    );
     expect(CONFIG_UI_JS).toContain(
       'text: isAddress ? "Print test label" : "Print test sheet"',
     );
@@ -389,6 +399,9 @@ describe("configuration UI service", () => {
     const catalogSearch = await fetch(
       `${server.url}/api/catalog/search?q=Synthetic`,
     );
+    const invalidCatalogOffset = await fetch(
+      `${server.url}/api/catalog/search?q=Synthetic&offset=-1`,
+    );
     const catalogDetails = await fetch(
       `${server.url}/api/catalog/products/123`,
     );
@@ -449,7 +462,13 @@ describe("configuration UI service", () => {
     });
     expect(settings.status).toBe(200);
     expect(catalogSearch.status).toBe(200);
-    expect(await catalogSearch.json()).toMatchObject({ totalProducts: 1 });
+    expect(await catalogSearch.json()).toMatchObject({
+      totalProducts: 1,
+      nextOffset: 1,
+      hasMore: false,
+      products: [{ productId: 123, matchKind: "variant" }],
+    });
+    expect(invalidCatalogOffset.status).toBe(400);
     expect(catalogDetails.status).toBe(200);
     expect(await catalogDetails.json()).toMatchObject({ productId: 123 });
     expect(inventoryPreviewResponse.status).toBe(200);

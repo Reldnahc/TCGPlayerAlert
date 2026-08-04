@@ -15,6 +15,7 @@ import {
   InventoryAdditionService,
   InventoryAdditionWorker,
   parseConfig,
+  rankCatalogSearchProducts,
   type InventoryAdditionExecutor,
   type Logger,
 } from "../src/index.js";
@@ -118,6 +119,94 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
+  it("loads and globally ranks several catalog pages before returning", async () => {
+    const related = { ...product, productId: 1, productName: "Synthetic Box" };
+    const variant = {
+      ...product,
+      productId: 2,
+      productName: "Synthetic Card [Extended Art]",
+    };
+    const exact = { ...product, productId: 3 };
+    const searchCatalogProducts = vi.fn(
+      (input: { offset?: number; productLineName?: string }) => {
+        const products =
+          input.offset === 0
+            ? [related]
+            : input.offset === 24
+              ? [variant]
+              : [exact, related];
+        return Promise.resolve({ totalProducts: 100, products });
+      },
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts,
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const result = await service.search("Synthetic Card", "Synthetic Game");
+
+    expect(searchCatalogProducts.mock.calls.map(([input]) => input)).toEqual([
+      {
+        query: "Synthetic Card",
+        productLineName: "Synthetic Game",
+        offset: 0,
+        limit: 24,
+      },
+      {
+        query: "Synthetic Card",
+        productLineName: "Synthetic Game",
+        offset: 24,
+        limit: 24,
+      },
+      {
+        query: "Synthetic Card",
+        productLineName: "Synthetic Game",
+        offset: 48,
+        limit: 24,
+      },
+    ]);
+    expect(result).toMatchObject({
+      totalProducts: 100,
+      nextOffset: 72,
+      hasMore: true,
+      products: [
+        { productId: 3, matchKind: "exact" },
+        { productId: 2, matchKind: "variant" },
+        { productId: 1, matchKind: "related" },
+      ],
+    });
+    await expect(
+      service.search("Synthetic Card", undefined, -1),
+    ).rejects.toMatchObject({
+      issues: ["Catalog search offset must be between 0 and 1000000."],
+    });
+  });
+
+  it("normalizes punctuation and keeps exact products above variants", () => {
+    const ranked = rankCatalogSearchProducts(
+      [
+        {
+          ...product,
+          productId: 2,
+          productName: "Professor's Research [Professor Oak]",
+        },
+        { ...product, productId: 1, productName: "Professors Research" },
+      ],
+      "Professor's Research",
+    );
+
+    expect(
+      ranked.map(({ productId, matchKind }) => ({ productId, matchKind })),
+    ).toEqual([
+      { productId: 1, matchKind: "exact" },
+      { productId: 2, matchKind: "variant" },
+    ]);
+  });
+
   it("previews an exact SKU and prices it against a better condition", async () => {
     const searchMarketplaceProducts = vi.fn(
       (input: { sellerKey?: string; channelId?: number }) => {
