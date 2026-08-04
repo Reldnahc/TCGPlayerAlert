@@ -64,15 +64,15 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <label class="switch-row">
                 <span>
                   <strong id="queue-title">Process queued prices</strong>
-                  <small>Dry run pauses this worker even when it is enabled.</small>
+                  <small>Runs one at a time. Dry run pauses this worker even when it is enabled.</small>
                 </span>
                 <input id="price-queue-enabled" type="checkbox" />
                 <span class="switch" aria-hidden="true"></span>
               </label>
               <label class="field compact-field">
-                <span>Wait between updates</span>
+                <span>Cooldown after each update</span>
                 <span class="input-with-unit">
-                  <input id="price-delay" type="number" min="1" max="3600" required />
+                  <input id="price-delay" type="number" min="0" max="3600" required />
                   <span>seconds</span>
                 </span>
               </label>

@@ -673,6 +673,7 @@ function hasCode(error: unknown, code: string): boolean {
 
 async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
+  if (milliseconds <= 0) return;
   await new Promise<void>((resolvePromise) => {
     const finish = () => {
       clearTimeout(timer);

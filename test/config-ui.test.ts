@@ -65,7 +65,7 @@ describe("configuration UI service", () => {
       dryRun: false,
       priceUpdateQueue: {
         enabled: true,
-        delaySeconds: 45,
+        delaySeconds: 0,
       },
       outputs: [
         {
@@ -92,7 +92,7 @@ describe("configuration UI service", () => {
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
       dryRun: false,
-      priceUpdateQueue: { enabled: true, delaySeconds: 45 },
+      priceUpdateQueue: { enabled: true, delaySeconds: 0 },
     });
     expect(config.actions[address.actionId]?.enabled).toBe(false);
     expect(config.actions[packingSlip.actionId]?.enabled).toBe(true);

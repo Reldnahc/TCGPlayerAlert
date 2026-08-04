@@ -12,7 +12,7 @@ Seller Portal price updates are slow and should not block an operator or reprici
 - Keep endpoint transport and payload encoding in `tcgplayer-private-api`; keep scheduling, persistence, operator controls, and policy in this application.
 - Store price jobs in a dedicated, atomically replaced JSON document with a filesystem lease.
 - Queue one complete listing-state update per job. Preserve current quantity and reserve quantity; do not expose quantity changes through this workflow.
-- Return from enqueue immediately. Run one worker with one in-flight mutation and a configurable minimum delay between requests (30 seconds by default).
+- Return from enqueue immediately. Run one worker with one in-flight mutation. Start the next job when the previous request finishes, with an optional configurable cooldown that defaults to zero.
 - Supersede an older pending job when a newer price targets the same product-condition/channel pair.
 - Pause processing while global dry run is enabled or the queue is disabled.
 - Retry only a definite HTTP 429, after a long configured delay. Mark authentication, authorization, validation, and permanent failures as failed.

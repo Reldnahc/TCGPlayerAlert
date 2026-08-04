@@ -53,7 +53,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     priceUpdateQueue: {
       enabled: true,
       stateFile: ".data/test-price-updates.json",
-      delaySeconds: 30,
+      delaySeconds: 0,
       rateLimitDelaySeconds: 300,
       historyLimit: 500,
     },

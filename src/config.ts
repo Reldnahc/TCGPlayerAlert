@@ -627,7 +627,7 @@ export function parseConfig(value: unknown): AppConfig {
       priceUpdateQueue,
       "delaySeconds",
       "config.priceUpdateQueue",
-      1,
+      0,
       3600,
       issues,
     ),

@@ -309,10 +309,10 @@ function parseUiUpdate(
   const priceUpdateDelaySeconds = priceUpdateQueueSource?.delaySeconds;
   if (
     !Number.isInteger(priceUpdateDelaySeconds) ||
-    Number(priceUpdateDelaySeconds) < 1 ||
+    Number(priceUpdateDelaySeconds) < 0 ||
     Number(priceUpdateDelaySeconds) > 3600
   ) {
-    issues.push("Price-update delay must be between 1 and 3600 seconds.");
+    issues.push("Price-update delay must be between 0 and 3600 seconds.");
   }
   const outputValues = source?.outputs;
   if (!Array.isArray(outputValues))

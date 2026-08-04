@@ -115,6 +115,54 @@ describe("price-update queue", () => {
     });
   });
 
+  it("starts the next job immediately after the previous request finishes", async () => {
+    const { queue } = await queueFixture();
+    await queue.enqueue({
+      updates: [
+        syntheticUpdate,
+        {
+          ...syntheticUpdate,
+          productConditionId: 789,
+          price: 13.25,
+        },
+      ],
+    });
+    const controller = new AbortController();
+    let inFlight = 0;
+    let maximumInFlight = 0;
+    const applied: number[] = [];
+    const executor: PriceUpdateExecutor = {
+      apply: async (update) => {
+        inFlight += 1;
+        maximumInFlight = Math.max(maximumInFlight, inFlight);
+        applied.push(update.productConditionId);
+        await Promise.resolve();
+        inFlight -= 1;
+        if (applied.length === 2) controller.abort();
+      },
+    };
+    const worker = new PriceUpdateWorker({
+      queue,
+      executor,
+      settings: () =>
+        Promise.resolve({
+          enabled: true,
+          stateFile: "unused.json",
+          delaySeconds: 0,
+          rateLimitDelaySeconds: 300,
+          historyLimit: 25,
+        }),
+      logger,
+      idleDelayMs: 1,
+    });
+
+    await worker.run(controller.signal);
+
+    expect(applied).toEqual([456, 789]);
+    expect(maximumInFlight).toBe(1);
+    expect((await queue.snapshot()).counts.applied).toBe(2);
+  });
+
   it("stops an ambiguous update for review without retrying it", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(syntheticUpdate);

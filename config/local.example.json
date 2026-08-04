@@ -9,7 +9,7 @@
   "priceUpdateQueue": {
     "enabled": true,
     "stateFile": ".data/price-updates.json",
-    "delaySeconds": 30,
+    "delaySeconds": 0,
     "rateLimitDelaySeconds": 300,
     "historyLimit": 500
   },
