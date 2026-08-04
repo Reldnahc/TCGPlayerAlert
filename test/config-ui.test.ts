@@ -162,6 +162,23 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('window.addEventListener("popstate"');
   });
 
+  it("shows the save banner only for unsaved persistent settings", () => {
+    expect(CONFIG_UI_HTML).toContain('id="save-bar" class="save-bar" hidden');
+    expect(CONFIG_UI_JS).toContain("savedSettingsFingerprint");
+    expect(CONFIG_UI_JS).toContain(
+      "settingsFingerprint() !== state.savedSettingsFingerprint",
+    );
+    expect(CONFIG_UI_JS).toContain(
+      'form.addEventListener("input", updateSaveBarVisibility)',
+    );
+    expect(CONFIG_UI_JS).toContain(
+      'form.addEventListener("change", updateSaveBarVisibility)',
+    );
+    expect(CONFIG_UI_JS).not.toContain(
+      'saveBar.hidden = selectedTab !== "automation"',
+    );
+  });
+
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
     const fixture = await configurationFixture();
     const priceQueue = new PriceUpdateQueueStore({

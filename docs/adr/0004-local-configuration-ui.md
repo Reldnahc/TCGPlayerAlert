@@ -18,6 +18,7 @@ Printer names, label stock, PDF scaling, polling cadence, dry-run behavior, and 
 - Use a configuration revision hash so a stale browser tab cannot overwrite a newer edit. Validate the complete resulting application configuration before replacing the file.
 - Host the UI with the long-running scheduler and also provide a `configure` command that runs the settings UI without seller credentials or synchronization.
 - Organize the growing operator surface into Automation, Add cards, Repricing, and Jobs tabs. Keep status visible across tabs, preserve each tab's DOM state while navigating, expose the selected tab in the URL hash, remember it locally, and support standard arrow, Home, and End keyboard navigation.
+- Compare the current persistent-settings projection with the last server-loaded or successfully saved projection. Keep the fixed save banner hidden when they match, including when only preview/search fields change, and show it across tabs while persistent settings are dirty.
 
 ## Consequences
 

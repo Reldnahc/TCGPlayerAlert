@@ -210,7 +210,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </section>
           </div>
 
-          <div id="save-bar" class="save-bar">
+          <div id="save-bar" class="save-bar" hidden>
             <div>
               <strong id="save-title">Ready to configure</strong>
               <span id="save-detail">Automation and worker changes are stored only on this computer.</span>
@@ -424,6 +424,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   "use strict";
   const state = {
     settings: null,
+    savedSettingsFingerprint: null,
     repricingPreview: null,
     inventoryProduct: null,
     inventoryPreview: null,
@@ -458,7 +459,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     for (const panel of document.querySelectorAll('[role="tabpanel"][data-panel]')) {
       panel.hidden = panel.dataset.panel !== selectedTab;
     }
-    saveBar.hidden = selectedTab !== "automation" && selectedTab !== "jobs";
     try {
       window.localStorage.setItem(activeTabStorageKey, selectedTab);
     } catch {
@@ -602,6 +602,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#inventory-queue-enabled").checked = state.settings.inventoryAdditionQueue.enabled;
     document.querySelector("#inventory-delay").value = String(state.settings.inventoryAdditionQueue.delaySeconds);
     outputs.replaceChildren(...state.settings.outputs.map(renderOutput));
+    state.savedSettingsFingerprint = settingsFingerprint();
+    updateSaveBarVisibility();
     printerNote.hidden = !state.settings.discoveryIssue;
     printerNote.textContent = state.settings.discoveryIssue || "";
     connection.textContent = "Local connection";
@@ -1187,13 +1189,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return value;
   }
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!form.reportValidity()) return;
-    saveButton.disabled = true;
-    saveButton.textContent = "Saving…";
-    saveTitle.textContent = "Validating settings";
-    const payload = {
+  function collectSettingsUpdate() {
+    return {
       revision: state.settings.revision,
       pollIntervalMinutes: Number(document.querySelector("#poll-interval").value),
       dryRun: document.querySelector("#dry-run").checked,
@@ -1210,6 +1207,32 @@ export const CONFIG_UI_JS = String.raw`(() => {
         return collectOutput(card, output);
       }),
     };
+  }
+
+  function settingsFingerprint() {
+    return JSON.stringify(collectSettingsUpdate());
+  }
+
+  function updateSaveBarVisibility() {
+    if (state.settings === null || state.savedSettingsFingerprint === null) {
+      saveBar.hidden = true;
+      return;
+    }
+    const hasUnsavedChanges = settingsFingerprint() !== state.savedSettingsFingerprint;
+    saveBar.hidden = !hasUnsavedChanges;
+    if (hasUnsavedChanges) {
+      saveTitle.textContent = "Unsaved changes";
+      saveDetail.textContent = "Save to update automation and worker settings.";
+    }
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving…";
+    saveTitle.textContent = "Validating settings";
+    const payload = collectSettingsUpdate();
     try {
       const response = await fetch("/api/settings", {
         method: "PUT",
@@ -1230,6 +1253,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       saveButton.textContent = "Save settings";
     }
   });
+
+  form.addEventListener("input", updateSaveBarVisibility);
+  form.addEventListener("change", updateSaveBarVisibility);
 
   document.querySelector("#refresh-printers").addEventListener("click", load);
   document.querySelector("#refresh-queue").addEventListener("click", loadQueue);
