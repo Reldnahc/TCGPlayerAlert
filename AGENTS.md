@@ -212,6 +212,6 @@ A change is done only when:
 - Whether TCGplayer session acquisition or renewal remains entirely operator-owned.
 - Which non-Windows or direct-network printer adapters should follow the initial native Windows adapters.
 - Whether a later multi-user or remote deployment warrants replacing the single-process JSON store with a transactional database.
-- Whether a web operator interface is needed beyond the initial CLI.
+- Which operator controls beyond the accepted loopback-only configuration UI in ADR 0004 should be added without expanding into remote administration.
 
 Record consequential changes with a short architecture decision record before coupling implementation to them.

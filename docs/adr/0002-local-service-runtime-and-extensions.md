@@ -10,7 +10,7 @@ The first deployment needs to poll one seller account, remember workflow decisio
 ## Decision
 
 - Implement a private Node.js 20.19+ application in strict TypeScript and compile it as ESM.
-- Expose a CLI with scheduled service, one-shot synchronization, state status, and configuration validation commands. A future UI will call the same application services.
+- Expose a CLI with scheduled service, one-shot synchronization, state status, and configuration validation commands. ADR 0004 adds a loopback-only UI over the same validated configuration model.
 - Consume `tcgplayer-private-api` only through an npm-installed immutable tarball during adjacent development, then a semantic registry version after publication.
 - Use a versioned, atomically replaced JSON state document for the initial single-process deployment. Persist only order identifiers, workflow/action states, timestamps, safe error classifications, and rule explanations; never persist addresses or document bytes.
 - Coalesce overlapping requests in process and serialize independent CLI/service processes with a filesystem lease, heartbeat, and stale-lock recovery. Write an action's durable `running` intent before invoking a side effect; an interrupted `running` action becomes `review-required` on restart instead of being submitted again.

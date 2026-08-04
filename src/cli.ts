@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { loadConfig } from "./config.js";
+import { startConfigurationUi } from "./config-ui.js";
 import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
@@ -9,6 +10,7 @@ import { JsonStateStore } from "./state.js";
 const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
 const configPath = option("--config") ?? "config/local.json";
+const uiPort = portOption(option("--port"));
 
 try {
   if (command === "config" && argumentsList[1] === "validate") {
@@ -56,31 +58,49 @@ try {
     process.stdout.write(
       `${JSON.stringify({ printed: true, actionId, synthetic: true })}\n`,
     );
-  } else if (command === "start") {
-    const config = await loadConfig(configPath);
-    const workflow = createWorkflow(config, jsonLogger);
+  } else if (command === "configure") {
+    await loadConfig(configPath);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
+    const ui = await startConfigurationUi({ configPath, port: uiPort });
+    process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
+    try {
+      await waitUntilAborted(controller.signal);
+    } finally {
+      await ui.close();
+    }
+  } else if (command === "start") {
+    await loadConfig(configPath);
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    const ui = await startConfigurationUi({ configPath, port: uiPort });
     jsonLogger.info("service.started", {
-      pollIntervalMinutes: config.pollIntervalMinutes,
-      dryRun: config.dryRun,
+      settingsUrl: ui.url,
     });
-    while (!controller.signal.aborted) {
-      try {
-        await workflow.run("scheduled", { signal: controller.signal });
-      } catch (error) {
-        jsonLogger.error("service.sync-failed", {
-          errorCode: safeErrorCode(error),
-        });
+    try {
+      while (!controller.signal.aborted) {
+        const config = await loadConfig(configPath);
+        const workflow = createWorkflow(config, jsonLogger);
+        try {
+          await workflow.run("scheduled", { signal: controller.signal });
+        } catch (error) {
+          jsonLogger.error("service.sync-failed", {
+            errorCode: safeErrorCode(error),
+          });
+        }
+        await wait(config.pollIntervalMinutes * 60_000, controller.signal);
       }
-      await wait(config.pollIntervalMinutes * 60_000, controller.signal);
+    } finally {
+      await ui.close();
     }
     jsonLogger.info("service.stopped");
   } else {
     process.stderr.write(
-      "Usage: tcgplayer-alert <start|sync|status|config validate|print test> [--config path] [--process-backlog] [--action id]\n",
+      "Usage: tcgplayer-alert <start|configure|sync|status|config validate|print test> [--config path] [--port number] [--process-backlog] [--action id]\n",
     );
     process.exitCode = 2;
   }
@@ -102,6 +122,17 @@ function option(name: string): string | undefined {
   return index === -1 ? undefined : argumentsList[index + 1];
 }
 
+function portOption(value: string | undefined): number {
+  if (value === undefined) return 47831;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new ConfigurationError([
+      "--port must be an integer from 1 through 65535.",
+    ]);
+  }
+  return port;
+}
+
 async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
   await new Promise<void>((resolvePromise) => {
@@ -112,5 +143,12 @@ async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
     };
     const timer = setTimeout(finish, milliseconds);
     signal.addEventListener("abort", finish, { once: true });
+  });
+}
+
+async function waitUntilAborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolvePromise) => {
+    signal.addEventListener("abort", () => resolvePromise(), { once: true });
   });
 }

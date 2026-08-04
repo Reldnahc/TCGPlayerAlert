@@ -8,6 +8,25 @@ import {
 import { appConfig, syntheticOrder } from "./fixtures.js";
 
 describe("address-label action", () => {
+  it("does not instantiate disabled print actions", () => {
+    const actions = createActions(
+      appConfig({
+        actions: {
+          label: {
+            type: "print-address-label",
+            enabled: false,
+            printer: "synthetic",
+            page: { widthMm: 89, heightMm: 36, marginMm: 3, fontSize: 9 },
+            lines: ["{recipientName}"],
+          },
+        },
+      }),
+      {},
+    );
+
+    expect(actions).toEqual({});
+  });
+
   it("renders a valid PDF using a configurable label size and template", async () => {
     const bytes = await renderAddressLabel(syntheticOrder, {
       type: "print-address-label",

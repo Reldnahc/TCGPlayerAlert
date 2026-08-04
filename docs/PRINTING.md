@@ -12,6 +12,8 @@ Renderer, document, and printer transport are separate contracts. A future IPP, 
 
 ## Initial actions
 
+Each action has an independent `enabled` setting. A disabled action is omitted from the workflow even when a matched rule names it. This provides global “no address label” and “no packing slip” modes without changing rule conditions.
+
 `print-address-label` creates a structured label using configurable dimensions, margin, font size, address-line template, and printer. A PDF remains available as a fallback for PDF-capable adapters and for preview validation.
 
 The native Windows adapter describes custom stock in portrait dimensions and selects landscape orientation automatically when the configured label is wider than it is tall. This avoids vendor drivers rotating wide labels sideways.
@@ -39,13 +41,15 @@ PDF.js accepts PDFs up to 50 MiB, renders at most 50 pages per document, rejects
 ## Safe setup
 
 1. Leave `dryRun` enabled.
-2. Set the exact OS printer name for each Windows adapter. Only the optional `command` adapter needs an executable and arguments.
+2. Run `npm run configure` and select the exact installed printer for each enabled output. The UI can also disable either output completely. Only the optional `command` adapter needs an executable and arguments edited in JSON.
 3. Build the application and run `config validate`.
 4. Run `print test --action print-address-label` and verify the synthetic label's size, orientation, and destination.
 5. Run `print test --action print-packing-slip` and verify the synthetic page's destination and scaling.
 6. Only then set `dryRun` to `false`.
 
 The test commands intentionally print but contain no customer data.
+
+The settings UI listens on `127.0.0.1` only, discovers queues without submitting jobs, and preserves a configured printer name if that printer is offline during discovery. Configuration changes are validated as a whole before the ignored local JSON file is atomically replaced.
 
 ## Temporary data and child processes
 

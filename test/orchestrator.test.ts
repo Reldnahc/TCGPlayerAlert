@@ -99,6 +99,31 @@ describe("fulfillment workflow", () => {
     );
   });
 
+  it("completes an order when every rule-selected action is disabled", async () => {
+    const provider = new FakeProvider();
+    const stateStore = new MemoryStateStore();
+    const workflow = new FulfillmentWorkflow({
+      config: appConfig({ dryRun: false, rules: [defaultRule] }),
+      provider,
+      stateStore,
+      actions: {},
+      logger: silentLogger,
+      now: () => new Date("2026-01-02T03:04:05.000Z"),
+      createId: () => "synthetic-correlation",
+    });
+    await workflow.run("manual");
+    provider.discovered = [{ id: syntheticOrderId, status: "ReadyToShip" }];
+
+    await workflow.run("scheduled");
+
+    expect(provider.confirmations).toBe(1);
+    expect(provider.packingSlips).toBe(0);
+    expect(stateStore.state.orders[syntheticOrderId]).toMatchObject({
+      workflowStatus: "completed",
+      actions: {},
+    });
+  });
+
   it("quarantines an ambiguous print and never submits it again", async () => {
     const fixture = workflowFixture({ dryRun: false });
     fixture.label.error = new ApplicationError(

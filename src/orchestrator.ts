@@ -244,7 +244,7 @@ export class FulfillmentWorkflow {
     const matched = evaluations.filter((evaluation) => evaluation.matched);
     const actionIds = [
       ...new Set(matched.flatMap((evaluation) => evaluation.actionIds)),
-    ];
+    ].filter((actionId) => this.dependencies.actions[actionId] !== undefined);
     const existing = requiredOrder(state, orderId);
     const actions = { ...existing.actions };
     const timestamp = this.timestamp();

@@ -59,6 +59,7 @@ export type PrinterConfig =
 
 export interface AddressLabelActionConfig {
   readonly type: "print-address-label";
+  readonly enabled?: boolean;
   readonly printer: string;
   readonly page: {
     readonly widthMm: number;
@@ -73,6 +74,7 @@ export interface AddressLabelActionConfig {
 
 export interface PackingSlipActionConfig {
   readonly type: "print-packing-slip";
+  readonly enabled?: boolean;
   readonly printer: string;
 }
 
@@ -397,6 +399,10 @@ export function parseConfig(value: unknown): AppConfig {
     const id = identifier(rawId, `config.actions.${rawId}`, issues);
     const source = record(value);
     const type = source?.type;
+    const enabled =
+      source?.enabled === undefined
+        ? true
+        : booleanValue(source, "enabled", `config.actions.${rawId}`, issues);
     const printer = text(source, "printer", `config.actions.${rawId}`, issues);
     if (printer && printers[printer] === undefined) {
       issues.push(
@@ -430,6 +436,7 @@ export function parseConfig(value: unknown): AppConfig {
       }
       actions[id] = {
         type,
+        enabled,
         printer,
         page: {
           widthMm: numberValue(
@@ -474,7 +481,7 @@ export function parseConfig(value: unknown): AppConfig {
           `config.actions.${rawId}.printer does not accept PDF documents.`,
         );
       }
-      actions[id] = { type, printer };
+      actions[id] = { type, enabled, printer };
     } else {
       issues.push(`config.actions.${rawId}.type is unsupported.`);
     }
@@ -589,13 +596,20 @@ export function parseConfig(value: unknown): AppConfig {
     issues,
   );
 
+  const activePrinterIds = new Set(
+    Object.values(actions)
+      .filter((action) => action.enabled !== false)
+      .map((action) => action.printer),
+  );
   if (
     !dryRun &&
-    Object.values(printers).some((printer) =>
-      printer.adapter === "command"
-        ? printer.executable.startsWith("CHANGE_ME") ||
-          printer.printerName.startsWith("CHANGE_ME")
-        : printer.printerName.startsWith("CHANGE_ME"),
+    Object.entries(printers).some(
+      ([printerId, printer]) =>
+        activePrinterIds.has(printerId) &&
+        (printer.adapter === "command"
+          ? printer.executable.startsWith("CHANGE_ME") ||
+            printer.printerName.startsWith("CHANGE_ME")
+          : printer.printerName.startsWith("CHANGE_ME")),
     )
   ) {
     issues.push(

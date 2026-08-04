@@ -30,6 +30,7 @@
   "actions": {
     "print-address-label": {
       "type": "print-address-label",
+      "enabled": true,
       "printer": "address-label-printer",
       "page": {
         "widthMm": 89,
@@ -48,6 +49,7 @@
     },
     "print-packing-slip": {
       "type": "print-packing-slip",
+      "enabled": true,
       "printer": "packing-slip-printer"
     }
   },

@@ -14,6 +14,7 @@ describe("application configuration", () => {
     expect(config.dryRun).toBe(true);
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
+      enabled: true,
       omitLineValues: ["US", "USA"],
       page: { fontSize: 14 },
     });
@@ -48,6 +49,19 @@ describe("application configuration", () => {
     value.dryRun = false;
 
     expect(() => parseConfig(value)).toThrow(/Configuration is invalid/u);
+  });
+
+  it("allows disabled outputs to retain placeholder printers in live mode", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      dryRun: boolean;
+      actions: Record<string, { enabled: boolean }>;
+    };
+    value.dryRun = false;
+    for (const action of Object.values(value.actions)) action.enabled = false;
+
+    expect(parseConfig(value).dryRun).toBe(false);
   });
 
   it("rejects unknown label and command placeholders", async () => {

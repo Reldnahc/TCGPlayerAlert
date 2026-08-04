@@ -8,7 +8,7 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 
 ## Current safety defaults
 
-- `dryRun` is enabled in the local and example configurations.
+- `dryRun` is enabled in the committed example. The ignored local configuration may be deliberately switched to live printing after printer tests pass.
 - The first successful sync establishes a baseline without processing existing orders.
 - No tracking or shipment mutation is part of the automatic workflow.
 - Addresses and document bytes remain in memory and temporary print files only; they are not stored in workflow state or logs.
@@ -43,6 +43,15 @@ The repository creates ignored local files for you:
 
 Do not commit either file. The committed [.env.example](.env.example) and [local.example.json](config/local.example.json) contain no secrets or personal printer settings.
 
+Build once, then launch the local settings screen:
+
+```powershell
+npm run build
+npm run configure
+```
+
+Open the printed `http://127.0.0.1:47831` address. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with polling, dry-run, label-size, font, PDF scaling, and DPI settings. It listens only on this computer and never receives or displays the seller credentials from `.env.local`.
+
 Validate non-secret configuration without contacting TCGplayer or printing:
 
 ```powershell
@@ -70,6 +79,8 @@ Start the long-running scheduler, which defaults to 60 minutes:
 npm start
 ```
 
+The scheduler also hosts the same local settings screen at the URL written to its startup log. Saved settings are used on the next scheduled synchronization; restart the service if a change must take effect before then.
+
 Inspect safe workflow counts and the last synchronization result:
 
 ```powershell
@@ -91,7 +102,7 @@ node --env-file=.env.local dist/cli.js print test --action print-address-label
 node --env-file=.env.local dist/cli.js print test --action print-packing-slip
 ```
 
-Only after both tests route correctly should you replace all `CHANGE_ME_*` values and set `dryRun` to `false`. The local ignored configuration has already been set to this machine's detected DYMO and Dell queues but remains in dry-run mode. See [docs/PRINTING.md](docs/PRINTING.md) for adapter details and failure behavior.
+Only after both tests route correctly should you replace all `CHANGE_ME_*` values and set `dryRun` to `false`. See [docs/PRINTING.md](docs/PRINTING.md) for adapter details and failure behavior.
 
 ## Rules
 
@@ -110,4 +121,4 @@ Tests use synthetic orders, documents, providers, stores, and printers. Ordinary
 
 ## Current boundaries
 
-This release is a single-seller, single-machine service with a CLI and versioned JSON persistence. Email acceleration, a web UI, remote shipment mutations, multi-user operation, and printer discovery are deliberate future extensions rather than hidden assumptions in the core workflow.
+This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, and versioned JSON persistence. Email acceleration, remote administration, remote shipment mutations, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.

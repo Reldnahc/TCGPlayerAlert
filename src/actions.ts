@@ -166,6 +166,7 @@ export async function executeSyntheticPrintTest(
 ): Promise<void> {
   const packingSlipBytes = await renderSyntheticPrintTest({
     type: "print-packing-slip",
+    enabled: true,
     printer: config.printer,
   });
   await action.execute({
@@ -277,7 +278,8 @@ export function createActions(
   printers: Readonly<Record<string, Printer>>,
 ): Readonly<Record<string, WorkflowAction>> {
   return Object.fromEntries(
-    Object.entries(config.actions).map(([id, actionConfig]) => {
+    Object.entries(config.actions).flatMap(([id, actionConfig]) => {
+      if (actionConfig.enabled === false) return [];
       const printer = printers[actionConfig.printer];
       if (printer === undefined) {
         throw new ApplicationError(
@@ -285,7 +287,7 @@ export function createActions(
           "An action references an unavailable printer.",
         );
       }
-      return [id, createAction(id, actionConfig, printer)];
+      return [[id, createAction(id, actionConfig, printer)]];
     }),
   );
 }
