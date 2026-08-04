@@ -95,14 +95,14 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <section class="panel inventory-panel" aria-labelledby="inventory-title">
             <div class="inventory-copy">
               <h3 id="inventory-title">Find the exact printing, choose its condition, and price it automatically</h3>
-              <p>Every addition is previewed first. Quantity and the calculated price are submitted together by a separate durable queue.</p>
+              <p>Choose a search result, adjust its details, and review the automatically updated preview before adding it to the durable queue.</p>
             </div>
             <div class="catalog-search-row">
               <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
               <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" list="catalog-product-lines" maxlength="100" placeholder="All product lines" /><datalist id="catalog-product-lines"></datalist><small class="field-note">Suggestions appear from loaded catalog results.</small></label>
               <button id="catalog-search" class="primary-button dark-button" type="button">Search catalog</button>
             </div>
-            <p id="inventory-message" class="repricing-message">Search for a card to begin. Nothing is listed until you preview and queue it.</p>
+            <p id="inventory-message" class="repricing-message">Search for a card to begin. Choose a result to configure it and see its live preview.</p>
             <div id="catalog-results" class="catalog-results" hidden></div>
             <div id="inventory-editor" class="inventory-editor" hidden>
               <div id="selected-product" class="selected-product"></div>
@@ -118,9 +118,6 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                 <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="inventory-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
                 <label class="field"><span>If no listing matches</span><select id="inventory-fallback"><option value="market">Use market price</option><option value="stop">Stop for review</option><option value="manual">Use manual price</option></select></label>
                 <label id="inventory-manual-field" class="field" hidden><span>Manual fallback price</span><span class="money-input"><span>$</span><input id="inventory-manual-price" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
-              </div>
-              <div class="inventory-preview-actions">
-                <button id="inventory-preview" class="primary-button dark-button" type="button">Preview addition</button>
               </div>
               <div id="inventory-preview-result" class="inventory-preview-result" hidden></div>
             </div>
@@ -337,13 +334,15 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-result-copy small, .selected-product small { color: var(--muted); }
 .catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
 .inventory-editor { border-top: 1px solid var(--line); }
-.selected-product { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 14px; padding: 18px 25px 4px; }
+.selected-product { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 18px 25px 4px; }
 .selected-product-copy { display: grid; gap: 4px; min-width: 0; }
 .inventory-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 16px 25px 20px; }
 .inventory-fields .wide-field { grid-column: span 2; }
-.inventory-preview-actions { display: flex; justify-content: flex-end; padding: 0 25px 20px; }
 .inventory-preview-result { margin: 0 25px 22px; padding: 16px; border: 1px solid #badcc8; border-radius: 13px; background: var(--green-soft); }
 .inventory-preview-result.error { border-color: #efc7b6; background: #fff5f1; }
+.inventory-preview-result.loading { border-color: var(--line); background: var(--paper); color: var(--muted); }
+.preview-loading { display: grid; gap: 4px; }
+.preview-loading small { line-height: 1.4; }
 .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .preview-stat { display: grid; gap: 3px; }
 .preview-stat small { color: var(--muted); }
@@ -409,6 +408,8 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .queue-job { grid-template-columns: minmax(0, 1fr) auto; }
   .queue-job .cancel-job { grid-column: 1 / -1; justify-self: end; }
   .inventory-fields .wide-field { grid-column: span 1; }
+  .selected-product { grid-template-columns: 56px minmax(0, 1fr); }
+  .selected-product > .quiet-button { grid-column: 1 / -1; justify-self: start; }
   .preview-footer { align-items: stretch; flex-direction: column; }
   .save-bar { bottom: 10px; width: calc(100% - 20px); }
   .save-bar span { display: none; }
@@ -422,7 +423,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     savedSettingsFingerprint: null,
     repricingPreview: null,
     inventoryProduct: null,
+    inventoryProductToken: 0,
     inventoryPreview: null,
+    inventoryPreviewGeneration: 0,
+    inventoryPreviewInFlight: false,
+    inventoryPreviewQueued: false,
+    inventoryPreviewTimer: null,
     catalogSearch: null,
     catalogSearchToken: 0,
     catalogSearchController: null,
@@ -794,11 +800,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
     message.textContent = append ? "Loading the next catalog page..." : "Searching TCGplayer and expanding only when exact results are scarce...";
     if (!append) {
       state.catalogSearch = null;
+      state.inventoryProductToken += 1;
+      clearInventoryPreview();
       state.inventoryProduct = null;
-      state.inventoryPreview = null;
       results.hidden = true;
       document.querySelector("#inventory-editor").hidden = true;
-      document.querySelector("#inventory-preview-result").hidden = true;
     }
     try {
       const parameters = new URLSearchParams({ q: query, offset: String(offset) });
@@ -919,9 +925,71 @@ export const CONFIG_UI_JS = String.raw`(() => {
     );
   }
 
-  function invalidateInventoryPreview() {
+  function clearInventoryPreview() {
+    if (state.inventoryPreviewTimer !== null) {
+      window.clearTimeout(state.inventoryPreviewTimer);
+      state.inventoryPreviewTimer = null;
+    }
+    state.inventoryPreviewGeneration += 1;
+    state.inventoryPreviewQueued = false;
     state.inventoryPreview = null;
     document.querySelector("#inventory-preview-result").hidden = true;
+  }
+
+  function showInventoryPreviewLoading() {
+    const container = document.querySelector("#inventory-preview-result");
+    container.className = "inventory-preview-result loading";
+    container.replaceChildren(
+      el("div", { className: "preview-loading" }, [
+        el("strong", { text: "Updating live preview..." }),
+        el("small", { text: "Checking current inventory and qualifying marketplace prices." }),
+      ]),
+    );
+    container.hidden = false;
+  }
+
+  function showInventoryPreviewIssue(title, detail) {
+    const container = document.querySelector("#inventory-preview-result");
+    container.className = "inventory-preview-result error";
+    container.replaceChildren(
+      el("div", { className: "preview-loading" }, [
+        el("strong", { text: title }),
+        el("small", { text: detail }),
+      ]),
+    );
+    container.hidden = false;
+  }
+
+  function inventoryPreviewInputsAreValid() {
+    const selectors = ["#inventory-quantity", "#inventory-minimum", "#inventory-shipping", "#inventory-adjustment"];
+    if (document.querySelector("#inventory-fallback").value === "manual") selectors.push("#inventory-manual-price");
+    return selectors.every((selector) => {
+      const input = document.querySelector(selector);
+      return input.value !== "" && input.checkValidity();
+    });
+  }
+
+  function scheduleInventoryPreview(delay = 350) {
+    if (!state.inventoryProduct) return;
+    if (state.inventoryPreviewTimer !== null) {
+      window.clearTimeout(state.inventoryPreviewTimer);
+    }
+    state.inventoryPreviewGeneration += 1;
+    state.inventoryPreview = null;
+    const generation = state.inventoryPreviewGeneration;
+    showInventoryPreviewLoading();
+    state.inventoryPreviewTimer = window.setTimeout(() => {
+      state.inventoryPreviewTimer = null;
+      void previewInventoryAddition(generation);
+    }, delay);
+  }
+
+  function showCatalogResults() {
+    state.inventoryProductToken += 1;
+    clearInventoryPreview();
+    state.inventoryProduct = null;
+    document.querySelector("#inventory-editor").hidden = true;
+    if (state.catalogSearch) renderCatalogSearch();
   }
 
   function restoreInventoryShippingPreference() {
@@ -949,11 +1017,17 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   async function selectCatalogProduct(productId) {
     const message = document.querySelector("#inventory-message");
+    const selectionToken = state.inventoryProductToken + 1;
+    state.inventoryProductToken = selectionToken;
+    clearInventoryPreview();
+    document.querySelector("#catalog-results").hidden = true;
+    document.querySelector("#inventory-editor").hidden = true;
     message.className = "repricing-message";
     message.textContent = "Loading the available condition, printing, and language combinations...";
     try {
       const response = await fetch("/api/catalog/products/" + encodeURIComponent(productId), { headers: { Accept: "application/json" } });
       const product = await response.json();
+      if (selectionToken !== state.inventoryProductToken) return;
       if (!response.ok) throw new Error(product.message || "Product details could not be loaded.");
       state.inventoryProduct = product;
       state.inventoryPreview = null;
@@ -964,12 +1038,16 @@ export const CONFIG_UI_JS = String.raw`(() => {
           el("strong", { text: product.productName }),
           el("small", { text: product.productLineName + " / " + product.setName + (product.cardNumber ? " / #" + product.cardNumber : "") }),
         ]),
+        el("button", { id: "inventory-back-to-results", className: "quiet-button", type: "button", text: "Back to results" }),
       );
+      document.querySelector("#inventory-back-to-results").addEventListener("click", showCatalogResults);
       document.querySelector("#inventory-editor").hidden = false;
-      document.querySelector("#inventory-preview-result").hidden = true;
       message.className = "repricing-message success";
-      message.textContent = "Exact product selected. Choose its condition, printing, language, and pricing rules, then preview.";
+      message.textContent = "Product selected. The live preview updates automatically as you change its SKU, quantity, or pricing rules.";
+      scheduleInventoryPreview(0);
     } catch (error) {
+      if (selectionToken !== state.inventoryProductToken) return;
+      document.querySelector("#catalog-results").hidden = false;
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "Product details could not be loaded.";
     }
@@ -1001,7 +1079,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       id: "queue-inventory-addition",
       className: "primary-button dark-button",
       type: "button",
-      text: "Queue card addition",
+      text: "Add to queue",
     });
     queue.disabled = !preview.queueable;
     queue.addEventListener("click", queueInventoryAddition);
@@ -1020,42 +1098,61 @@ export const CONFIG_UI_JS = String.raw`(() => {
     container.hidden = false;
   }
 
-  async function previewInventoryAddition() {
-    if (!state.inventoryProduct) return;
+  async function previewInventoryAddition(generation) {
+    if (!state.inventoryProduct || generation !== state.inventoryPreviewGeneration) return;
+    if (state.inventoryPreviewInFlight) {
+      state.inventoryPreviewQueued = true;
+      return;
+    }
     const message = document.querySelector("#inventory-message");
+    if (!inventoryPreviewInputsAreValid()) {
+      message.className = "repricing-message error";
+      message.textContent = "Enter valid quantity and pricing values to update the preview.";
+      showInventoryPreviewIssue("Preview needs valid values", message.textContent);
+      return;
+    }
     const sku = selectedInventorySku();
     if (!sku) {
       message.className = "repricing-message error";
       message.textContent = "Choose a valid condition, printing, and language combination.";
+      showInventoryPreviewIssue("Preview needs a valid SKU", message.textContent);
       return;
     }
-    const button = document.querySelector("#inventory-preview");
-    button.disabled = true;
-    button.textContent = "Calculating...";
+    const productId = state.inventoryProduct.productId;
+    const addQuantity = Number(document.querySelector("#inventory-quantity").value);
+    const rules = inventoryPricingRules();
+    state.inventoryPreviewInFlight = true;
+    state.inventoryPreviewQueued = false;
     message.className = "repricing-message";
-    message.textContent = "Reading current inventory and qualifying marketplace prices...";
+    message.textContent = "Updating the live inventory and price preview...";
     try {
       const response = await fetch("/api/inventory-additions/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
-          productId: state.inventoryProduct.productId,
+          productId,
           productConditionId: sku.productConditionId,
-          addQuantity: Number(document.querySelector("#inventory-quantity").value),
-          rules: inventoryPricingRules(),
+          addQuantity,
+          rules,
         }),
       });
       const data = await response.json();
+      if (generation !== state.inventoryPreviewGeneration) return;
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The inventory preview failed.");
       renderInventoryPreview(data);
       message.className = data.queueable ? "repricing-message success" : "repricing-message error";
-      message.textContent = data.queueable ? "Preview ready. Verify the exact SKU, quantity, and initial price before queueing." : data.reason;
+      message.textContent = data.queueable ? "Live preview ready. Verify the exact SKU, quantity, and initial price, then add it to the queue." : data.reason;
     } catch (error) {
+      if (generation !== state.inventoryPreviewGeneration) return;
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "The inventory preview failed.";
+      showInventoryPreviewIssue("Preview unavailable", message.textContent);
     } finally {
-      button.disabled = false;
-      button.textContent = "Preview addition";
+      state.inventoryPreviewInFlight = false;
+      if (state.inventoryPreviewQueued && state.inventoryProduct) {
+        state.inventoryPreviewQueued = false;
+        scheduleInventoryPreview(0);
+      }
     }
   }
 
@@ -1063,6 +1160,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const preview = state.inventoryPreview;
     if (!preview) return;
     const message = document.querySelector("#inventory-message");
+    const button = document.querySelector("#queue-inventory-addition");
+    button.disabled = true;
+    button.textContent = "Adding...";
     try {
       const response = await fetch("/api/inventory-additions/previews/" + encodeURIComponent(preview.id) + "/queue", {
         method: "POST",
@@ -1071,14 +1171,20 @@ export const CONFIG_UI_JS = String.raw`(() => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The card was not queued.");
-      state.inventoryPreview = null;
-      document.querySelector("#inventory-preview-result").hidden = true;
-      message.className = "repricing-message success";
-      message.textContent = "Card addition queued. The worker will recheck live quantity before submitting quantity and price together.";
+      if (state.inventoryPreview?.id === preview.id) {
+        state.inventoryPreview = null;
+        button.textContent = "Added to queue";
+        message.className = "repricing-message success";
+        message.textContent = "Card addition queued. The worker will recheck live quantity before submitting quantity and price together.";
+      }
       await loadInventoryQueue();
     } catch (error) {
-      message.className = "repricing-message error";
-      message.textContent = error instanceof Error ? error.message : "The card was not queued.";
+      if (state.inventoryPreview?.id === preview.id) {
+        button.disabled = false;
+        button.textContent = "Add to queue";
+        message.className = "repricing-message error";
+        message.textContent = error instanceof Error ? error.message : "The card was not queued.";
+      }
     }
   }
 
@@ -1388,25 +1494,25 @@ export const CONFIG_UI_JS = String.raw`(() => {
       }
     });
   }
-  document.querySelector("#inventory-preview").addEventListener("click", previewInventoryAddition);
   document.querySelector("#inventory-card-condition").addEventListener("change", () => {
-    invalidateInventoryPreview();
     refreshInventoryPrintings("Normal");
+    scheduleInventoryPreview();
   });
   document.querySelector("#inventory-printing").addEventListener("change", () => {
-    invalidateInventoryPreview();
     refreshInventoryLanguages("English");
+    scheduleInventoryPreview();
   });
-  document.querySelector("#inventory-language").addEventListener("change", invalidateInventoryPreview);
-  for (const selector of ["#inventory-quantity", "#inventory-minimum", "#inventory-condition", "#inventory-basis", "#inventory-adjustment", "#inventory-fallback", "#inventory-manual-price"]) {
-    document.querySelector(selector).addEventListener("input", invalidateInventoryPreview);
+  document.querySelector("#inventory-language").addEventListener("change", () => scheduleInventoryPreview());
+  for (const selector of ["#inventory-quantity", "#inventory-minimum", "#inventory-condition", "#inventory-basis", "#inventory-adjustment", "#inventory-manual-price"]) {
+    document.querySelector(selector).addEventListener("input", () => scheduleInventoryPreview());
   }
   document.querySelector("#inventory-shipping").addEventListener("input", () => {
     persistInventoryShippingPreference();
-    invalidateInventoryPreview();
+    scheduleInventoryPreview();
   });
   document.querySelector("#inventory-fallback").addEventListener("change", (event) => {
     document.querySelector("#inventory-manual-field").hidden = event.target.value !== "manual";
+    scheduleInventoryPreview();
   });
   document.querySelector("#repricing-preview").addEventListener("click", previewRepricing);
   document.querySelector("#repricing-queue").addEventListener("click", queueRepricingSelection);

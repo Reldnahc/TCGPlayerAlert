@@ -143,6 +143,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-shipping");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
     expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
+    expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
     expect(CONFIG_UI_JS).toContain('text: "Load more"');
     expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
     expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
@@ -150,6 +151,14 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("signal: requestController.signal");
     expect(CONFIG_UI_JS).toContain(
       "new URLSearchParams({ q: query, offset: String(offset) })",
+    );
+    expect(CONFIG_UI_JS).toContain('text: "Back to results"');
+    expect(CONFIG_UI_JS).toContain('text: "Add to queue"');
+    expect(CONFIG_UI_JS).toContain("scheduleInventoryPreview(0)");
+    expect(CONFIG_UI_JS).toContain("if (state.inventoryPreviewInFlight)");
+    expect(CONFIG_UI_JS).toContain("scheduleInventoryPreview(delay = 350)");
+    expect(CONFIG_UI_JS).toContain(
+      'document.querySelector("#catalog-results").hidden = true',
     );
     expect(CONFIG_UI_JS).not.toContain(
       "message.textContent = products.length +",

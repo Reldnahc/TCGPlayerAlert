@@ -96,9 +96,9 @@ The scheduler and separately invoked manual syncs share a filesystem lease, so t
 Open the settings screen and use **Add cards**:
 
 1. Search for the card name, optionally narrowing by product line. The application requests one TCGplayer page first and expands to at most three pages only while exact or qualified name matches remain scarce. Results are globally separated into exact names, qualified variants, and broader fuzzy matches, with truthful scanned and total counts. `Load more` requests one additional page, identical searches are cached briefly, and replaced searches are canceled. Product-line suggestions are learned from the results already loaded.
-2. Choose the exact set, then select condition, printing, and language independently. Only valid combinations are offered, and language defaults to English whenever English is available.
+2. Choose the exact set. Its editor replaces the result list while the search controls remain available; use **Back to results** to return to the loaded results. Select condition, printing, and language independently. Only valid combinations are offered, and language defaults to English whenever English is available.
 3. Enter the quantity and pricing rules. Delivered-price comparison (item plus shipping) is the default. Enter the shipping rate already configured in Seller Portal; the browser remembers this pricing preference but does not change your Seller Portal shipping settings. For a standalone item under $5, the preview applies TCGplayer's current $1.49 minimum shipping charge.
-4. Preview the live seller quantity and proposed initial price, verify them, and queue the addition.
+4. Review the live preview, which updates automatically after changes and coalesces rapid edits into one request at a time. Verify the seller quantity and proposed initial price, then select **Add to queue**.
 
 The long-running service processes the queue; `npm run configure` only hosts the settings UI. Start `npm start` when queued jobs should be submitted. Dry run or a disabled inventory queue keeps them pending.
 
