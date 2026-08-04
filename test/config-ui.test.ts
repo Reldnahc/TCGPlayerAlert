@@ -244,16 +244,44 @@ describe("configuration UI service", () => {
     );
     expect(new Set(ids).size).toBe(ids.length);
     expect(CONFIG_UI_HTML).toContain(
-      'id="panel-automation" class="tab-panel" role="tabpanel"',
+      'id="panel-settings" class="tab-panel" role="tabpanel"',
     );
     expect(CONFIG_UI_HTML).toContain(
       'id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden',
     );
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.active-tab");
+    expect(CONFIG_UI_JS).toContain('value === "automation" ? "settings"');
     expect(CONFIG_UI_JS).not.toContain("#queue-health");
     expect(CONFIG_UI_JS).not.toContain("#inventory-queue-health");
     expect(CONFIG_UI_JS).toContain('event.key === "ArrowRight"');
     expect(CONFIG_UI_JS).toContain('window.addEventListener("popstate"');
+  });
+
+  it("keeps persistent configuration in Settings and job pages focused", () => {
+    const settingsPanel = CONFIG_UI_HTML.slice(
+      CONFIG_UI_HTML.indexOf('id="panel-settings"'),
+      CONFIG_UI_HTML.indexOf('id="panel-add-cards"'),
+    );
+    const jobsPanel = CONFIG_UI_HTML.slice(
+      CONFIG_UI_HTML.indexOf('id="panel-jobs"'),
+      CONFIG_UI_HTML.indexOf('id="save-bar"'),
+    );
+    const persistentControlIds = [
+      "poll-interval",
+      "dry-run",
+      "inventory-queue-enabled",
+      "inventory-delay",
+      "price-queue-enabled",
+      "price-delay",
+      "outputs",
+    ];
+
+    for (const id of persistentControlIds) {
+      expect(settingsPanel).toContain(`id="${id}"`);
+      expect(jobsPanel).not.toContain(`id="${id}"`);
+    }
+    expect(jobsPanel).toContain('id="inventory-queue-jobs"');
+    expect(jobsPanel).toContain('id="queue-jobs"');
   });
 
   it("shows the save banner only for unsaved persistent settings", () => {
@@ -269,7 +297,7 @@ describe("configuration UI service", () => {
       'form.addEventListener("change", updateSaveBarVisibility)',
     );
     expect(CONFIG_UI_JS).not.toContain(
-      'saveBar.hidden = selectedTab !== "automation"',
+      'saveBar.hidden = selectedTab !== "settings"',
     );
   });
 

@@ -11,16 +11,16 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
       <main>
         <form id="settings-form" hidden>
           <nav class="tab-list" role="tablist" aria-label="Workspace sections">
-            <button id="tab-automation" class="tab-button" type="button" role="tab" aria-controls="panel-automation" aria-selected="true" tabindex="0" data-tab="automation">Automation</button>
+            <button id="tab-settings" class="tab-button" type="button" role="tab" aria-controls="panel-settings" aria-selected="true" tabindex="0" data-tab="settings">Settings</button>
             <button id="tab-add-cards" class="tab-button" type="button" role="tab" aria-controls="panel-add-cards" aria-selected="false" tabindex="-1" data-tab="add-cards">Add cards</button>
             <button id="tab-repricing" class="tab-button" type="button" role="tab" aria-controls="panel-repricing" aria-selected="false" tabindex="-1" data-tab="repricing">Repricing</button>
             <button id="tab-jobs" class="tab-button" type="button" role="tab" aria-controls="panel-jobs" aria-selected="false" tabindex="-1" data-tab="jobs">Jobs</button>
           </nav>
 
-          <div id="panel-automation" class="tab-panel" role="tabpanel" aria-labelledby="tab-automation" tabindex="0" data-panel="automation">
+          <div id="panel-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" data-panel="settings">
           <section class="panel general-panel" aria-labelledby="general-title">
             <div>
-              <p class="section-kicker">Automation</p>
+              <p class="section-kicker">Application</p>
               <h2 id="general-title">General</h2>
             </div>
             <label class="field compact-field">
@@ -49,6 +49,40 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </div>
           <p id="printer-note" class="printer-note" hidden></p>
           <div id="outputs" class="output-grid"></div>
+
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Automation</p>
+              <h2 id="worker-settings-title">Background workers</h2>
+            </div>
+          </div>
+          <section class="panel worker-settings-panel" aria-labelledby="worker-settings-title">
+            <div class="inventory-queue-settings">
+              <label class="switch-row">
+                <span><strong>Process added cards</strong><small>Runs one at a time. Dry run pauses inventory submissions.</small></span>
+                <input id="inventory-queue-enabled" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+              <label class="field compact-field"><span>Cooldown after each addition</span><span class="input-with-unit"><input id="inventory-delay" type="number" min="0" max="3600" required /><span>seconds</span></span></label>
+            </div>
+            <div class="queue-settings">
+              <label class="switch-row">
+                <span>
+                  <strong>Process queued prices</strong>
+                  <small>Runs one at a time. Dry run pauses price updates.</small>
+                </span>
+                <input id="price-queue-enabled" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+              <label class="field compact-field">
+                <span>Cooldown after each update</span>
+                <span class="input-with-unit">
+                  <input id="price-delay" type="number" min="0" max="3600" required />
+                  <span>seconds</span>
+                </span>
+              </label>
+            </div>
+          </section>
           </div>
 
           <div id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden>
@@ -146,16 +180,8 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
           </div>
           <section class="panel queue-panel" aria-labelledby="inventory-queue-title">
-            <div class="inventory-queue-settings">
-              <label class="switch-row">
-                <span><strong id="inventory-queue-title">Process added cards</strong><small>Runs one at a time. Dry run pauses inventory submissions.</small></span>
-                <input id="inventory-queue-enabled" type="checkbox" />
-                <span class="switch" aria-hidden="true"></span>
-              </label>
-              <label class="field compact-field"><span>Cooldown after each addition</span><span class="input-with-unit"><input id="inventory-delay" type="number" min="0" max="3600" required /><span>seconds</span></span></label>
-            </div>
             <div class="queue-list-head">
-              <strong>Recent card additions</strong>
+              <strong id="inventory-queue-title">Recent card additions</strong>
               <button id="refresh-inventory-queue" class="quiet-button" type="button">Refresh</button>
             </div>
             <div id="inventory-queue-jobs" class="queue-jobs" aria-live="polite"></div>
@@ -168,26 +194,8 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
           </div>
           <section class="panel queue-panel" aria-labelledby="queue-title">
-            <div class="queue-settings">
-              <label class="switch-row">
-                <span>
-                  <strong id="queue-title">Process queued prices</strong>
-                  <small>Runs one at a time. Dry run pauses this worker even when it is enabled.</small>
-                </span>
-                <input id="price-queue-enabled" type="checkbox" />
-                <span class="switch" aria-hidden="true"></span>
-              </label>
-              <label class="field compact-field">
-                <span>Cooldown after each update</span>
-                <span class="input-with-unit">
-                  <input id="price-delay" type="number" min="0" max="3600" required />
-                  <span>seconds</span>
-                </span>
-              </label>
-            </div>
-
             <div class="queue-list-head">
-              <strong>Recent jobs</strong>
+              <strong id="queue-title">Recent price updates</strong>
               <button id="refresh-queue" class="quiet-button" type="button">Refresh</button>
             </div>
             <div id="queue-jobs" class="queue-jobs" aria-live="polite"></div>
@@ -197,7 +205,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="save-bar" class="save-bar" hidden>
             <div>
               <strong id="save-title">Ready to configure</strong>
-              <span id="save-detail">Automation and worker changes are stored only on this computer.</span>
+              <span id="save-detail">Application settings are stored only on this computer.</span>
             </div>
             <button id="save-button" class="primary-button" type="submit">Save settings</button>
           </div>
@@ -342,6 +350,8 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .preview-footer p { margin: 0; color: var(--muted); font-size: .82rem; }
 .inventory-queue-settings { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
+.worker-settings-panel { overflow: hidden; margin-bottom: 22px; }
+.worker-settings-panel .inventory-queue-settings { border-top: 0; }
 .queue-heading { margin-top: 40px; }
 .queue-panel { overflow: hidden; margin-bottom: 22px; }
 .queue-settings { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; padding: 23px 25px; border-bottom: 1px solid var(--line); }
@@ -419,7 +429,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
-  const tabIds = ["automation", "add-cards", "repricing", "jobs"];
+  const tabIds = ["settings", "add-cards", "repricing", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
   const fatal = document.querySelector("#fatal-error");
@@ -434,8 +444,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return tabIds.includes(value);
   }
 
+  function normalizeTabId(value) {
+    return value === "automation" ? "settings" : isTabId(value) ? value : null;
+  }
+
   function activateTab(tabId, updateHistory = false, focusTab = false) {
-    const selectedTab = isTabId(tabId) ? tabId : "automation";
+    const selectedTab = normalizeTabId(tabId) || "settings";
     for (const button of document.querySelectorAll('[role="tab"][data-tab]')) {
       const selected = button.dataset.tab === selectedTab;
       button.setAttribute("aria-selected", String(selected));
@@ -460,19 +474,21 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function initialTab() {
     const hashTab = window.location.hash.slice(1);
-    if (isTabId(hashTab)) return hashTab;
+    const normalizedHashTab = normalizeTabId(hashTab);
+    if (normalizedHashTab) return normalizedHashTab;
     try {
       const stored = window.localStorage.getItem(activeTabStorageKey);
-      if (isTabId(stored)) return stored;
+      const normalizedStoredTab = normalizeTabId(stored);
+      if (normalizedStoredTab) return normalizedStoredTab;
     } catch {
-      // Automation remains the default when browser storage is unavailable.
+      // Settings remains the default when browser storage is unavailable.
     }
-    return "automation";
+    return "settings";
   }
 
   function selectLocationTab() {
     const hashTab = window.location.hash.slice(1);
-    activateTab(isTabId(hashTab) ? hashTab : "automation");
+    activateTab(normalizeTabId(hashTab) || "settings");
   }
 
   const el = (tag, attributes = {}, children = []) => {
@@ -1325,7 +1341,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     saveBar.hidden = !hasUnsavedChanges;
     if (hasUnsavedChanges) {
       saveTitle.textContent = "Unsaved changes";
-      saveDetail.textContent = "Save to update automation and worker settings.";
+      saveDetail.textContent = "Save to update application settings.";
     }
   }
 
@@ -1347,7 +1363,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       state.settings = data;
       render();
       saveTitle.textContent = "Settings saved";
-      saveDetail.textContent = "The scheduler will use them on its next sync.";
+      saveDetail.textContent = "The application will use the saved configuration.";
     } catch (error) {
       saveTitle.textContent = "Settings were not saved";
       saveDetail.textContent = error instanceof Error ? error.message : "Review the values and try again.";
