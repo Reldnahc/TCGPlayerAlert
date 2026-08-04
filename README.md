@@ -2,7 +2,7 @@
 
 A local-first, configurable fulfillment automation service. It polls the authoritative TCGplayer ready-to-ship queue, reconciles orders against durable state, evaluates declarative rules, and dispatches modular actions.
 
-The first action modules render an address-label PDF for a DYMO-class printer and send the original packing-slip PDF to another OS-visible printer. Printer vendors and names are configuration, not application assumptions.
+The first action modules draw an address label through the native Windows print system and render a packing-slip PDF inside the application before sending it to another OS-visible printer. Printer vendors and names are configuration, not application assumptions.
 
 This project is not affiliated with, endorsed by, or supported by TCGplayer. It uses the separately maintained unofficial `tcgplayer-private-api` package and must only access an authorized seller account.
 
@@ -18,7 +18,7 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 
 - Node.js 20.19 or newer
 - An authorized TCGplayer seller session and seller key
-- A command-line PDF printing program that can target each configured OS printer before live printing is enabled
+- Windows PowerShell 5.1 and installed printer drivers for the initial Windows adapters
 
 ## Bootstrap with the local API package
 
@@ -80,13 +80,9 @@ The scheduler and separately invoked manual syncs share a filesystem lease, so t
 
 ## Enable printing safely
 
-The command printer launches the configured executable directly with no shell. These placeholders are supported in argument values:
+The example uses `windows-native-label` for address text and `windows-pdf` for packing slips. Neither needs a separately installed PDF viewer. Configure each exact Windows printer name; the label adapter also uses the action's configured dimensions, while the PDF adapter controls render DPI and scaling.
 
-- `{file}` — temporary PDF path; required
-- `{printer}` — configured operating-system printer name
-- `{job}` — safe logical job name
-
-The example arguments match PDF printing tools that accept `-print-to`, a printer name, and a PDF path. Adapt them to the executable installed on your machine. The DYMO driver must use the label size configured by the address-label action; the regular/network printer must be reachable by the configured OS printer name.
+The optional `command` PDF adapter remains available for other systems and custom printer tools. It launches the configured executable directly with no shell and supports `{file}`, `{printer}`, and `{job}` argument placeholders.
 
 Before setting `dryRun` to `false`, print synthetic documents with no customer data:
 
@@ -95,7 +91,7 @@ node --env-file=.env.local dist/cli.js print test --action print-address-label
 node --env-file=.env.local dist/cli.js print test --action print-packing-slip
 ```
 
-Only after both tests route correctly should you replace all `CHANGE_ME_*` values and set `dryRun` to `false`. See [docs/PRINTING.md](docs/PRINTING.md) for failure behavior.
+Only after both tests route correctly should you replace all `CHANGE_ME_*` values and set `dryRun` to `false`. The local ignored configuration has already been set to this machine's detected DYMO and Dell queues but remains in dry-run mode. See [docs/PRINTING.md](docs/PRINTING.md) for adapter details and failure behavior.
 
 ## Rules
 

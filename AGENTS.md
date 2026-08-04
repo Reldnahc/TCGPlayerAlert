@@ -210,7 +210,7 @@ A change is done only when:
 
 - Whether and when optional notification providers should be added; provider authentication remains deferred until one is selected.
 - Whether TCGplayer session acquisition or renewal remains entirely operator-owned.
-- Which concrete print executable and printer names each deployment will use.
+- Which non-Windows or direct-network printer adapters should follow the initial native Windows adapters.
 - Whether a later multi-user or remote deployment warrants replacing the single-process JSON store with a transactional database.
 - Whether a web operator interface is needed beyond the initial CLI.
 

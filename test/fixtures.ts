@@ -128,5 +128,6 @@ export const silentLogger: Logger = {
 };
 
 export const successfulPrinter: Printer = {
+  acceptedMediaTypes: new Set(["application/pdf"]),
   submit: () => Promise.resolve(),
 };

@@ -7,7 +7,7 @@ import type {
 } from "./config.js";
 import type { FulfillmentDocument, FulfillmentOrder } from "./domain.js";
 import { ApplicationError } from "./errors.js";
-import type { PrintJob, Printer } from "./printing.js";
+import type { AddressLabelPrintJob, PdfPrintJob, Printer } from "./printing.js";
 
 export interface ActionContext {
   readonly order: FulfillmentOrder;
@@ -111,33 +111,27 @@ export async function renderAddressLabel(
   return document.save({ useObjectStreams: false });
 }
 
+function addressLabelPrintJob(
+  context: ActionContext,
+  config: AddressLabelActionConfig,
+  jobName: string,
+): AddressLabelPrintJob {
+  return {
+    idempotencyKey: context.idempotencyKey,
+    jobName,
+    mediaType: "application/vnd.tcgplayer-alert.address-label+json",
+    page: config.page,
+    lines: config.lines
+      .map((template) => renderLine(template, context.order).trim())
+      .filter(Boolean),
+  };
+}
+
 export async function renderSyntheticPrintTest(
   config: ActionConfig,
 ): Promise<Uint8Array> {
   if (config.type === "print-address-label") {
-    return renderAddressLabel(
-      {
-        provider: "synthetic",
-        id: "printer-test",
-        placedAt: "2000-01-01T00:00:00.000Z",
-        status: "Synthetic",
-        channel: "Synthetic",
-        fulfillment: "Synthetic",
-        shippingType: "Synthetic",
-        totalAmount: 0,
-        buyerPaid: false,
-        shippingAddress: {
-          recipientName: "TCGPlayerAlert Printer Test",
-          addressOne: "123 Example Street",
-          city: "Example City",
-          territory: "IL",
-          country: "US",
-          postalCode: "00000",
-        },
-        items: [],
-      },
-      config,
-    );
+    return renderAddressLabel(syntheticOrder, config);
   }
   const document = await PDFDocument.create();
   const page = document.addPage([612, 792]);
@@ -159,6 +153,51 @@ export async function renderSyntheticPrintTest(
   return document.save({ useObjectStreams: false });
 }
 
+export async function executeSyntheticPrintTest(
+  action: WorkflowAction,
+  config: ActionConfig,
+): Promise<void> {
+  const packingSlipBytes = await renderSyntheticPrintTest({
+    type: "print-packing-slip",
+    printer: config.printer,
+  });
+  await action.execute({
+    order: syntheticOrder,
+    idempotencyKey: `synthetic-print-test:${action.id}`,
+    ...(action.requiresPackingSlip
+      ? {
+          packingSlip: {
+            kind: "packing-slip",
+            mediaType: "application/pdf",
+            fileName: "synthetic-packing-slip.pdf",
+            bytes: packingSlipBytes,
+          },
+        }
+      : {}),
+  });
+}
+
+const syntheticOrder: FulfillmentOrder = {
+  provider: "synthetic",
+  id: "printer-test",
+  placedAt: "2000-01-01T00:00:00.000Z",
+  status: "Synthetic",
+  channel: "Synthetic",
+  fulfillment: "Synthetic",
+  shippingType: "Synthetic",
+  totalAmount: 0,
+  buyerPaid: false,
+  shippingAddress: {
+    recipientName: "TCGPlayerAlert Printer Test",
+    addressOne: "123 Example Street",
+    city: "Example City",
+    territory: "IL",
+    country: "US",
+    postalCode: "00000",
+  },
+  items: [],
+};
+
 class AddressLabelAction implements WorkflowAction {
   readonly requiresPackingSlip = false;
 
@@ -169,15 +208,17 @@ class AddressLabelAction implements WorkflowAction {
   ) {}
 
   async execute(context: ActionContext): Promise<void> {
-    const bytes = await renderAddressLabel(context.order, this.config);
-    await this.printer.submit(
-      printJob(
-        context,
-        `address-label-${printIdentifier(context.idempotencyKey)}`,
-        bytes,
-      ),
-      context.signal,
-    );
+    const jobName = `address-label-${printIdentifier(context.idempotencyKey)}`;
+    const job = this.printer.acceptedMediaTypes.has(
+      "application/vnd.tcgplayer-alert.address-label+json",
+    )
+      ? addressLabelPrintJob(context, this.config, jobName)
+      : pdfPrintJob(
+          context,
+          jobName,
+          await renderAddressLabel(context.order, this.config),
+        );
+    await this.printer.submit(job, context.signal);
   }
 }
 
@@ -197,7 +238,7 @@ class PackingSlipAction implements WorkflowAction {
       );
     }
     await this.printer.submit(
-      printJob(
+      pdfPrintJob(
         context,
         `packing-slip-${printIdentifier(context.idempotencyKey)}`,
         context.packingSlip.bytes,
@@ -211,11 +252,11 @@ function printIdentifier(idempotencyKey: string): string {
   return createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 12);
 }
 
-function printJob(
+function pdfPrintJob(
   context: ActionContext,
   jobName: string,
   bytes: Uint8Array,
-): PrintJob {
+): PdfPrintJob {
   return {
     idempotencyKey: context.idempotencyKey,
     jobName,
@@ -247,7 +288,26 @@ function createAction(
   config: ActionConfig,
   printer: Printer,
 ): WorkflowAction {
-  return config.type === "print-address-label"
-    ? new AddressLabelAction(id, config, printer)
-    : new PackingSlipAction(id, printer);
+  if (config.type === "print-address-label") {
+    if (
+      !printer.acceptedMediaTypes.has(
+        "application/vnd.tcgplayer-alert.address-label+json",
+      ) &&
+      !printer.acceptedMediaTypes.has("application/pdf")
+    ) {
+      throw unsupportedPrinter(id);
+    }
+    return new AddressLabelAction(id, config, printer);
+  }
+  if (!printer.acceptedMediaTypes.has("application/pdf")) {
+    throw unsupportedPrinter(id);
+  }
+  return new PackingSlipAction(id, printer);
+}
+
+function unsupportedPrinter(actionId: string): ApplicationError {
+  return new ApplicationError(
+    "CONFIGURATION_ERROR",
+    `The printer selected by action ${actionId} cannot print that document type.`,
+  );
 }

@@ -2,13 +2,17 @@
 
 ## Adapter contract
 
-The initial `command` printer writes the PDF to an access-restricted temporary file, launches the configured executable directly with `shell: false`, waits for the process result, and removes the temporary file. Supported argument placeholders are `{file}`, `{printer}`, and `{job}`.
+Actions submit typed documents to capability-oriented printer adapters. The first adapters are:
 
-This makes the application independent of a specific PDF viewer, printer vendor SDK, operating system queue, network protocol, or printer name. A deployment can use any command that accepts a PDF path and submits it to the desired OS-visible printer.
+- `windows-native-label` draws structured address text through Windows `PrintDocument` and the installed printer driver. It does not create a PDF or require a PDF viewer.
+- `windows-pdf` renders PDF pages inside the application with PDF.js, then sends the rendered pages through Windows `PrintDocument` and the installed printer driver. It does not require SumatraPDF, Adobe Reader, or another separately installed viewer.
+- `command` remains an escape hatch for a deployment-supplied PDF print command. It invokes the executable directly with `shell: false`; supported placeholders are `{file}`, `{printer}`, and `{job}`.
+
+Renderer, document, and printer transport are separate contracts. A future IPP, raw-PDF, macOS, Linux, or vendor adapter can be added without changing rules or order orchestration.
 
 ## Initial actions
 
-`print-address-label` renders a PDF using configurable dimensions, margin, font size, address-line template, and printer. Supported template fields are:
+`print-address-label` creates a structured label using configurable dimensions, margin, font size, address-line template, and printer. A PDF remains available as a fallback for PDF-capable adapters and for preview validation. Supported template fields are:
 
 - `{recipientName}`
 - `{addressOne}`
@@ -18,12 +22,18 @@ This makes the application independent of a specific PDF viewer, printer vendor 
 - `{postalCode}`
 - `{country}`
 
-`print-packing-slip` submits the validated PDF returned by the seller provider without rewriting it.
+`print-packing-slip` accepts the validated PDF returned by the seller provider. The `windows-pdf` adapter renders each page at the configured DPI and preserves the PDF page aspect ratio. Its scale options are:
+
+- `actual-size` - retain the physical PDF page size even if it clips.
+- `fit` - grow or shrink to the printer's available page area.
+- `shrink` - retain actual size unless the page must shrink to fit. This is the recommended packing-slip default.
+
+PDF.js accepts PDFs up to 50 MiB, renders at most 50 pages per document, rejects pages over 40 million pixels, and caps a job at 100 million rendered pixels. These limits bound memory use if a remote document is malformed.
 
 ## Safe setup
 
 1. Leave `dryRun` enabled.
-2. Set the executable path, argument list, and exact OS printer name for each printer.
+2. Set the exact OS printer name for each Windows adapter. Only the optional `command` adapter needs an executable and arguments.
 3. Build the application and run `config validate`.
 4. Run `print test --action print-address-label` and verify the synthetic label's size, orientation, and destination.
 5. Run `print test --action print-packing-slip` and verify the synthetic page's destination and scaling.
@@ -31,10 +41,16 @@ This makes the application independent of a specific PDF viewer, printer vendor 
 
 The test commands intentionally print but contain no customer data.
 
+## Temporary data and child processes
+
+Customer text, source PDFs, and rendered pages are never written to workflow state or logs. Print data is written only to a random per-job directory under `spoolDirectory`, removed after submission, and excluded from Git. The native PowerShell child receives only the payload path; seller credentials and unrelated environment variables are not inherited.
+
+The Windows adapters require Windows PowerShell 5.1 and an installed Windows printer driver. Both ship with supported Windows versions or with the printer, so no separate PDF application is required.
+
 ## Failure semantics
 
-- If the executable cannot start, the action is a definite `PRINT_FAILED` and may retry within the configured attempt limit.
-- After the print process starts, a timeout, abnormal exit, cancellation, or lost confirmation is `PRINT_AMBIGUOUS`.
+- An unsupported platform, missing executable, missing printer, invalid document, or pre-submission cancellation is a definite `PRINT_FAILED` and may retry within the configured attempt limit.
+- After Windows print submission starts, a timeout, abnormal exit, cancellation, or lost confirmation is `PRINT_AMBIGUOUS`.
 - Ambiguous and process-interrupted submissions become `review-required`; the application never prints them again automatically.
 
-Printer process output is discarded so a third-party tool cannot place customer data in application logs. Customer addresses and PDF bytes are never written to durable workflow state.
+Printer process output is discarded so an operating-system component or custom command cannot place customer data in application logs.

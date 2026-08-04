@@ -15,18 +15,16 @@
   },
   "printers": {
     "address-label-printer": {
-      "adapter": "command",
-      "executable": "CHANGE_ME_PRINT_EXECUTABLE",
-      "arguments": ["-print-to", "{printer}", "-silent", "{file}"],
+      "adapter": "windows-native-label",
       "printerName": "CHANGE_ME_DYMO_PRINTER_NAME",
       "timeoutSeconds": 30
     },
     "packing-slip-printer": {
-      "adapter": "command",
-      "executable": "CHANGE_ME_PRINT_EXECUTABLE",
-      "arguments": ["-print-to", "{printer}", "-silent", "{file}"],
+      "adapter": "windows-pdf",
       "printerName": "CHANGE_ME_NETWORK_PRINTER_NAME",
-      "timeoutSeconds": 30
+      "timeoutSeconds": 60,
+      "dpi": 150,
+      "scale": "shrink"
     }
   },
   "actions": {

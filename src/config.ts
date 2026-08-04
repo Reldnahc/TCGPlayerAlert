@@ -38,6 +38,25 @@ export interface CommandPrinterConfig {
   readonly timeoutSeconds: number;
 }
 
+export interface WindowsNativeLabelPrinterConfig {
+  readonly adapter: "windows-native-label";
+  readonly printerName: string;
+  readonly timeoutSeconds: number;
+}
+
+export interface WindowsPdfPrinterConfig {
+  readonly adapter: "windows-pdf";
+  readonly printerName: string;
+  readonly timeoutSeconds: number;
+  readonly dpi: number;
+  readonly scale: "actual-size" | "fit" | "shrink";
+}
+
+export type PrinterConfig =
+  | CommandPrinterConfig
+  | WindowsNativeLabelPrinterConfig
+  | WindowsPdfPrinterConfig;
+
 export interface AddressLabelActionConfig {
   readonly type: "print-address-label";
   readonly printer: string;
@@ -72,7 +91,7 @@ export interface AppConfig {
     readonly pageSize: number;
     readonly maximumPages: number;
   };
-  readonly printers: Readonly<Record<string, CommandPrinterConfig>>;
+  readonly printers: Readonly<Record<string, PrinterConfig>>;
   readonly actions: Readonly<Record<string, ActionConfig>>;
   readonly rules: readonly RuleConfig[];
 }
@@ -299,58 +318,71 @@ export function parseConfig(value: unknown): AppConfig {
   const printersSource = record(root?.printers);
   if (printersSource === undefined)
     issues.push("config.printers must be an object.");
-  const printers: Record<string, CommandPrinterConfig> = {};
+  const printers: Record<string, PrinterConfig> = {};
   for (const [rawId, value] of Object.entries(printersSource ?? {})) {
     const id = identifier(rawId, `config.printers.${rawId}`, issues);
     const source = record(value);
-    if (source?.adapter !== "command") {
-      issues.push(`config.printers.${rawId}.adapter must be command.`);
-    }
-    const printerConfig: CommandPrinterConfig = {
-      adapter: "command",
-      executable: text(
-        source,
-        "executable",
-        `config.printers.${rawId}`,
-        issues,
-      ),
-      arguments: parseStringArray(
-        source?.arguments,
-        `config.printers.${rawId}.arguments`,
-        issues,
-        true,
-      ),
-      printerName: text(
-        source,
-        "printerName",
-        `config.printers.${rawId}`,
-        issues,
-      ),
-      timeoutSeconds: integer(
-        source,
-        "timeoutSeconds",
-        `config.printers.${rawId}`,
-        1,
-        300,
-        issues,
-      ),
-    };
-    printers[id] = printerConfig;
-    const printerArguments = printerConfig.arguments;
-    if (!printerArguments.some((argument) => argument.includes("{file}"))) {
-      issues.push(`config.printers.${rawId}.arguments must include {file}.`);
-    }
-    if (
-      printerArguments.some((argument) => {
-        const withoutKnownFields = argument.replace(
-          /\{(?:file|printer|job)\}/gu,
-          "",
-        );
-        return /[{}]/u.test(withoutKnownFields);
-      })
-    ) {
+    const path = `config.printers.${rawId}`;
+    const printerName = text(source, "printerName", path, issues);
+    const timeoutSeconds = integer(
+      source,
+      "timeoutSeconds",
+      path,
+      1,
+      300,
+      issues,
+    );
+    if (source?.adapter === "command") {
+      const printerConfig: CommandPrinterConfig = {
+        adapter: "command",
+        executable: text(source, "executable", path, issues),
+        arguments: parseStringArray(
+          source.arguments,
+          `${path}.arguments`,
+          issues,
+          true,
+        ),
+        printerName,
+        timeoutSeconds,
+      };
+      printers[id] = printerConfig;
+      if (
+        !printerConfig.arguments.some((argument) => argument.includes("{file}"))
+      ) {
+        issues.push(`${path}.arguments must include {file}.`);
+      }
+      if (
+        printerConfig.arguments.some((argument) => {
+          const withoutKnownFields = argument.replace(
+            /\{(?:file|printer|job)\}/gu,
+            "",
+          );
+          return /[{}]/u.test(withoutKnownFields);
+        })
+      ) {
+        issues.push(`${path}.arguments has an unknown placeholder.`);
+      }
+    } else if (source?.adapter === "windows-native-label") {
+      printers[id] = {
+        adapter: "windows-native-label",
+        printerName,
+        timeoutSeconds,
+      };
+    } else if (source?.adapter === "windows-pdf") {
+      const scale = source.scale;
+      if (scale !== "actual-size" && scale !== "fit" && scale !== "shrink") {
+        issues.push(`${path}.scale must be actual-size, fit, or shrink.`);
+      }
+      printers[id] = {
+        adapter: "windows-pdf",
+        printerName,
+        timeoutSeconds,
+        dpi: integer(source, "dpi", path, 72, 600, issues),
+        scale: scale as WindowsPdfPrinterConfig["scale"],
+      };
+    } else {
       issues.push(
-        `config.printers.${rawId}.arguments has an unknown placeholder.`,
+        `${path}.adapter must be command, windows-native-label, or windows-pdf.`,
       );
     }
   }
@@ -425,6 +457,11 @@ export function parseConfig(value: unknown): AppConfig {
         lines,
       };
     } else if (type === "print-packing-slip") {
+      if (printers[printer]?.adapter === "windows-native-label") {
+        issues.push(
+          `config.actions.${rawId}.printer does not accept PDF documents.`,
+        );
+      }
       actions[id] = { type, printer };
     } else {
       issues.push(`config.actions.${rawId}.type is unsupported.`);
@@ -542,14 +579,15 @@ export function parseConfig(value: unknown): AppConfig {
 
   if (
     !dryRun &&
-    Object.values(printers).some(
-      (printer) =>
-        printer.executable.startsWith("CHANGE_ME") ||
-        printer.printerName.startsWith("CHANGE_ME"),
+    Object.values(printers).some((printer) =>
+      printer.adapter === "command"
+        ? printer.executable.startsWith("CHANGE_ME") ||
+          printer.printerName.startsWith("CHANGE_ME")
+        : printer.printerName.startsWith("CHANGE_ME"),
     )
   ) {
     issues.push(
-      "Live printing requires configured executable paths and printer names.",
+      "Live printing requires configured printer names and command executable paths.",
     );
   }
 

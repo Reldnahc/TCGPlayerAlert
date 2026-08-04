@@ -17,9 +17,10 @@ The first deployment needs to poll one seller account, remember workflow decisio
 - Define rules as versioned JSON data with a fixed set of fields and operators. Never evaluate user-provided code.
 - Define actions and printers through narrow interfaces. Initial actions render a configurable address-label PDF and print the provider packing-slip PDF.
 - Use a command-printer adapter that invokes a configured executable directly without a shell. Argument placeholders provide the temporary PDF path, logical job name, and configured printer name. This supports OS-visible DYMO and network printers without coupling the core to one vendor SDK.
+- The initial command-printer decision has been superseded as the default by ADR 0003. The adapter remains available as a custom and cross-platform escape hatch.
 - Default to dry-run. The first successful sync establishes a baseline and never dispatches existing orders unless `--process-backlog` is explicitly selected.
 - Keep automatic TCGplayer mutations outside the first workflow. Tracking and shipment capabilities remain available in the API package for later explicitly configured actions.
 
 ## Consequences
 
-The first release stays small, portable, testable, and useful on the operator's Windows machine. It requires only local filesystem access and a print command suitable for the installed printers. The JSON store is deliberately limited to a single application process and seller configuration; a multi-process deployment will require a transactional persistence adapter. PDF command behavior must be configured and tested for each printer without real customer documents before automatic printing is enabled.
+The first release stays small, portable, testable, and useful on the operator's Windows machine. The JSON store is deliberately limited to a single application process and seller configuration; a multi-process deployment will require a transactional persistence adapter. Printing behavior must be configured and tested for each printer without real customer documents before automatic printing is enabled.

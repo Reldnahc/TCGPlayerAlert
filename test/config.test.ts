@@ -50,7 +50,10 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as {
-      printers: Record<string, { arguments: string[] }>;
+      printers: Record<
+        string,
+        { adapter: string; executable?: string; arguments?: string[] }
+      >;
       actions: Record<string, { lines?: string[] }>;
     };
     const printer = value.printers["address-label-printer"];
@@ -58,8 +61,25 @@ describe("application configuration", () => {
     if (printer === undefined || action === undefined) {
       throw new Error("Synthetic configuration fixture is incomplete.");
     }
-    printer.arguments = ["{unknown}"];
+    printer.adapter = "command";
+    printer.executable = "synthetic-print-command";
+    printer.arguments = ["{file}", "{unknown}"];
     action.lines = ["{secretField}"];
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
+  });
+
+  it("rejects a packing slip routed to the native-label adapter", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      actions: Record<string, { printer: string }>;
+    };
+    const packingSlip = value.actions["print-packing-slip"];
+    if (packingSlip === undefined) {
+      throw new Error("Synthetic configuration fixture is incomplete.");
+    }
+    packingSlip.printer = "address-label-printer";
 
     expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });

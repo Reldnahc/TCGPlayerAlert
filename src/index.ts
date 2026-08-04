@@ -1,5 +1,6 @@
 export {
   createActions,
+  executeSyntheticPrintTest,
   renderAddressLabel,
   renderSyntheticPrintTest,
 } from "./actions.js";
@@ -15,11 +16,17 @@ export {
 export type { Logger } from "./logger.js";
 export { FulfillmentWorkflow } from "./orchestrator.js";
 export type * from "./orchestrator.js";
-export { CommandPrinter } from "./printing.js";
+export {
+  CommandPrinter,
+  createPrinter,
+  PdfJsPageRenderer,
+  WindowsNativeLabelPrinter,
+  WindowsPdfPrinter,
+} from "./printing.js";
 export type * from "./printing.js";
 export { evaluateRules } from "./rules.js";
 export type * from "./rules.js";
-export { createWorkflow } from "./runtime.js";
+export { createPrinters, createWorkflow } from "./runtime.js";
 export {
   emptyState,
   JsonStateStore,

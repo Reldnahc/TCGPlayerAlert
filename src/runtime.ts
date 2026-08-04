@@ -2,7 +2,7 @@ import type { AppConfig } from "./config.js";
 import { createActions } from "./actions.js";
 import { ConfigurationError } from "./errors.js";
 import type { Logger } from "./logger.js";
-import { CommandPrinter, type Printer } from "./printing.js";
+import { createPrinter, type Printer } from "./printing.js";
 import { FulfillmentWorkflow } from "./orchestrator.js";
 import { JsonStateStore } from "./state.js";
 import { TcgplayerOrderProvider } from "./tcgplayer-provider.js";
@@ -31,12 +31,7 @@ export function createWorkflow(
         ? new Date().getTimezoneOffset()
         : config.timezoneOffsetMinutes,
   });
-  const printers: Record<string, Printer> = Object.fromEntries(
-    Object.entries(config.printers).map(([id, printerConfig]) => [
-      id,
-      new CommandPrinter(printerConfig, config.spoolDirectory),
-    ]),
-  );
+  const printers = createPrinters(config);
   return new FulfillmentWorkflow({
     config,
     provider,
@@ -45,6 +40,17 @@ export function createWorkflow(
     logger,
     syncLease: new FileSyncLease(`${config.stateFile}.sync-lock`),
   });
+}
+
+export function createPrinters(
+  config: AppConfig,
+): Readonly<Record<string, Printer>> {
+  return Object.fromEntries(
+    Object.entries(config.printers).map(([id, printerConfig]) => [
+      id,
+      createPrinter(printerConfig, config.spoolDirectory),
+    ]),
+  );
 }
 
 function secretFromEnvironment(

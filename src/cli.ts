@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import { loadConfig } from "./config.js";
-import { renderSyntheticPrintTest } from "./actions.js";
+import { createActions, executeSyntheticPrintTest } from "./actions.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
-import { createWorkflow } from "./runtime.js";
+import { createPrinters, createWorkflow } from "./runtime.js";
 import { JsonStateStore } from "./state.js";
-import { CommandPrinter } from "./printing.js";
 
 const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
@@ -47,19 +46,13 @@ try {
         "print test requires --action with a configured action id.",
       ]);
     }
-    const printerConfig = config.printers[action.printer];
-    if (printerConfig === undefined) {
-      throw new ConfigurationError([
-        "The selected action references an unavailable printer.",
-      ]);
+    const workflowAction = createActions(config, createPrinters(config))[
+      actionId
+    ];
+    if (workflowAction === undefined) {
+      throw new ConfigurationError(["The selected action is unavailable."]);
     }
-    const bytes = await renderSyntheticPrintTest(action);
-    await new CommandPrinter(printerConfig, config.spoolDirectory).submit({
-      idempotencyKey: `synthetic-print-test:${actionId}`,
-      jobName: `synthetic-${actionId}`,
-      mediaType: "application/pdf",
-      bytes,
-    });
+    await executeSyntheticPrintTest(workflowAction, action);
     process.stdout.write(
       `${JSON.stringify({ printed: true, actionId, synthetic: true })}\n`,
     );
