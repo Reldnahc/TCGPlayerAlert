@@ -168,7 +168,34 @@ describe("configuration UI service", () => {
     );
     expect(CONFIG_UI_JS).toContain('"/api/print-tests/"');
     expect(CONFIG_UI_JS).toContain(
-      "Synthetic data only. This sends a real print job.",
+      "Sends a real print job with synthetic data.",
+    );
+  });
+
+  it("keeps routine interface copy concise", () => {
+    const interfaceSource = CONFIG_UI_HTML + CONFIG_UI_JS;
+    const removedPhrases = [
+      "section-kicker",
+      "Recipient address only",
+      "Full order document",
+      "Print method:",
+      "Suggestions appear from loaded catalog results.",
+      "same normalized name",
+      "Broader fuzzy matches",
+      "expanding only when exact results are scarce",
+      "Runs one at a time",
+      "The worker processes the next one",
+      "The worker will recheck live quantity",
+      "Start the service to process",
+      "Nothing changes until you preview",
+    ];
+
+    for (const phrase of removedPhrases) {
+      expect(interfaceSource).not.toContain(phrase);
+    }
+    expect(CONFIG_UI_HTML).toContain("Prevents printing and listing changes.");
+    expect(CONFIG_UI_HTML).toContain(
+      "For items under $5, effective shipping is at least $1.49.",
     );
   });
 

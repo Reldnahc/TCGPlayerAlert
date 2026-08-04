@@ -20,7 +20,6 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="panel-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" data-panel="settings">
           <section class="panel general-panel" aria-labelledby="general-title">
             <div>
-              <p class="section-kicker">Application</p>
               <h2 id="general-title">General</h2>
             </div>
             <label class="field compact-field">
@@ -33,7 +32,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <label class="switch-row warning-switch">
               <span>
                 <strong>Dry run</strong>
-                <small>Find orders and evaluate rules without printing.</small>
+                <small>Prevents printing and listing changes.</small>
               </span>
               <input id="dry-run" type="checkbox" />
               <span class="switch" aria-hidden="true"></span>
@@ -42,8 +41,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div class="section-heading">
             <div>
-              <p class="section-kicker">Order outputs</p>
-              <h2>Print actions</h2>
+              <h2>Printing</h2>
             </div>
             <button id="refresh-printers" class="quiet-button" type="button">Refresh printers</button>
           </div>
@@ -52,14 +50,13 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div class="section-heading">
             <div>
-              <p class="section-kicker">Automation</p>
-              <h2 id="worker-settings-title">Background workers</h2>
+              <h2 id="worker-settings-title">Processing</h2>
             </div>
           </div>
           <section class="panel worker-settings-panel" aria-labelledby="worker-settings-title">
             <div class="inventory-queue-settings">
               <label class="switch-row">
-                <span><strong>Process added cards</strong><small>Runs one at a time. Dry run pauses inventory submissions.</small></span>
+                <span><strong>Process added cards</strong></span>
                 <input id="inventory-queue-enabled" type="checkbox" />
                 <span class="switch" aria-hidden="true"></span>
               </label>
@@ -69,7 +66,6 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <label class="switch-row">
                 <span>
                   <strong>Process queued prices</strong>
-                  <small>Runs one at a time. Dry run pauses price updates.</small>
                 </span>
                 <input id="price-queue-enabled" type="checkbox" />
                 <span class="switch" aria-hidden="true"></span>
@@ -88,21 +84,16 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden>
           <div class="section-heading inventory-heading">
             <div>
-              <p class="section-kicker">Catalog inventory</p>
-              <h2>Add cards</h2>
+              <h2 id="add-cards-title">Add cards</h2>
             </div>
           </div>
-          <section class="panel inventory-panel" aria-labelledby="inventory-title">
-            <div class="inventory-copy">
-              <h3 id="inventory-title">Find the exact printing, choose its condition, and price it automatically</h3>
-              <p>Choose a search result, adjust its details, and review the automatically updated preview before adding it to the durable queue.</p>
-            </div>
+          <section class="panel inventory-panel" aria-labelledby="add-cards-title">
             <div class="catalog-search-row">
               <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
-              <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" list="catalog-product-lines" maxlength="100" placeholder="All product lines" /><datalist id="catalog-product-lines"></datalist><small class="field-note">Suggestions appear from loaded catalog results.</small></label>
+              <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" list="catalog-product-lines" maxlength="100" placeholder="All product lines" /><datalist id="catalog-product-lines"></datalist></label>
               <button id="catalog-search" class="primary-button dark-button" type="button">Search catalog</button>
             </div>
-            <p id="inventory-message" class="repricing-message">Search for a card to begin. Choose a result to configure it and see its live preview.</p>
+            <p id="inventory-message" class="repricing-message"></p>
             <div id="catalog-results" class="catalog-results" hidden></div>
             <div id="inventory-editor" class="inventory-editor" hidden>
               <div id="selected-product" class="selected-product"></div>
@@ -114,7 +105,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                 <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="inventory-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
                 <label class="field"><span>Compare against</span><select id="inventory-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
                 <label class="field"><span>Compare using</span><select id="inventory-basis"><option value="delivered">Item + shipping</option><option value="item">Item price only</option></select></label>
-                <label class="field"><span>Your Seller Portal shipping rate</span><span class="money-input"><span>$</span><input id="inventory-shipping" type="number" min="0" max="1000000" step="0.01" value="0" /></span><small class="field-note">Used for pricing only; this does not change Seller Portal. TCGplayer applies at least $1.49 to orders under $5.</small></label>
+                <label class="field"><span>Your shipping rate</span><span class="money-input"><span>$</span><input id="inventory-shipping" type="number" min="0" max="1000000" step="0.01" value="0" /></span><small class="field-note">Pricing only. For items under $5, effective shipping is at least $1.49.</small></label>
                 <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="inventory-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
                 <label class="field"><span>If no listing matches</span><select id="inventory-fallback"><option value="market">Use market price</option><option value="stop">Stop for review</option><option value="manual">Use manual price</option></select></label>
                 <label id="inventory-manual-field" class="field" hidden><span>Manual fallback price</span><span class="money-input"><span>$</span><input id="inventory-manual-price" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
@@ -127,15 +118,10 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="panel-repricing" class="tab-panel" role="tabpanel" aria-labelledby="tab-repricing" tabindex="0" data-panel="repricing" hidden>
           <div class="section-heading repricing-heading">
             <div>
-              <p class="section-kicker">Listed inventory</p>
-              <h2>Smart repricing</h2>
+              <h2 id="repricing-title">Smart repricing</h2>
             </div>
           </div>
           <section class="panel repricing-panel" aria-labelledby="repricing-title">
-            <div class="repricing-copy">
-              <h3 id="repricing-title">Match qualifying lowest listings</h3>
-              <p>Loads cards you already have listed, compares the same printing and language, and previews every price before anything is queued.</p>
-            </div>
             <div class="repricing-rules">
               <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="repricing-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
               <label class="field"><span>Condition comparison</span><select id="repricing-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
@@ -144,13 +130,13 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
             <div class="repricing-options">
               <label class="switch-row">
-                <span><strong>Allow price increases</strong><small>Off by default: cards already below the target stay where they are.</small></span>
+                <span><strong>Allow price increases</strong><small>Cards below the target remain unchanged when off.</small></span>
                 <input id="repricing-allow-increases" type="checkbox" />
                 <span class="switch" aria-hidden="true"></span>
               </label>
               <button id="repricing-preview" class="primary-button dark-button" type="button">Refresh inventory &amp; preview</button>
             </div>
-            <p id="repricing-message" class="repricing-message">Nothing changes until you preview and queue selected prices.</p>
+            <p id="repricing-message" class="repricing-message"></p>
             <div id="repricing-results" hidden>
               <div class="repricing-summary">
                 <div id="repricing-counts"></div>
@@ -172,13 +158,11 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="panel-jobs" class="tab-panel" role="tabpanel" aria-labelledby="tab-jobs" tabindex="0" data-panel="jobs" hidden>
           <div class="section-heading queue-heading first-heading">
             <div>
-              <p class="section-kicker">Background work</p>
-              <h2>Inventory addition queue</h2>
+              <h2 id="inventory-queue-title">Card additions</h2>
             </div>
           </div>
           <section class="panel queue-panel" aria-labelledby="inventory-queue-title">
             <div class="queue-list-head">
-              <strong id="inventory-queue-title">Recent card additions</strong>
               <button id="refresh-inventory-queue" class="quiet-button" type="button">Refresh</button>
             </div>
             <div id="inventory-queue-jobs" class="queue-jobs" aria-live="polite"></div>
@@ -186,13 +170,11 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div class="section-heading queue-heading">
             <div>
-              <p class="section-kicker">Background work</p>
-              <h2>Price update queue</h2>
+              <h2 id="queue-title">Price updates</h2>
             </div>
           </div>
           <section class="panel queue-panel" aria-labelledby="queue-title">
             <div class="queue-list-head">
-              <strong id="queue-title">Recent price updates</strong>
               <button id="refresh-queue" class="quiet-button" type="button">Refresh</button>
             </div>
             <div id="queue-jobs" class="queue-jobs" aria-live="polite"></div>
@@ -201,8 +183,8 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div id="save-bar" class="save-bar" hidden>
             <div>
-              <strong id="save-title">Ready to configure</strong>
-              <span id="save-detail">Application settings are stored only on this computer.</span>
+              <strong id="save-title">Unsaved changes</strong>
+              <span id="save-detail" hidden></span>
             </div>
             <button id="save-button" class="primary-button" type="submit">Save settings</button>
           </div>
@@ -238,7 +220,6 @@ body { margin: 0; background: radial-gradient(circle at top right, #dceee3 0, tr
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 .shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 20px 0 112px; }
-.section-kicker { margin: 0 0 4px; color: var(--green); font-size: .74rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 h2, p { margin-top: 0; }
 h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
 .tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
@@ -276,11 +257,9 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .output-head { padding: 22px 23px 19px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; }
 .output-icon { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 13px; background: var(--green-soft); color: var(--green-dark); font-size: 1.15rem; }
 .output-title { flex: 1; }
-.output-title h3 { margin: 0 0 3px; font-size: 1rem; }
-.output-title p { margin: 0; color: var(--muted); font-size: .8rem; }
+.output-title h3 { margin: 0; font-size: 1rem; }
 .output-body { padding: 21px 23px 24px; display: grid; gap: 18px; transition: opacity .2s ease; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.adapter-note { margin: -5px 0 0; color: var(--muted); font-size: .78rem; }
 .print-test-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 17px; border-top: 1px solid var(--line); }
 .print-test-message { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.35; }
 .print-test-message.success { color: var(--green-dark); }
@@ -288,14 +267,12 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .print-test-button { flex: 0 0 auto; }
 .repricing-heading { margin-top: 40px; }
 .repricing-panel { overflow: hidden; margin-bottom: 22px; }
-.repricing-copy { padding: 23px 25px 10px; }
-.repricing-copy h3 { margin: 0 0 6px; }
-.repricing-copy p { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
 .repricing-rules { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 15px 25px 21px; }
 .money-input { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; }
 .money-input > span { font-size: 1rem; color: var(--ink); }
 .repricing-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .repricing-message { margin: 0; padding: 15px 25px; color: var(--muted); font-size: .86rem; }
+.repricing-message:empty { display: none; }
 .repricing-message.error { color: #93401c; background: #fff5f1; }
 .repricing-message.success { color: var(--green-dark); background: var(--green-soft); }
 .repricing-summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 25px; border-top: 1px solid var(--line); }
@@ -315,9 +292,6 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .inventory-heading { margin-top: 40px; }
 .inventory-panel { overflow: hidden; margin-bottom: 22px; }
-.inventory-copy { padding: 23px 25px 10px; }
-.inventory-copy h3 { margin: 0 0 6px; }
-.inventory-copy p { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
 .catalog-search-row { display: grid; grid-template-columns: 1.35fr 1fr auto; align-items: end; gap: 14px; padding: 16px 25px 20px; }
 .catalog-results { display: grid; gap: 16px; max-height: 560px; overflow: auto; padding: 0 25px 22px; }
 .catalog-section { display: grid; gap: 8px; }
@@ -364,7 +338,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .queue-message { flex: 1; color: var(--muted); font-size: .86rem; }
 .dark-button { background: var(--green); color: white; }
 .dark-button:hover { background: var(--green-dark); }
-.queue-list-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 25px 12px; }
+.queue-list-head { display: flex; justify-content: flex-end; align-items: center; padding: 18px 25px 12px; }
 .queue-jobs { padding: 0 25px 24px; display: grid; gap: 8px; }
 .queue-empty { color: var(--muted); background: var(--paper); border-radius: 12px; padding: 18px; text-align: center; }
 .queue-job { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
@@ -559,13 +533,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
       el("div", { className: "output-icon", text: isAddress ? "✉" : "▤" }),
       el("div", { className: "output-title" }, [
         el("h3", { text: isAddress ? "Address label" : "Packing slip" }),
-        el("p", { text: isAddress ? "Recipient address only" : "Full order document" }),
       ]),
       toggle,
     ]));
     const body = el("div", { className: "output-body" });
     body.append(field("Printer", printerSelect(output)));
-    body.append(el("p", { className: "adapter-note", text: "Print method: " + output.adapterLabel }));
     if (isAddress) {
       body.append(el("div", { className: "two-column" }, [
         field("Label width (mm)", numberInput("widthMm", output.widthMm, 20, 300, "0.1")),
@@ -589,7 +561,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     const testMessage = el("p", {
       className: "print-test-message",
-      text: "Synthetic data only. This sends a real print job.",
+      text: "Sends a real print job with synthetic data.",
       "aria-live": "polite",
     });
     const testButton = el("button", {
@@ -613,9 +585,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const card = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
     const printerName = card.querySelector('[name="printerName"]').value;
     button.disabled = true;
-    button.textContent = "Sendingâ€¦";
-    message.className = "print-test-message";
-    message.textContent = "Sending synthetic " + outputName + " to the printerâ€¦";
+    button.textContent = "Sending...";
     try {
       const response = await fetch("/api/print-tests/" + encodeURIComponent(output.actionId), {
         method: "POST",
@@ -658,7 +628,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function queueJob(job) {
     const copy = el("div", { className: "queue-job-copy" }, [
       el("strong", { text: job.update.productName }),
-      el("small", { text: "SKU " + job.update.productConditionId + " · $" + Number(job.update.price).toFixed(2) + " · attempt " + job.attempts }),
+      el("small", { text: "$" + Number(job.update.price).toFixed(2) }),
     ]);
     const status = el("span", {
       className: "status-pill " + job.status,
@@ -722,11 +692,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
     });
   }
 
-  function catalogSection(title, description, products) {
+  function catalogSection(title, products) {
     if (products.length === 0) return null;
     return el("section", { className: "catalog-section", "aria-label": title }, [
       el("div", { className: "catalog-section-head" }, [
-        el("div", {}, [el("h4", { text: title }), el("span", { text: description })]),
+        el("h4", { text: title }),
         el("span", { text: String(products.length) + " loaded" }),
       ]),
       el("div", { className: "catalog-section-list" }, products.map(catalogResult)),
@@ -749,9 +719,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const variants = search.products.filter((product) => product.matchKind === "variant");
     const related = search.products.filter((product) => product.matchKind === "related");
     const sections = [
-      catalogSection("Exact name", "Every loaded set and printing with the same normalized name.", exact),
-      catalogSection("Name variants", "Qualified or extended versions of the searched name.", variants),
-      catalogSection("Related results", "Broader fuzzy matches returned by TCGplayer.", related),
+      catalogSection("Exact name", exact),
+      catalogSection("Name variants", variants),
+      catalogSection("Related results", related),
     ].filter(Boolean);
     if (sections.length === 0) {
       sections.push(el("div", { className: "queue-empty", text: "No products matched this search and product line." }));
@@ -760,7 +730,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const loadMore = el("button", { id: "catalog-load-more", className: "quiet-button", type: "button", text: "Load more" });
       loadMore.addEventListener("click", () => void searchCatalog(true, loadMore));
       sections.push(el("div", { className: "catalog-load-more" }, [
-        el("span", { text: "Scanned " + search.nextOffset + " of " + search.totalProducts + " TCGplayer matches." }),
+        el("span", { text: search.nextOffset + " of " + search.totalProducts + " loaded" }),
         loadMore,
       ]));
     }
@@ -768,10 +738,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     results.hidden = false;
     updateCatalogProductLineSuggestions(search.products, search.productLine);
     message.className = "repricing-message success";
-    const exactSummary = exact.length === 0
-      ? "No exact-name printing is loaded yet."
-      : String(exact.length) + (exact.length === 1 ? " exact-name printing loaded." : " exact-name printings loaded.");
-    message.textContent = "Showing " + search.products.length + " unique products after scanning " + search.nextOffset + " of " + search.totalProducts + " TCGplayer matches. " + exactSummary;
+    message.textContent = search.products.length + " results · " + exact.length + " exact";
   }
 
   async function searchCatalog(append = false, triggerButton) {
@@ -797,7 +764,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     button.disabled = true;
     button.textContent = append ? "Loading..." : "Searching...";
     message.className = "repricing-message";
-    message.textContent = append ? "Loading the next catalog page..." : "Searching TCGplayer and expanding only when exact results are scarce...";
+    message.textContent = "";
     if (!append) {
       state.catalogSearch = null;
       state.inventoryProductToken += 1;
@@ -941,8 +908,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     container.className = "inventory-preview-result loading";
     container.replaceChildren(
       el("div", { className: "preview-loading" }, [
-        el("strong", { text: "Updating live preview..." }),
-        el("small", { text: "Checking current inventory and qualifying marketplace prices." }),
+        el("strong", { text: "Updating preview..." }),
       ]),
     );
     container.hidden = false;
@@ -1023,7 +989,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#catalog-results").hidden = true;
     document.querySelector("#inventory-editor").hidden = true;
     message.className = "repricing-message";
-    message.textContent = "Loading the available condition, printing, and language combinations...";
+    message.textContent = "Loading card...";
     try {
       const response = await fetch("/api/catalog/products/" + encodeURIComponent(productId), { headers: { Accept: "application/json" } });
       const product = await response.json();
@@ -1042,8 +1008,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       );
       document.querySelector("#inventory-back-to-results").addEventListener("click", showCatalogResults);
       document.querySelector("#inventory-editor").hidden = false;
-      message.className = "repricing-message success";
-      message.textContent = "Product selected. The live preview updates automatically as you change its SKU, quantity, or pricing rules.";
+      message.className = "repricing-message";
+      message.textContent = "";
       scheduleInventoryPreview(0);
     } catch (error) {
       if (selectionToken !== state.inventoryProductToken) return;
@@ -1106,16 +1072,16 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     const message = document.querySelector("#inventory-message");
     if (!inventoryPreviewInputsAreValid()) {
-      message.className = "repricing-message error";
-      message.textContent = "Enter valid quantity and pricing values to update the preview.";
-      showInventoryPreviewIssue("Preview needs valid values", message.textContent);
+      const detail = "Enter valid quantity and pricing values.";
+      message.textContent = "";
+      showInventoryPreviewIssue("Preview needs valid values", detail);
       return;
     }
     const sku = selectedInventorySku();
     if (!sku) {
-      message.className = "repricing-message error";
-      message.textContent = "Choose a valid condition, printing, and language combination.";
-      showInventoryPreviewIssue("Preview needs a valid SKU", message.textContent);
+      const detail = "Choose a valid condition, printing, and language combination.";
+      message.textContent = "";
+      showInventoryPreviewIssue("Preview needs a valid SKU", detail);
       return;
     }
     const productId = state.inventoryProduct.productId;
@@ -1124,7 +1090,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     state.inventoryPreviewInFlight = true;
     state.inventoryPreviewQueued = false;
     message.className = "repricing-message";
-    message.textContent = "Updating the live inventory and price preview...";
+    message.textContent = "";
     try {
       const response = await fetch("/api/inventory-additions/preview", {
         method: "POST",
@@ -1140,13 +1106,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (generation !== state.inventoryPreviewGeneration) return;
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The inventory preview failed.");
       renderInventoryPreview(data);
-      message.className = data.queueable ? "repricing-message success" : "repricing-message error";
-      message.textContent = data.queueable ? "Live preview ready. Verify the exact SKU, quantity, and initial price, then add it to the queue." : data.reason;
+      message.className = "repricing-message";
+      message.textContent = "";
     } catch (error) {
       if (generation !== state.inventoryPreviewGeneration) return;
-      message.className = "repricing-message error";
-      message.textContent = error instanceof Error ? error.message : "The inventory preview failed.";
-      showInventoryPreviewIssue("Preview unavailable", message.textContent);
+      const detail = error instanceof Error ? error.message : "The inventory preview failed.";
+      message.textContent = "";
+      showInventoryPreviewIssue("Preview unavailable", detail);
     } finally {
       state.inventoryPreviewInFlight = false;
       if (state.inventoryPreviewQueued && state.inventoryProduct) {
@@ -1174,8 +1140,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (state.inventoryPreview?.id === preview.id) {
         state.inventoryPreview = null;
         button.textContent = "Added to queue";
-        message.className = "repricing-message success";
-        message.textContent = "Card addition queued. The worker will recheck live quantity before submitting quantity and price together.";
+        message.className = "repricing-message";
+        message.textContent = "";
       }
       await loadInventoryQueue();
     } catch (error) {
@@ -1191,7 +1157,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function inventoryQueueJob(job) {
     const copy = el("div", { className: "queue-job-copy" }, [
       el("strong", { text: job.addition.productName }),
-      el("small", { text: "Add " + job.addition.addQuantity + " / SKU " + job.addition.productConditionId + " / " + money(job.addition.price) + " / attempt " + job.attempts }),
+      el("small", { text: "+" + job.addition.addQuantity + " · " + money(job.addition.price) }),
     ]);
     const status = el("span", { className: "status-pill " + job.status, text: job.status.replace("-", " ") });
     const children = [copy, status];
@@ -1211,7 +1177,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const jobs = data.jobs.slice(0, 50);
       document.querySelector("#inventory-queue-jobs").replaceChildren(
         ...(jobs.length === 0
-          ? [el("div", { className: "queue-empty", text: data.workerRunning ? "No card additions queued." : "No additions yet. Start the service to process queued cards." })]
+          ? [el("div", { className: "queue-empty", text: "No card additions." })]
           : jobs.map(inventoryQueueJob)),
       );
     } catch (error) {
@@ -1275,7 +1241,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       preview.counts.ready + " changes · " + preview.counts.unchanged + " unchanged · " + preview.counts.skipped + " skipped";
     document.querySelector("#repricing-rows").replaceChildren(...preview.rows.map(renderRepricingRow));
     document.querySelector("#repricing-results").hidden = false;
-    document.querySelector("#repricing-queue").disabled = preview.counts.ready === 0;
+    const queueButton = document.querySelector("#repricing-queue");
+    queueButton.disabled = preview.counts.ready === 0;
+    queueButton.textContent = "Queue selected";
   }
 
   function repricingRules() {
@@ -1292,9 +1260,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const button = document.querySelector("#repricing-preview");
     const message = document.querySelector("#repricing-message");
     button.disabled = true;
-    button.textContent = "Loading inventory…";
+    button.textContent = "Loading...";
     message.className = "repricing-message";
-    message.textContent = "Reading your live listings and qualifying marketplace prices. This can take a moment.";
+    message.textContent = "";
     try {
       const response = await fetch("/api/repricing/preview", {
         method: "POST",
@@ -1304,8 +1272,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The preview could not be created.");
       renderRepricingPreview(data);
-      message.className = "repricing-message success";
-      message.textContent = "Preview ready. Review the proposed prices, then queue only the rows you want.";
+      message.className = "repricing-message";
+      message.textContent = "";
     } catch (error) {
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "The preview could not be created.";
@@ -1327,8 +1295,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return;
     }
     button.disabled = true;
+    button.textContent = "Queueing...";
     message.className = "repricing-message";
-    message.textContent = "Adding " + rowIds.length + " price " + (rowIds.length === 1 ? "change" : "changes") + " to the queue…";
+    message.textContent = "";
     try {
       const response = await fetch("/api/repricing/previews/" + encodeURIComponent(preview.id) + "/queue", {
         method: "POST",
@@ -1338,7 +1307,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The changes were not queued.");
       message.className = "repricing-message success";
-      message.textContent = data.jobs.length + " price " + (data.jobs.length === 1 ? "change is" : "changes are") + " queued. The worker processes the next one as soon as the previous request finishes.";
+      message.textContent = data.jobs.length + " price " + (data.jobs.length === 1 ? "update" : "updates") + " queued.";
       state.repricingPreview = null;
       document.querySelector("#repricing-results").hidden = true;
       await loadQueue();
@@ -1346,6 +1315,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "The changes were not queued.";
       button.disabled = false;
+      button.textContent = "Queue selected";
     }
   }
 
@@ -1357,7 +1327,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const jobs = data.jobs.slice(0, 50);
       document.querySelector("#queue-jobs").replaceChildren(
         ...(jobs.length === 0
-          ? [el("div", { className: "queue-empty", text: data.workerRunning ? "No price updates queued." : "No jobs yet. Start the service to process new jobs." })]
+          ? [el("div", { className: "queue-empty", text: "No price updates." })]
           : jobs.map(queueJob)),
       );
     } catch (error) {
@@ -1447,7 +1417,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     saveBar.hidden = !hasUnsavedChanges;
     if (hasUnsavedChanges) {
       saveTitle.textContent = "Unsaved changes";
-      saveDetail.textContent = "Save to update application settings.";
+      saveDetail.textContent = "";
+      saveDetail.hidden = true;
     }
   }
 
@@ -1456,7 +1427,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     if (!form.reportValidity()) return;
     saveButton.disabled = true;
     saveButton.textContent = "Saving…";
-    saveTitle.textContent = "Validating settings";
+    saveTitle.textContent = "Saving settings";
+    saveDetail.hidden = true;
     const payload = collectSettingsUpdate();
     try {
       const response = await fetch("/api/settings", {
@@ -1469,10 +1441,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
       state.settings = data;
       render();
       saveTitle.textContent = "Settings saved";
-      saveDetail.textContent = "The application will use the saved configuration.";
+      saveDetail.textContent = "";
     } catch (error) {
       saveTitle.textContent = "Settings were not saved";
       saveDetail.textContent = error instanceof Error ? error.message : "Review the values and try again.";
+      saveDetail.hidden = false;
     } finally {
       saveButton.disabled = false;
       saveButton.textContent = "Save settings";
