@@ -97,7 +97,7 @@ Open the settings screen and use **Add cards**:
 
 1. Search for the card name, optionally narrowing by product line. Exact-name matches appear before broader fuzzy matches, and artwork helps identify the correct printing.
 2. Choose the exact set, then select condition, printing, and language independently. Only valid combinations are offered, and language defaults to English whenever English is available.
-3. Enter the quantity and pricing rules. The default smart rule can compare the same condition or better conditions, enforce a minimum, and fall back to market price, a manual price, or no addition.
+3. Enter the quantity and pricing rules. Delivered-price comparison (item plus shipping) is the default. Enter the shipping rate already configured in Seller Portal; the browser remembers this pricing preference but does not change your Seller Portal shipping settings. For a standalone item under $5, the preview applies TCGplayer's current $1.49 minimum shipping charge.
 4. Preview the live seller quantity and proposed initial price, verify them, and queue the addition.
 
 The long-running service processes the queue; `npm run configure` only hosts the settings UI. Start `npm start` when queued jobs should be submitted. Dry run or a disabled inventory queue keeps them pending.

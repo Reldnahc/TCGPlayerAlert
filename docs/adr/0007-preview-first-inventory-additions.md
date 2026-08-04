@@ -13,7 +13,9 @@ Seller Portal identifies a listing by product-condition SKU. Its inventory updat
 
 The application provides a server-side catalog search and exact product-detail flow through `tcgplayer-private-api`. The browser receives sanitized catalog and preview data but never credentials or private transport details.
 
-Before a card can be queued, the operator must select an exact SKU, enter a positive quantity, configure pricing rules, and review a short-lived preview. Pricing may compare the same condition or the same-or-better conditions, use item or delivered price, apply an optional undercut, and enforce a hard minimum. If no qualifying listing exists, the explicit fallback is market price, a manual price, or stop.
+Before a card can be queued, the operator must select an exact SKU, enter a positive quantity, configure pricing rules, and review a short-lived preview. Pricing may compare the same condition or the same-or-better conditions, use item or delivered price, apply an optional undercut, and enforce a hard minimum. Delivered price is the UI default. If no qualifying listing exists, the explicit fallback is market price, a manual price, or stop.
+
+The operator enters the small-product shipping rate already configured in Seller Portal. It is a pricing input, not a request to change the seller account's shipping settings, and the loopback browser remembers it locally. For standalone listings below $5, delivered-price calculations use the greater of that rate and TCGplayer's $1.49 minimum shipping charge. This policy was verified against TCGplayer's [shipping-rate guidance](https://help.tcgplayer.com/hc/en-us/articles/23216633721495-Understanding-Shipping-Rates-in-Different-Situations) on 2026-08-04 and is isolated in the pricing module so a future policy change has one implementation point.
 
 Accepted previews become durable jobs. Pending jobs for the same SKU are combined. The worker processes one job at a time and, immediately before submission, re-reads the seller's primary and secondary listings. It submits only if the current quantity still equals the previewed quantity and the SKU is neither a custom listing nor represented in the secondary channel.
 
@@ -26,5 +28,6 @@ The queue is paused whenever application dry-run mode or its own enable switch i
 - Exact SKU selection avoids guessing condition or printing identifiers from card names.
 - Preview expiration and live-state revalidation reduce stale quantity mutations.
 - The operator can safely prepare additions while the worker is stopped.
+- The preview distinguishes competitor shipping, the seller's configured rate, and TCGplayer's effective under-$5 shipping minimum.
 - Marketplace search and seller inventory remain eventually consistent, so submitted jobs may require later confirmation in Seller Portal.
 - Automated bulk ingestion, scanning, per-product floors, and scheduled inventory imports remain separate future capabilities.

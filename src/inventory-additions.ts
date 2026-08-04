@@ -47,6 +47,8 @@ export interface InventoryAdditionPreview {
   readonly currentQuantity: number;
   readonly addQuantity: number;
   readonly proposedPrice?: number;
+  readonly effectiveShippingPrice?: number;
+  readonly proposedDeliveredPrice?: number;
   readonly competitorPrice?: number;
   readonly competitorShipping?: number;
   readonly competitorCondition?: string;
@@ -225,6 +227,30 @@ function roundCurrency(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+const TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL = 5;
+const TCGPLAYER_MINIMUM_SHIPPING_PRICE = 1.49;
+
+function effectiveShippingPrice(
+  itemPrice: number,
+  configuredShippingPrice: number,
+): number {
+  return itemPrice < TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL
+    ? Math.max(configuredShippingPrice, TCGPLAYER_MINIMUM_SHIPPING_PRICE)
+    : configuredShippingPrice;
+}
+
+function itemPriceForDeliveredTarget(
+  deliveredTarget: number,
+  configuredShippingPrice: number,
+): number {
+  const underMinimumCandidate =
+    deliveredTarget -
+    Math.max(configuredShippingPrice, TCGPLAYER_MINIMUM_SHIPPING_PRICE);
+  return underMinimumCandidate < TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL
+    ? underMinimumCandidate
+    : deliveredTarget - configuredShippingPrice;
+}
+
 export class InventoryAdditionService {
   private readonly client: InventoryAdditionServiceOptions["client"];
   private readonly sellerKey: string;
@@ -379,10 +405,16 @@ export class InventoryAdditionService {
     let rawTarget: number | undefined;
     let reason: string;
     if (competitor !== undefined) {
-      rawTarget =
+      const comparisonTarget =
         listingBasis(competitor, rules.priceBasis) -
-        (rules.priceBasis === "delivered" ? rules.estimatedShippingPrice : 0) -
         rules.adjustmentCents / 100;
+      rawTarget =
+        rules.priceBasis === "delivered"
+          ? itemPriceForDeliveredTarget(
+              comparisonTarget,
+              rules.estimatedShippingPrice,
+            )
+          : comparisonTarget;
       reason =
         competitor.condition === sku.condition
           ? "Matches the lowest qualifying listing."
@@ -417,9 +449,18 @@ export class InventoryAdditionService {
     const proposedPrice = roundCurrency(
       Math.max(rules.minimumPrice, rawTarget),
     );
+    const shippingPrice = roundCurrency(
+      effectiveShippingPrice(proposedPrice, rules.estimatedShippingPrice),
+    );
+    const proposedDeliveredPrice = roundCurrency(proposedPrice + shippingPrice);
+    const shippingMinimumApplied =
+      rules.priceBasis === "delivered" &&
+      shippingPrice > rules.estimatedShippingPrice;
     return this.storePreview(product, sku, addQuantity, rules, {
       currentQuantity,
       proposedPrice,
+      effectiveShippingPrice: shippingPrice,
+      proposedDeliveredPrice,
       ...(competitor === undefined
         ? {}
         : {
@@ -431,8 +472,8 @@ export class InventoryAdditionService {
       queueable: product.sellerListable,
       reason: product.sellerListable
         ? minimumApplied
-          ? `${reason} The configured minimum was applied.`
-          : reason
+          ? `${reason} The configured item-price minimum was applied.${shippingMinimumApplied ? ` TCGplayer's $${TCGPLAYER_MINIMUM_SHIPPING_PRICE.toFixed(2)} minimum shipping for orders under $${TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL.toFixed(2)} was also applied.` : ""}`
+          : `${reason}${shippingMinimumApplied ? ` TCGplayer's $${TCGPLAYER_MINIMUM_SHIPPING_PRICE.toFixed(2)} minimum shipping for orders under $${TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL.toFixed(2)} was applied.` : ""}`
         : "TCGplayer marks this product as unavailable for seller listings.",
     });
   }

@@ -14,7 +14,7 @@ import {
   startConfigurationUi,
   type ConfigurationUiServer,
 } from "../src/index.js";
-import { CONFIG_UI_JS } from "../src/config-ui-assets.js";
+import { CONFIG_UI_HTML, CONFIG_UI_JS } from "../src/config-ui-assets.js";
 
 const discovery = () =>
   Promise.resolve({
@@ -136,6 +136,11 @@ describe("configuration UI service", () => {
     );
     expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
     expect(CONFIG_UI_JS).toContain('refreshInventoryLanguages("English")');
+    expect(CONFIG_UI_HTML).toContain(
+      '<select id="inventory-basis"><option value="delivered">Item + shipping</option>',
+    );
+    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-shipping");
+    expect(CONFIG_UI_JS).toContain("localStorage.setItem");
   });
 
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {

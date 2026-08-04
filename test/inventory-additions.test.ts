@@ -210,6 +210,45 @@ describe("inventory additions", () => {
     });
   });
 
+  it("uses TCGplayer's under-$5 shipping minimum for delivered-price comparisons", async () => {
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({ totalProducts: 1, products: [product] }),
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: (input) =>
+          Promise.resolve(
+            input.sellerKey === "synthetic-seller"
+              ? searchResult([])
+              : searchResult([listing({ price: 2, shippingPrice: 1.99 })]),
+          ),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules: {
+        minimumPrice: 0.35,
+        conditionPolicy: "same-or-better",
+        priceBasis: "delivered",
+        adjustmentCents: 0,
+        estimatedShippingPrice: 0.99,
+        noComparisonFallback: "market",
+      },
+    });
+
+    expect(preview).toMatchObject({
+      proposedPrice: 2.5,
+      effectiveShippingPrice: 1.49,
+      proposedDeliveredPrice: 3.99,
+      competitorShipping: 1.99,
+      queueable: true,
+    });
+  });
+
   it("combines pending additions for the same SKU without losing quantity", async () => {
     const { path, queue } = await queueFixture();
     await queue.enqueue(addition);

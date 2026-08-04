@@ -80,8 +80,8 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                 <label class="field"><span>Quantity to add</span><input id="inventory-quantity" type="number" min="1" max="10000000" step="1" value="1" /></label>
                 <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="inventory-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
                 <label class="field"><span>Compare against</span><select id="inventory-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
-                <label class="field"><span>Compare using</span><select id="inventory-basis"><option value="item">Item price only</option><option value="delivered">Item + shipping</option></select></label>
-                <label class="field"><span>Your shipping charge</span><span class="money-input"><span>$</span><input id="inventory-shipping" type="number" min="0" max="1000000" step="0.01" value="0" /></span></label>
+                <label class="field"><span>Compare using</span><select id="inventory-basis"><option value="delivered">Item + shipping</option><option value="item">Item price only</option></select></label>
+                <label class="field"><span>Your Seller Portal shipping rate</span><span class="money-input"><span>$</span><input id="inventory-shipping" type="number" min="0" max="1000000" step="0.01" value="0" /></span><small class="field-note">Used for pricing only; this does not change Seller Portal. TCGplayer applies at least $1.49 to orders under $5.</small></label>
                 <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="inventory-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
                 <label class="field"><span>If no listing matches</span><select id="inventory-fallback"><option value="market">Use market price</option><option value="stop">Stop for review</option><option value="manual">Use manual price</option></select></label>
                 <label id="inventory-manual-field" class="field" hidden><span>Manual fallback price</span><span class="money-input"><span>$</span><input id="inventory-manual-price" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
@@ -233,6 +233,7 @@ h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
 .panel { background: var(--card); border: 1px solid rgba(202,211,201,.8); border-radius: 22px; box-shadow: var(--shadow); }
 .general-panel { padding: 24px 26px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 28px; }
 .field { display: grid; gap: 8px; color: var(--muted); font-size: .86rem; font-weight: 700; }
+.field-note { font-size: .72rem; font-weight: 500; line-height: 1.35; }
 .compact-field { min-width: 210px; }
 .input-with-unit { display: flex; align-items: center; gap: 9px; color: var(--muted); font-weight: 600; }
 input[type="number"], input[type="text"], select { width: 100%; min-height: 44px; border: 1px solid #cfd7ce; border-radius: 11px; background: white; color: var(--ink); padding: 9px 11px; outline: none; }
@@ -311,7 +312,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .inventory-preview-actions { display: flex; justify-content: flex-end; padding: 0 25px 20px; }
 .inventory-preview-result { margin: 0 25px 22px; padding: 16px; border: 1px solid #badcc8; border-radius: 13px; background: var(--green-soft); }
 .inventory-preview-result.error { border-color: #efc7b6; background: #fff5f1; }
-.preview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .preview-stat { display: grid; gap: 3px; }
 .preview-stat small { color: var(--muted); }
 .preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
@@ -388,6 +389,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     inventoryProduct: null,
     inventoryPreview: null,
   };
+  const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
   const connection = document.querySelector("#connection");
@@ -689,6 +691,29 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#inventory-preview-result").hidden = true;
   }
 
+  function restoreInventoryShippingPreference() {
+    const input = document.querySelector("#inventory-shipping");
+    try {
+      const stored = window.localStorage.getItem(inventoryShippingStorageKey);
+      if (stored === null || stored === "") return;
+      const value = Number(stored);
+      if (!Number.isFinite(value) || value < 0 || value > 1000000 || Math.abs(value * 100 - Math.round(value * 100)) > 1e-9) return;
+      input.value = stored;
+    } catch {
+      // Browser storage can be unavailable; the field remains usable for this session.
+    }
+  }
+
+  function persistInventoryShippingPreference() {
+    const input = document.querySelector("#inventory-shipping");
+    if (input.value === "" || !input.checkValidity()) return;
+    try {
+      window.localStorage.setItem(inventoryShippingStorageKey, input.value);
+    } catch {
+      // Browser storage can be unavailable; pricing still uses the current field value.
+    }
+  }
+
   async function selectCatalogProduct(productId) {
     const message = document.querySelector("#inventory-message");
     message.className = "repricing-message";
@@ -735,7 +760,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const container = document.querySelector("#inventory-preview-result");
     const competitor = preview.competitorPrice === undefined
       ? "Fallback"
-      : money(preview.competitorPrice) + (preview.competitorShipping > 0 ? " + " + money(preview.competitorShipping) + " shipping" : "") + " / " + preview.competitorCondition;
+      : money(preview.competitorPrice) + (preview.competitorShipping > 0 ? " + " + money(preview.competitorShipping) + " competitor shipping" : "") + " / " + preview.competitorCondition;
+    const effectiveShipping = preview.effectiveShippingPrice === undefined
+      ? "-"
+      : money(preview.effectiveShippingPrice) + (preview.effectiveShippingPrice !== preview.rules.estimatedShippingPrice ? " (from " + money(preview.rules.estimatedShippingPrice) + " setting)" : "");
     const queue = el("button", {
       id: "queue-inventory-addition",
       className: "primary-button dark-button",
@@ -750,7 +778,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
         el("div", { className: "preview-stat" }, [el("small", { text: "Add quantity" }), el("strong", { text: String(preview.addQuantity) })]),
         el("div", { className: "preview-stat" }, [el("small", { text: "Current quantity" }), el("strong", { text: String(preview.currentQuantity) })]),
         el("div", { className: "preview-stat" }, [el("small", { text: "Qualifying match" }), el("strong", { text: competitor })]),
-        el("div", { className: "preview-stat" }, [el("small", { text: "Initial price" }), el("strong", { text: preview.proposedPrice === undefined ? "-" : money(preview.proposedPrice) })]),
+        el("div", { className: "preview-stat" }, [el("small", { text: "Initial item price" }), el("strong", { text: preview.proposedPrice === undefined ? "-" : money(preview.proposedPrice) })]),
+        el("div", { className: "preview-stat" }, [el("small", { text: "Your effective shipping" }), el("strong", { text: effectiveShipping })]),
+        el("div", { className: "preview-stat" }, [el("small", { text: "Your delivered price" }), el("strong", { text: preview.proposedDeliveredPrice === undefined ? "-" : money(preview.proposedDeliveredPrice) })]),
       ]),
       el("div", { className: "preview-footer" }, [el("p", { text: preview.reason }), queue]),
     );
@@ -1124,6 +1154,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
     refreshInventoryLanguages("English");
   });
   document.querySelector("#inventory-language").addEventListener("change", invalidateInventoryPreview);
+  for (const selector of ["#inventory-quantity", "#inventory-minimum", "#inventory-condition", "#inventory-basis", "#inventory-adjustment", "#inventory-fallback", "#inventory-manual-price"]) {
+    document.querySelector(selector).addEventListener("input", invalidateInventoryPreview);
+  }
+  document.querySelector("#inventory-shipping").addEventListener("input", () => {
+    persistInventoryShippingPreference();
+    invalidateInventoryPreview();
+  });
   document.querySelector("#inventory-fallback").addEventListener("change", (event) => {
     document.querySelector("#inventory-manual-field").hidden = event.target.value !== "manual";
   });
@@ -1133,6 +1170,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     for (const checkbox of document.querySelectorAll('#repricing-rows input[type="checkbox"]:not(:disabled)')) checkbox.checked = true;
   });
   document.querySelector("#retry").addEventListener("click", load);
+  restoreInventoryShippingPreference();
   load();
   setInterval(loadQueue, 5000);
   setInterval(loadInventoryQueue, 5000);
