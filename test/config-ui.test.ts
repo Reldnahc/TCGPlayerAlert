@@ -503,6 +503,12 @@ describe("configuration UI service", () => {
       '"Address copied. Press Ctrl+V in Pirate Ship."',
     );
     expect(CONFIG_UI_JS).toContain(
+      "const card = outputs.querySelector('[data-action-id=\"'",
+    );
+    expect(CONFIG_UI_JS).not.toContain(
+      "const card = form.querySelector('[data-action-id=\"'",
+    );
+    expect(CONFIG_UI_JS).toContain(
       "Turn off dry run and save settings before changing or printing a real order.",
     );
   });

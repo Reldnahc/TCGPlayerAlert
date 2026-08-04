@@ -660,7 +660,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     if (!form.reportValidity()) return;
     const idleText = output.type === "print-address-label" ? "Print test label" : "Print test sheet";
     const outputName = output.type === "print-address-label" ? "label" : "sheet";
-    const card = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
+    const card = outputs.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
     const printerName = card.querySelector('[name="printerName"]').value;
     button.disabled = true;
     button.textContent = "Sending...";
@@ -710,7 +710,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const output = state.settings.outputs.find((candidate) => candidate.type === type);
       if (!output) continue;
       controls.push(dashboardToggle(label, output.enabled, (checked) => {
-        const settingsControl = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"] [name="enabled"]');
+        const settingsControl = outputs.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"] [name="enabled"]');
         settingsControl.checked = checked;
         settingsControl.dispatchEvent(new Event("change", { bubbles: true }));
       }, output.actionId));
@@ -722,7 +722,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const dryRun = document.querySelector('#dashboard-automation-controls input[aria-label="Dry run"]');
     if (dryRun) dryRun.checked = document.querySelector("#dry-run").checked;
     for (const control of document.querySelectorAll("#dashboard-automation-controls input[data-action-id]")) {
-      const settingsControl = form.querySelector('[data-action-id="' + CSS.escape(control.dataset.actionId) + '"] [name="enabled"]');
+      const settingsControl = outputs.querySelector('[data-action-id="' + CSS.escape(control.dataset.actionId) + '"] [name="enabled"]');
       if (settingsControl) control.checked = settingsControl.checked;
     }
   }
@@ -1862,7 +1862,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         delaySeconds: Number(document.querySelector("#inventory-delay").value),
       },
       outputs: state.settings.outputs.map((output) => {
-        const card = form.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
+        const card = outputs.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
         return collectOutput(card, output);
       }),
     };
