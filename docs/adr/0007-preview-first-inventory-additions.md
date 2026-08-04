@@ -7,7 +7,7 @@
 
 An operator needs to add an already-owned card to Seller Portal by selecting the exact product, condition, printing, and language. The application should calculate an initial price using the same configurable comparison rules as smart repricing without hiding a quantity mutation behind a broad bulk operation.
 
-Seller Portal identifies a listing by product-condition SKU. Its inventory update request carries both the current absolute quantity and a positive relative addition. The private interface may accept a request before finishing its own processing, so a successful response is not proof that the listing is already visible.
+Seller Portal identifies a listing by product-condition SKU. Its inventory update request carries both the absolute post-add quantity and a positive relative addition. The absolute value must equal the freshly observed current quantity plus the relative addition. The private interface may accept a request before finishing its own processing, so a successful response is not proof that the listing is already visible.
 
 ## Decision
 

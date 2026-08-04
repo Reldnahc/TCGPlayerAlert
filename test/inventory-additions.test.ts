@@ -340,7 +340,7 @@ describe("inventory additions", () => {
       form.get(
         "productQuantityPrices[0][ConditionQuantityPrices][0][Quantity]",
       ),
-    ).toBe("2");
+    ).toBe("3");
     expect(
       form.get("productQuantityPrices[0][ConditionQuantityPrices][0][Price]"),
     ).toBe("2.00");
