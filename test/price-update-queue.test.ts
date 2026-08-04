@@ -323,7 +323,12 @@ describe("price-update queue", () => {
     }
 
     expect(requests).toHaveLength(3);
+    expect(requests[2]?.url).toBe(
+      "https://store.tcgplayer.com/admin/pricing/updateinventory",
+    );
     const form = new URLSearchParams(bodyText(requests[2]?.init?.body));
+    expect(form.get("type")).toBe("Pricing");
+    expect(form.get("isStaged")).toBe("false");
     expect(
       form.get(
         "productQuantityPrices[0][ConditionQuantityPrices][0][Quantity]",
