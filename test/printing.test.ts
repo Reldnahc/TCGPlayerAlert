@@ -10,6 +10,7 @@ import {
   WindowsPdfPrinter,
   type WindowsSpoolPayload,
 } from "../src/index.js";
+import { WINDOWS_PRINT_SCRIPT } from "../src/printing.js";
 
 const syntheticPdf = new TextEncoder().encode("%PDF-1.7\n%%EOF\n");
 
@@ -75,6 +76,18 @@ describe("command printer", () => {
 });
 
 describe("Windows printer adapters", () => {
+  it("measures native label margins from the physical stock edge", () => {
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$eventArgs.PageSettings.HardMarginX",
+    );
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$eventArgs.PageSettings.HardMarginY",
+    );
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$eventArgs.Graphics.TranslateTransform(-$hardMarginX, -$hardMarginY)",
+    );
+  });
+
   it("passes a structured label to the native spooler and removes customer data", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tcgplayer-alert-print-"));
     let payload: WindowsSpoolPayload | undefined;

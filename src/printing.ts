@@ -563,7 +563,7 @@ async function removeTemporaryFile(path: string): Promise<void> {
   );
 }
 
-const WINDOWS_PRINT_SCRIPT = String.raw`
+export const WINDOWS_PRINT_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 try {
   Add-Type -AssemblyName System.Drawing
@@ -592,6 +592,9 @@ try {
     $handler = [System.Drawing.Printing.PrintPageEventHandler]{
       param($sender, $eventArgs)
       $eventArgs.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
+      $hardMarginX = [single]$eventArgs.PageSettings.HardMarginX
+      $hardMarginY = [single]$eventArgs.PageSettings.HardMarginY
+      $eventArgs.Graphics.TranslateTransform(-$hardMarginX, -$hardMarginY)
       $bounds = New-Object System.Drawing.RectangleF($margin, $margin, [single]($eventArgs.PageBounds.Width - 2 * $margin), [single]($eventArgs.PageBounds.Height - 2 * $margin))
       $format = New-Object System.Drawing.StringFormat
       try {
