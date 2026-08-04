@@ -407,6 +407,82 @@ describe("inventory additions", () => {
     expect(service.takeAddition(preview.id)).toEqual(addition);
   });
 
+  it("reuses the selected SKU snapshot when quantity and pricing inputs change", async () => {
+    let now = new Date("2026-08-04T12:00:00.000Z");
+    const getCatalogProduct = vi.fn(() => Promise.resolve(product));
+    const searchMarketplaceProducts = vi.fn((input: { sellerKey?: string }) =>
+      Promise.resolve(
+        input.sellerKey === "synthetic-seller"
+          ? searchResult([])
+          : searchResult([listing()]),
+      ),
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      now: () => now,
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({ totalProducts: 1, products: [product] }),
+        getCatalogProduct,
+        searchMarketplaceProducts,
+      },
+    });
+    const rules = {
+      minimumPrice: 0.35,
+      conditionPolicy: "same-or-better" as const,
+      priceBasis: "item" as const,
+      adjustmentCents: 0,
+      estimatedShippingPrice: 0,
+      noComparisonFallback: "market" as const,
+    };
+
+    await service.getProduct(product.productId);
+    const first = await service.preview({
+      productId: product.productId,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules,
+    });
+    const recalculated = await service.preview({
+      productId: product.productId,
+      productConditionId: 456,
+      addQuantity: 4,
+      rules: { ...rules, adjustmentCents: 25 },
+    });
+
+    expect(first).toMatchObject({ addQuantity: 1, proposedPrice: 2 });
+    expect(recalculated).toMatchObject({
+      addQuantity: 4,
+      proposedPrice: 1.75,
+    });
+    expect(getCatalogProduct).toHaveBeenCalledOnce();
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(3);
+
+    await service.preview({
+      productId: product.productId,
+      productConditionId: 456,
+      addQuantity: 4,
+      rules: { ...rules, conditionPolicy: "same" },
+    });
+    await service.preview({
+      productId: product.productId,
+      productConditionId: 456,
+      addQuantity: 5,
+      rules: { ...rules, conditionPolicy: "same" },
+    });
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+
+    now = new Date("2026-08-04T12:15:00.001Z");
+    await service.preview({
+      productId: product.productId,
+      productConditionId: 456,
+      addQuantity: 5,
+      rules: { ...rules, conditionPolicy: "same" },
+    });
+    expect(getCatalogProduct).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(7);
+  });
+
   it("uses the configured minimum with a market fallback", async () => {
     const service = new InventoryAdditionService({
       sellerKey: "synthetic-seller",

@@ -8,6 +8,7 @@ import {
   type CatalogProductSku,
   type CatalogProductSummary,
   type MarketplaceListing,
+  type SearchMarketplaceProductsResult,
   type SellerInventoryAddition,
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
@@ -87,6 +88,27 @@ interface StoredAdditionPreview {
 interface StoredCatalogSearch {
   readonly expiresAt: number;
   readonly result: CatalogSearchResult;
+}
+
+interface StoredCatalogProduct {
+  readonly expiresAt: number;
+  readonly value: Promise<CatalogProductDetails>;
+}
+
+interface InventorySelectionSnapshot {
+  readonly product: CatalogProductDetails;
+  readonly primary: SearchMarketplaceProductsResult;
+  readonly secondary: SearchMarketplaceProductsResult;
+}
+
+interface StoredInventorySelectionSnapshot {
+  readonly expiresAt: number;
+  readonly value: Promise<InventorySelectionSnapshot>;
+}
+
+interface StoredInventoryComparisonSnapshot {
+  readonly expiresAt: number;
+  readonly value: Promise<SearchMarketplaceProductsResult>;
 }
 
 export interface InventoryAdditionServiceOptions {
@@ -397,6 +419,15 @@ export class InventoryAdditionService {
   private readonly previewLifetimeMs: number;
   private readonly previews = new Map<string, StoredAdditionPreview>();
   private readonly catalogSearches = new Map<string, StoredCatalogSearch>();
+  private readonly catalogProducts = new Map<number, StoredCatalogProduct>();
+  private readonly selectionSnapshots = new Map<
+    string,
+    StoredInventorySelectionSnapshot
+  >();
+  private readonly comparisonSnapshots = new Map<
+    string,
+    StoredInventoryComparisonSnapshot
+  >();
 
   constructor(options: InventoryAdditionServiceOptions) {
     this.client = options.client;
@@ -490,7 +521,20 @@ export class InventoryAdditionService {
   }
 
   getProduct(productId: number): Promise<CatalogProductDetails> {
-    return this.client.getCatalogProduct({ productId });
+    this.removeExpiredSelectionData();
+    const cached = this.catalogProducts.get(productId);
+    if (cached !== undefined) return cached.value;
+    const value = this.client.getCatalogProduct({ productId });
+    this.catalogProducts.set(productId, {
+      expiresAt: this.now().getTime() + this.previewLifetimeMs,
+      value,
+    });
+    void value.catch(() => {
+      if (this.catalogProducts.get(productId)?.value === value) {
+        this.catalogProducts.delete(productId);
+      }
+    });
+    return value;
   }
 
   private removeExpiredCatalogSearches(): void {
@@ -502,6 +546,7 @@ export class InventoryAdditionService {
 
   async preview(value: unknown): Promise<InventoryAdditionPreview> {
     this.removeExpiredPreviews();
+    this.removeExpiredSelectionData();
     const source = objectValue(value);
     const issues: string[] = [];
     if (source === undefined)
@@ -529,7 +574,7 @@ export class InventoryAdditionService {
     );
     if (issues.length > 0) throw new ConfigurationError(issues);
     const rules = parseInventoryPricingRules(source?.rules);
-    const product = await this.client.getCatalogProduct({ productId });
+    const product = await this.getProduct(productId);
     const sku = product.skus.find(
       (candidate) => candidate.productConditionId === productConditionId,
     );
@@ -547,27 +592,9 @@ export class InventoryAdditionService {
         reason: "The selected SKU uses an unsupported condition.",
       });
     }
-    const [primary, secondary, comparisons] = await Promise.all([
-      this.client.searchMarketplaceProducts({
-        productIds: [productId],
-        sellerKey: this.sellerKey,
-        channelId: 0,
-        limit: 24,
-      }),
-      this.client.searchMarketplaceProducts({
-        productIds: [productId],
-        sellerKey: this.sellerKey,
-        channelId: 1,
-        limit: 24,
-      }),
-      this.client.searchMarketplaceProducts({
-        productIds: [productId],
-        conditions,
-        printings: [sku.printing],
-        languages: [sku.language],
-        channelId: 0,
-        limit: 24,
-      }),
+    const [{ primary, secondary }, comparisons] = await Promise.all([
+      this.selectionSnapshot(product),
+      this.comparisonSnapshot(product, sku, conditions),
     ]);
     const currentListing = primary.products
       .flatMap((item) => item.listings)
@@ -774,6 +801,91 @@ export class InventoryAdditionService {
     const now = this.now().getTime();
     for (const [id, preview] of this.previews) {
       if (preview.expiresAt <= now) this.previews.delete(id);
+    }
+  }
+
+  private selectionSnapshot(
+    product: CatalogProductDetails,
+  ): Promise<InventorySelectionSnapshot> {
+    const key = String(product.productId);
+    const cached = this.selectionSnapshots.get(key);
+    if (cached !== undefined) return cached.value;
+    const value = this.loadSelectionSnapshot(product);
+    this.selectionSnapshots.set(key, {
+      expiresAt: this.now().getTime() + this.previewLifetimeMs,
+      value,
+    });
+    void value.catch(() => {
+      if (this.selectionSnapshots.get(key)?.value === value) {
+        this.selectionSnapshots.delete(key);
+      }
+    });
+    return value;
+  }
+
+  private async loadSelectionSnapshot(
+    product: CatalogProductDetails,
+  ): Promise<InventorySelectionSnapshot> {
+    const [primary, secondary] = await Promise.all([
+      this.client.searchMarketplaceProducts({
+        productIds: [product.productId],
+        sellerKey: this.sellerKey,
+        channelId: 0,
+        limit: 24,
+      }),
+      this.client.searchMarketplaceProducts({
+        productIds: [product.productId],
+        sellerKey: this.sellerKey,
+        channelId: 1,
+        limit: 24,
+      }),
+    ]);
+    return { product, primary, secondary };
+  }
+
+  private comparisonSnapshot(
+    product: CatalogProductDetails,
+    sku: CatalogProductSku,
+    conditions: readonly string[],
+  ): Promise<SearchMarketplaceProductsResult> {
+    const key = JSON.stringify([
+      product.productId,
+      sku.printing,
+      sku.language,
+      conditions,
+    ]);
+    const cached = this.comparisonSnapshots.get(key);
+    if (cached !== undefined) return cached.value;
+    const value = this.client.searchMarketplaceProducts({
+      productIds: [product.productId],
+      conditions,
+      printings: [sku.printing],
+      languages: [sku.language],
+      channelId: 0,
+      limit: 24,
+    });
+    this.comparisonSnapshots.set(key, {
+      expiresAt: this.now().getTime() + this.previewLifetimeMs,
+      value,
+    });
+    void value.catch(() => {
+      if (this.comparisonSnapshots.get(key)?.value === value) {
+        this.comparisonSnapshots.delete(key);
+      }
+    });
+    return value;
+  }
+
+  private removeExpiredSelectionData(): void {
+    const now = this.now().getTime();
+    for (const [productId, product] of this.catalogProducts) {
+      if (product.expiresAt <= now) this.catalogProducts.delete(productId);
+    }
+    for (const [key, snapshot] of this.selectionSnapshots) {
+      if (snapshot.expiresAt <= now) this.selectionSnapshots.delete(key);
+    }
+    for (const [key, snapshot] of this.comparisonSnapshots) {
+      if (snapshot.expiresAt <= now) this.comparisonSnapshots.delete(key);
     }
   }
 }
