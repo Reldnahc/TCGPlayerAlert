@@ -52,7 +52,7 @@ npm run build
 npm run configure
 ```
 
-Open the printed `http://127.0.0.1:47831` address. The interface opens directly on persistent, keyboard-accessible Settings, Add cards, Repricing, and Jobs tabs. Polling, dry-run, printer, and background-worker configuration lives in Settings so the action and job pages stay focused. The save banner appears only while those persistent settings differ from their last saved values. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with label-size, font, PDF scaling, DPI, and queue settings. Catalog search is ranked by name likeness and includes product images. The UI listens only on this computer and never receives or displays the seller credentials from `.env.local`.
+Open the printed `http://127.0.0.1:47831` address. The interface opens directly on persistent, keyboard-accessible Add cards, Inventory, Settings, and Jobs tabs. Polling, dry-run, printer, and background-worker configuration lives in Settings so the action and job pages stay focused. The save banner appears only while those persistent settings differ from their last saved values. The UI discovers installed Windows printers and provides independent on/off controls for address labels and packing slips, along with label-size, font, PDF scaling, DPI, and queue settings. Catalog search is ranked by name likeness and includes product images. The UI listens only on this computer and never receives or displays the seller credentials from `.env.local`.
 
 Validate non-secret configuration without contacting TCGplayer or printing:
 

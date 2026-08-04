@@ -11,9 +11,9 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
       <main>
         <form id="settings-form" hidden>
           <nav class="tab-list" role="tablist" aria-label="Workspace sections">
-            <button id="tab-settings" class="tab-button" type="button" role="tab" aria-controls="panel-settings" aria-selected="true" tabindex="0" data-tab="settings">Settings</button>
             <button id="tab-add-cards" class="tab-button" type="button" role="tab" aria-controls="panel-add-cards" aria-selected="false" tabindex="-1" data-tab="add-cards">Add cards</button>
-            <button id="tab-repricing" class="tab-button" type="button" role="tab" aria-controls="panel-repricing" aria-selected="false" tabindex="-1" data-tab="repricing">Repricing</button>
+            <button id="tab-inventory" class="tab-button" type="button" role="tab" aria-controls="panel-inventory" aria-selected="false" tabindex="-1" data-tab="inventory">Inventory</button>
+            <button id="tab-settings" class="tab-button" type="button" role="tab" aria-controls="panel-settings" aria-selected="true" tabindex="0" data-tab="settings">Settings</button>
             <button id="tab-jobs" class="tab-button" type="button" role="tab" aria-controls="panel-jobs" aria-selected="false" tabindex="-1" data-tab="jobs">Jobs</button>
           </nav>
 
@@ -115,7 +115,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </section>
           </div>
 
-          <div id="panel-repricing" class="tab-panel" role="tabpanel" aria-labelledby="tab-repricing" tabindex="0" data-panel="repricing" hidden>
+          <div id="panel-inventory" class="tab-panel" role="tabpanel" aria-labelledby="tab-inventory" tabindex="0" data-panel="inventory" hidden>
           <div class="section-heading repricing-heading">
             <div>
               <h2 id="repricing-title">Smart repricing</h2>
@@ -409,7 +409,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
-  const tabIds = ["settings", "add-cards", "repricing", "jobs"];
+  const tabIds = ["add-cards", "inventory", "settings", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
   const fatal = document.querySelector("#fatal-error");
@@ -425,7 +425,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function normalizeTabId(value) {
-    return value === "automation" ? "settings" : isTabId(value) ? value : null;
+    if (value === "automation") return "settings";
+    if (value === "repricing") return "inventory";
+    return isTabId(value) ? value : null;
   }
 
   function activateTab(tabId, updateHistory = false, focusTab = false) {

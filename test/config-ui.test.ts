@@ -285,8 +285,21 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain(
       'id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden',
     );
+    expect(
+      [...CONFIG_UI_HTML.matchAll(/\sdata-tab="([^"]+)"/gu)].map(
+        (match) => match[1],
+      ),
+    ).toEqual(["add-cards", "inventory", "settings", "jobs"]);
+    expect(CONFIG_UI_HTML).toContain(
+      'id="tab-inventory" class="tab-button" type="button" role="tab" aria-controls="panel-inventory" aria-selected="false" tabindex="-1" data-tab="inventory">Inventory</button>',
+    );
+    expect(CONFIG_UI_HTML).toContain(
+      'id="panel-inventory" class="tab-panel" role="tabpanel" aria-labelledby="tab-inventory" tabindex="0" data-panel="inventory" hidden',
+    );
+    expect(CONFIG_UI_HTML).not.toContain('id="tab-repricing"');
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.active-tab");
-    expect(CONFIG_UI_JS).toContain('value === "automation" ? "settings"');
+    expect(CONFIG_UI_JS).toContain('value === "automation"');
+    expect(CONFIG_UI_JS).toContain('value === "repricing"');
     expect(CONFIG_UI_JS).not.toContain("#queue-health");
     expect(CONFIG_UI_JS).not.toContain("#inventory-queue-health");
     expect(CONFIG_UI_JS).toContain('event.key === "ArrowRight"');
