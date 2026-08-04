@@ -491,11 +491,15 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain(
       "<th>Products</th><th>Shipping</th><th>Total</th>",
     );
+    expect(CONFIG_UI_HTML).toContain(
+      "<th>Total</th><th>Pirate Ship</th><th>Add tracking</th>",
+    );
     expect(CONFIG_UI_JS).toContain('dashboardToggle("Dry run"');
     expect(CONFIG_UI_JS).toContain('"Print address label"');
     expect(CONFIG_UI_JS).toContain('"Print packing slip"');
     expect(CONFIG_UI_JS).toContain('"Download packing slip"');
     expect(CONFIG_UI_JS).toContain('"Open in Pirate Ship"');
+    expect(CONFIG_UI_JS).toContain('pirateShipButton(order, "ready-to-ship")');
     expect(CONFIG_UI_JS).toContain('"Add tracking"');
     expect(CONFIG_UI_JS).toContain('"Mark shipped"');
     expect(CONFIG_UI_JS).toContain('text: "Manage order"');

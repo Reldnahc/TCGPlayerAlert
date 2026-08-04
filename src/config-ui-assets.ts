@@ -33,7 +33,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <p id="dashboard-orders-message" class="order-message" aria-live="polite"></p>
             <div class="order-table-wrap">
               <table class="order-table dashboard-order-table">
-                <thead><tr><th>Buyer</th><th>Order date</th><th>Shipping type</th><th>Total</th><th>Add tracking</th><th>Mark shipped</th></tr></thead>
+                <thead><tr><th>Buyer</th><th>Order date</th><th>Shipping type</th><th>Total</th><th>Pirate Ship</th><th>Add tracking</th><th>Mark shipped</th></tr></thead>
                 <tbody id="dashboard-order-rows"></tbody>
               </table>
             </div>
@@ -298,7 +298,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .order-message.success { color: var(--green-dark); background: var(--green-soft); }
 .order-table-wrap { overflow: auto; }
 .order-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-.dashboard-order-table { min-width: 760px; }
+.dashboard-order-table { min-width: 900px; }
 .full-order-table { min-width: 1320px; }
 .order-table th { padding: 11px 12px; background: #f1f3ed; color: var(--muted); text-align: left; font-size: .69rem; letter-spacing: .035em; text-transform: uppercase; white-space: nowrap; }
 .order-table td { padding: 12px; border-top: 1px solid var(--line); vertical-align: middle; }
@@ -774,7 +774,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       ? {
           rows: document.querySelector("#dashboard-order-rows"),
           message: document.querySelector("#dashboard-orders-message"),
-          columns: 6,
+          columns: 7,
         }
       : {
           rows: document.querySelector("#order-rows"),
@@ -875,12 +875,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function dashboardOrderRows(order) {
-    const tracking = trackingRow(order, "ready-to-ship", 6);
+    const tracking = trackingRow(order, "ready-to-ship", 7);
     const row = el("tr", {}, [
       el("td", { text: order.buyerName }),
       el("td", { className: "date-cell", text: dateText(order.orderDate) }),
       el("td", { text: order.shippingType }),
       el("td", { className: "money-cell", text: money(order.totalAmount) }),
+      el("td", {}, [pirateShipButton(order, "ready-to-ship")]),
       el("td", {}, [trackingOpenButton(order, tracking)]),
       el("td", {}, [markShippedButton(order, "ready-to-ship")]),
     ]);
