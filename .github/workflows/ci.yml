@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Reldnahc/tcgplayer-private-api
+          ref: bf7be5f5a48c821217edc955b64437f19dd0a033
+          path: api-package
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - name: Pack API dependency
+        run: |
+          npm ci --prefix api-package
+          mkdir -p .packages
+          cd api-package
+          npm pack --pack-destination ../.packages
+      - run: npm ci
+      - run: npm run check
+      - run: npm run audit

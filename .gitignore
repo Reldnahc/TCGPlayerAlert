@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.packages/
+.data/
+.spool/
+.env*
+!.env.example
+config/local.json
+*.log
+*.tgz

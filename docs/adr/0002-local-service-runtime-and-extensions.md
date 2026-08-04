@@ -1,0 +1,25 @@
+# ADR 0002: Local service runtime and extensions
+
+- Status: Accepted
+- Date: 2026-08-03
+
+## Context
+
+The first deployment needs to poll one seller account, remember workflow decisions across restarts, and print an address label and packing slip to locally reachable printers. It should remain adaptable without adopting a multi-user web stack before one is needed.
+
+## Decision
+
+- Implement a private Node.js 20.19+ application in strict TypeScript and compile it as ESM.
+- Expose a CLI with scheduled service, one-shot synchronization, state status, and configuration validation commands. A future UI will call the same application services.
+- Consume `tcgplayer-private-api` only through an npm-installed immutable tarball during adjacent development, then a semantic registry version after publication.
+- Use a versioned, atomically replaced JSON state document for the initial single-process deployment. Persist only order identifiers, workflow/action states, timestamps, safe error classifications, and rule explanations; never persist addresses or document bytes.
+- Coalesce overlapping requests in process and serialize independent CLI/service processes with a filesystem lease, heartbeat, and stale-lock recovery. Write an action's durable `running` intent before invoking a side effect; an interrupted `running` action becomes `review-required` on restart instead of being submitted again.
+- Define rules as versioned JSON data with a fixed set of fields and operators. Never evaluate user-provided code.
+- Define actions and printers through narrow interfaces. Initial actions render a configurable address-label PDF and print the provider packing-slip PDF.
+- Use a command-printer adapter that invokes a configured executable directly without a shell. Argument placeholders provide the temporary PDF path, logical job name, and configured printer name. This supports OS-visible DYMO and network printers without coupling the core to one vendor SDK.
+- Default to dry-run. The first successful sync establishes a baseline and never dispatches existing orders unless `--process-backlog` is explicitly selected.
+- Keep automatic TCGplayer mutations outside the first workflow. Tracking and shipment capabilities remain available in the API package for later explicitly configured actions.
+
+## Consequences
+
+The first release stays small, portable, testable, and useful on the operator's Windows machine. It requires only local filesystem access and a print command suitable for the installed printers. The JSON store is deliberately limited to a single application process and seller configuration; a multi-process deployment will require a transactional persistence adapter. PDF command behavior must be configured and tested for each printer without real customer documents before automatic printing is enabled.

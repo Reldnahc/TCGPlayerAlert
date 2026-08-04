@@ -15,7 +15,7 @@ The product must remain useful beyond one seller, scheduling cadence, operating 
 
 ## Current Phase
 
-The repository is in bootstrap and architecture-discovery mode. Do not begin application implementation until the user explicitly requests it. Research, design notes, small compatibility experiments, and an inventory of reusable upstream components are acceptable only when requested.
+Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Keep remote mutations opt-in and out of the initial automatic workflow until a newly received order is available for supervised compatibility testing.
 
 The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
 
@@ -206,19 +206,12 @@ A change is done only when:
 6. Failure behavior is explicit and observable.
 7. The diff contains no unrelated changes.
 
-## Early Design Decisions Still Required
+## Outstanding Design Decisions
 
-Do not silently assume answers to these questions during implementation:
+- Whether and when optional notification providers should be added; provider authentication remains deferred until one is selected.
+- Whether TCGplayer session acquisition or renewal remains entirely operator-owned.
+- Which concrete print executable and printer names each deployment will use.
+- Whether a later multi-user or remote deployment warrants replacing the single-process JSON store with a transactional database.
+- Whether a web operator interface is needed beyond the initial CLI.
 
-- Runtime/language and packaging model.
-- Supported deployment targets and operating systems.
-- Whether and when optional notification providers should be added; provider authentication is deferred until one is selected.
-- TCGplayer authentication/session acquisition and renewal boundaries.
-- Legal/licensing status of any upstream code to be reused.
-- Durable-store choice and customer-data retention defaults.
-- Plugin discovery and versioning approach.
-- Rules configuration format and user interface.
-- Cross-platform printing architecture and DYMO integration strategy.
-- Whether packing slips are fetched as PDFs, rendered pages, or another documented format.
-
-Resolve consequential choices with a short architecture decision record before coupling implementation to them.
+Record consequential changes with a short architecture decision record before coupling implementation to them.

@@ -1,0 +1,42 @@
+{
+  "name": "tcgplayer-alert",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first, configurable seller fulfillment automation service",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "audit": "npm audit --audit-level=high",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "start": "node --env-file=.env.local dist/cli.js start",
+    "sync": "node --env-file=.env.local dist/cli.js sync",
+    "status": "node --env-file=.env.local dist/cli.js status",
+    "config:validate": "node --env-file=.env.local dist/cli.js config validate"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1",
+    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.1.0.tgz"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "20.19.39",
+    "eslint": "10.8.0",
+    "prettier": "3.9.6",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.66.0",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  }
+}

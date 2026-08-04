@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "pollIntervalMinutes": 60,
+  "actionMaximumAttempts": 3,
+  "dryRun": true,
+  "stateFile": ".data/state.json",
+  "spoolDirectory": ".spool",
+  "timezoneOffsetMinutes": "local",
+  "provider": {
+    "type": "tcgplayer",
+    "authCookieEnv": "TCGPLAYER_AUTH_COOKIE",
+    "sellerKeyEnv": "TCGPLAYER_SELLER_KEY",
+    "pageSize": 100,
+    "maximumPages": 100
+  },
+  "printers": {
+    "address-label-printer": {
+      "adapter": "command",
+      "executable": "CHANGE_ME_PRINT_EXECUTABLE",
+      "arguments": ["-print-to", "{printer}", "-silent", "{file}"],
+      "printerName": "CHANGE_ME_DYMO_PRINTER_NAME",
+      "timeoutSeconds": 30
+    },
+    "packing-slip-printer": {
+      "adapter": "command",
+      "executable": "CHANGE_ME_PRINT_EXECUTABLE",
+      "arguments": ["-print-to", "{printer}", "-silent", "{file}"],
+      "printerName": "CHANGE_ME_NETWORK_PRINTER_NAME",
+      "timeoutSeconds": 30
+    }
+  },
+  "actions": {
+    "print-address-label": {
+      "type": "print-address-label",
+      "printer": "address-label-printer",
+      "page": {
+        "widthMm": 89,
+        "heightMm": 28,
+        "marginMm": 3,
+        "fontSize": 10
+      },
+      "lines": [
+        "{recipientName}",
+        "{addressOne}",
+        "{addressTwo}",
+        "{city}, {territory} {postalCode}",
+        "{country}"
+      ]
+    },
+    "print-packing-slip": {
+      "type": "print-packing-slip",
+      "printer": "packing-slip-printer"
+    }
+  },
+  "rules": [
+    {
+      "id": "default-fulfillment",
+      "enabled": true,
+      "when": { "all": [] },
+      "actions": ["print-address-label", "print-packing-slip"]
+    }
+  ]
+}
