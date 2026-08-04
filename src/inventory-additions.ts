@@ -29,7 +29,10 @@ import { FileSyncLease, type SyncLease } from "./sync-lease.js";
 type UnknownRecord = Record<string, unknown>;
 
 const CATALOG_SEARCH_PAGE_SIZE = 24;
-const CATALOG_SEARCH_BATCH_PAGES = 3;
+const CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES = 3;
+const CATALOG_SEARCH_MATCH_TARGET = 8;
+const CATALOG_SEARCH_CACHE_TTL_MS = 60_000;
+const CATALOG_SEARCH_CACHE_LIMIT = 100;
 
 export interface InventoryPricingRules {
   readonly minimumPrice: number;
@@ -77,6 +80,11 @@ export interface CatalogSearchResult {
 interface StoredAdditionPreview {
   readonly expiresAt: number;
   readonly addition?: SellerInventoryAddition;
+}
+
+interface StoredCatalogSearch {
+  readonly expiresAt: number;
+  readonly result: CatalogSearchResult;
 }
 
 export interface InventoryAdditionServiceOptions {
@@ -354,6 +362,7 @@ export class InventoryAdditionService {
   private readonly id: () => string;
   private readonly previewLifetimeMs: number;
   private readonly previews = new Map<string, StoredAdditionPreview>();
+  private readonly catalogSearches = new Map<string, StoredCatalogSearch>();
 
   constructor(options: InventoryAdditionServiceOptions) {
     this.client = options.client;
@@ -367,24 +376,39 @@ export class InventoryAdditionService {
     query: string,
     productLineName?: string,
     offset = 0,
+    signal?: AbortSignal,
   ): Promise<CatalogSearchResult> {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
       throw new ConfigurationError([
         "Catalog search offset must be between 0 and 1000000.",
       ]);
     }
+    signal?.throwIfAborted();
+    this.removeExpiredCatalogSearches();
+    const cacheKey = JSON.stringify([
+      query.trim().toLocaleLowerCase("en-US"),
+      productLineName?.trim().toLocaleLowerCase("en-US") ?? "",
+      offset,
+    ]);
+    const cached = this.catalogSearches.get(cacheKey);
+    if (cached !== undefined) return cached.result;
     const products: CatalogProductSummary[] = [];
     let totalProducts = 0;
     let nextOffset = offset;
-    for (let page = 0; page < CATALOG_SEARCH_BATCH_PAGES; page += 1) {
-      const result = await this.client.searchCatalogProducts({
-        query,
-        ...(productLineName === undefined || productLineName.trim() === ""
-          ? {}
-          : { productLineName }),
-        offset: nextOffset,
-        limit: CATALOG_SEARCH_PAGE_SIZE,
-      });
+    const maximumPages =
+      offset === 0 ? CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES : 1;
+    for (let page = 0; page < maximumPages; page += 1) {
+      const result = await this.client.searchCatalogProducts(
+        {
+          query,
+          ...(productLineName === undefined || productLineName.trim() === ""
+            ? {}
+            : { productLineName }),
+          offset: nextOffset,
+          limit: CATALOG_SEARCH_PAGE_SIZE,
+        },
+        signal === undefined ? undefined : { signal },
+      );
       totalProducts = Math.max(totalProducts, result.totalProducts);
       products.push(...result.products);
       nextOffset = Math.min(
@@ -392,17 +416,47 @@ export class InventoryAdditionService {
         totalProducts,
       );
       if (result.products.length === 0 || nextOffset >= totalProducts) break;
+      const ranked = rankCatalogSearchProducts(products, query);
+      const exactCount = ranked.filter(
+        (product) => product.matchKind === "exact",
+      ).length;
+      const variantCount = ranked.filter(
+        (product) => product.matchKind === "variant",
+      ).length;
+      if (
+        exactCount >= CATALOG_SEARCH_MATCH_TARGET ||
+        (exactCount === 0 && variantCount >= CATALOG_SEARCH_MATCH_TARGET)
+      ) {
+        break;
+      }
     }
-    return {
+    const searchResult = {
       totalProducts,
       products: rankCatalogSearchProducts(products, query),
       nextOffset,
       hasMore: nextOffset < totalProducts,
     };
+    signal?.throwIfAborted();
+    if (this.catalogSearches.size >= CATALOG_SEARCH_CACHE_LIMIT) {
+      const oldestKey = this.catalogSearches.keys().next().value;
+      if (oldestKey !== undefined) this.catalogSearches.delete(oldestKey);
+    }
+    this.catalogSearches.set(cacheKey, {
+      expiresAt: this.now().getTime() + CATALOG_SEARCH_CACHE_TTL_MS,
+      result: searchResult,
+    });
+    return searchResult;
   }
 
   getProduct(productId: number): Promise<CatalogProductDetails> {
     return this.client.getCatalogProduct({ productId });
+  }
+
+  private removeExpiredCatalogSearches(): void {
+    const now = this.now().getTime();
+    for (const [key, search] of this.catalogSearches) {
+      if (search.expiresAt <= now) this.catalogSearches.delete(key);
+    }
   }
 
   async preview(value: unknown): Promise<InventoryAdditionPreview> {

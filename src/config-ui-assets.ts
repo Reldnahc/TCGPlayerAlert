@@ -441,6 +441,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     inventoryPreview: null,
     catalogSearch: null,
     catalogSearchToken: 0,
+    catalogSearchController: null,
   };
   const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
@@ -773,7 +774,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     if (search.hasMore) {
       const loadMore = el("button", { id: "catalog-load-more", className: "quiet-button", type: "button", text: "Load more" });
-      loadMore.addEventListener("click", () => searchCatalog(true, loadMore));
+      loadMore.addEventListener("click", () => void searchCatalog(true, loadMore));
       sections.push(el("div", { className: "catalog-load-more" }, [
         el("span", { text: "Scanned " + search.nextOffset + " of " + search.totalProducts + " TCGplayer matches." }),
         loadMore,
@@ -796,6 +797,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const offset = append && current ? current.nextOffset : 0;
     const message = document.querySelector("#inventory-message");
     const results = document.querySelector("#catalog-results");
+    const requestToken = state.catalogSearchToken + 1;
+    state.catalogSearchToken = requestToken;
+    state.catalogSearchController?.abort();
+    state.catalogSearchController = null;
     if (query.length < 2) {
       message.className = "repricing-message error";
       message.textContent = "Enter at least two characters of the card name.";
@@ -803,12 +808,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     const button = triggerButton || document.querySelector("#catalog-search");
     const idleText = append ? "Load more" : "Search catalog";
-    const requestToken = state.catalogSearchToken + 1;
-    state.catalogSearchToken = requestToken;
+    const requestController = new AbortController();
+    state.catalogSearchController = requestController;
     button.disabled = true;
     button.textContent = append ? "Loading..." : "Searching...";
     message.className = "repricing-message";
-    message.textContent = append ? "Loading more catalog matches..." : "Searching several TCGplayer catalog pages for exact products...";
+    message.textContent = append ? "Loading the next catalog page..." : "Searching TCGplayer and expanding only when exact results are scarce...";
     if (!append) {
       state.catalogSearch = null;
       state.inventoryProduct = null;
@@ -820,7 +825,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
     try {
       const parameters = new URLSearchParams({ q: query, offset: String(offset) });
       if (productLine) parameters.set("productLine", productLine);
-      const response = await fetch("/api/catalog/search?" + parameters.toString(), { headers: { Accept: "application/json" } });
+      const response = await fetch("/api/catalog/search?" + parameters.toString(), {
+        headers: { Accept: "application/json" },
+        signal: requestController.signal,
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Catalog search failed.");
       if (requestToken !== state.catalogSearchToken) return;
@@ -841,6 +849,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       message.className = "repricing-message error";
       message.textContent = error instanceof Error ? error.message : "Catalog search failed.";
     } finally {
+      if (state.catalogSearchController === requestController) {
+        state.catalogSearchController = null;
+      }
       if (requestToken === state.catalogSearchToken) {
         button.disabled = false;
         button.textContent = idleText;

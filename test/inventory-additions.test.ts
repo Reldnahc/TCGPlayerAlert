@@ -207,6 +207,80 @@ describe("inventory additions", () => {
     ]);
   });
 
+  it("stops after enough exact matches and briefly caches identical searches", async () => {
+    let now = new Date("2026-08-04T12:00:00.000Z");
+    const signal = new AbortController().signal;
+    const exactProducts = Array.from({ length: 8 }, (_, index) => ({
+      ...product,
+      productId: index + 1,
+      setName: `Synthetic Set ${String(index + 1)}`,
+    }));
+    const searchCatalogProducts = vi.fn(
+      (
+        _input: { offset?: number },
+        options?: { readonly signal?: AbortSignal },
+      ) => {
+        expect(options?.signal).toBe(signal);
+        return Promise.resolve({
+          totalProducts: 100,
+          products: exactProducts,
+        });
+      },
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      now: () => now,
+      client: {
+        searchCatalogProducts,
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const first = await service.search("Synthetic Card", undefined, 0, signal);
+    const cached = await service.search("Synthetic Card", undefined, 0, signal);
+
+    expect(first).toMatchObject({ nextOffset: 24, hasMore: true });
+    expect(cached).toBe(first);
+    expect(searchCatalogProducts).toHaveBeenCalledOnce();
+
+    now = new Date("2026-08-04T12:01:00.001Z");
+    await service.search("Synthetic Card", undefined, 0, signal);
+    expect(searchCatalogProducts).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads only one additional page after the initial search", async () => {
+    const searchCatalogProducts = vi.fn((input: { offset?: number }) =>
+      Promise.resolve({
+        totalProducts: 200,
+        products: [
+          {
+            ...product,
+            productId: input.offset ?? 8,
+            productName: "Synthetic Box",
+          },
+        ],
+      }),
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts,
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const result = await service.search("Synthetic Card", undefined, 72);
+
+    expect(searchCatalogProducts).toHaveBeenCalledOnce();
+    expect(searchCatalogProducts.mock.calls[0]?.[0]).toMatchObject({
+      offset: 72,
+      limit: 24,
+    });
+    expect(result).toMatchObject({ nextOffset: 96, hasMore: true });
+  });
+
   it("previews an exact SKU and prices it against a better condition", async () => {
     const searchMarketplaceProducts = vi.fn(
       (input: { sellerKey?: string; channelId?: number }) => {

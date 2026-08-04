@@ -146,6 +146,8 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('text: "Load more"');
     expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
     expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
+    expect(CONFIG_UI_JS).toContain("state.catalogSearchController?.abort()");
+    expect(CONFIG_UI_JS).toContain("signal: requestController.signal");
     expect(CONFIG_UI_JS).toContain(
       "new URLSearchParams({ q: query, offset: String(offset) })",
     );

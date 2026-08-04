@@ -687,15 +687,15 @@ async function handleRequest(
         });
         return;
       }
-      sendJson(
-        response,
-        200,
-        await inventoryService.search(
+      const searchResult = await withRequestAbort(request, response, (signal) =>
+        inventoryService.search(
           query,
           productLine === "" ? undefined : productLine,
           Number(offsetText),
+          signal,
         ),
       );
+      if (!response.destroyed) sendJson(response, 200, searchResult);
     } else if (
       request.method === "GET" &&
       /^\/api\/catalog\/products\/\d+$/u.test(url.pathname)
@@ -820,6 +820,7 @@ async function handleRequest(
       sendJson(response, 404, { message: "Not found." });
     }
   } catch (error) {
+    if (request.destroyed || response.destroyed) return;
     if (error instanceof ConfigurationConflictError) {
       sendJson(response, 409, {
         message: "Settings changed on disk. Refresh and try again.",
@@ -843,6 +844,26 @@ async function handleRequest(
         message: "The configuration operation failed.",
       });
     }
+  }
+}
+
+async function withRequestAbort<T>(
+  request: IncomingMessage,
+  response: ServerResponse,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const abortIfUnfinished = () => {
+    if (!response.writableEnded) controller.abort();
+  };
+  request.once("aborted", abort);
+  response.once("close", abortIfUnfinished);
+  try {
+    return await operation(controller.signal);
+  } finally {
+    request.removeListener("aborted", abort);
+    response.removeListener("close", abortIfUnfinished);
   }
 }
 
