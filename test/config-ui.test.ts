@@ -141,14 +141,20 @@ describe("configuration UI service", () => {
       ".filter((product) => product.sellerListable)",
     );
     expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
-    expect(CONFIG_UI_JS).toContain('refreshInventoryLanguages("English")');
+    expect(CONFIG_UI_JS).toContain("defaultInventoryLanguage()");
     expect(CONFIG_UI_HTML).toContain(
       '<select id="inventory-basis"><option value="delivered">Item + shipping</option>',
     );
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-shipping");
+    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-language");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
+    expect(CONFIG_UI_HTML).toContain('id="inventory-language-default"');
     expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
+    expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
+    expect(CONFIG_UI_HTML.indexOf('class="inventory-defaults"')).toBeLessThan(
+      CONFIG_UI_HTML.indexOf('class="catalog-search-row"'),
+    );
     expect(CONFIG_UI_JS).toContain('text: "Load more"');
     expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
     expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
@@ -162,12 +168,14 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain(
       "new URLSearchParams({ q: query, offset: String(offset) })",
     );
-    expect(CONFIG_UI_JS).toContain('text: "Back to results"');
+    expect(CONFIG_UI_JS).toContain('text: active ? "Close"');
+    expect(CONFIG_UI_JS).toContain('className: "catalog-inline-editor"');
+    expect(CONFIG_UI_JS).toContain("bindInventoryRowControls()");
     expect(CONFIG_UI_JS).toContain('text: "Add to queue"');
     expect(CONFIG_UI_JS).toContain("scheduleInventoryPreview(0)");
     expect(CONFIG_UI_JS).toContain("if (state.inventoryPreviewInFlight)");
     expect(CONFIG_UI_JS).toContain("scheduleInventoryPreview(delay = 350)");
-    expect(CONFIG_UI_JS).toContain(
+    expect(CONFIG_UI_JS).not.toContain(
       'document.querySelector("#catalog-results").hidden = true',
     );
     expect(CONFIG_UI_JS).not.toContain(
@@ -774,9 +782,11 @@ describe("configuration UI service", () => {
     expect(pageText).not.toContain("Seller workspace");
     expect(pageText).toContain('role="tablist"');
     expect(pageText).toContain("Add cards");
-    expect(pageText).toContain('id="inventory-card-condition"');
-    expect(pageText).toContain('id="inventory-printing"');
-    expect(pageText).toContain('id="inventory-language"');
+    expect(pageText).toContain('id="inventory-language-default"');
+    expect(pageText).not.toContain('id="inventory-card-condition"');
+    expect(CONFIG_UI_JS).toContain('id: "inventory-card-condition"');
+    expect(CONFIG_UI_JS).toContain('id: "inventory-printing"');
+    expect(CONFIG_UI_JS).toContain('id: "inventory-language"');
     expect(repricingPreview.status).toBe(200);
     expect(await repricingPreview.json()).toMatchObject({
       counts: { ready: 0, unchanged: 0, skipped: 0 },
