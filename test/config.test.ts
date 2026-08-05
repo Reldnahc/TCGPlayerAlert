@@ -29,11 +29,44 @@ describe("application configuration", () => {
     expect(config.repricingProfiles[0]).toMatchObject({
       name: "Smart conservative",
       ranges: [
-        { maximumPrice: 1, minimumListings: 1, gapAction: "use-next" },
-        { maximumPrice: 5, minimumListings: 2, gapAction: "use-next" },
-        { maximumPrice: 25, minimumListings: 2, gapAction: "use-next" },
-        { maximumPrice: 100, minimumListings: 3, gapAction: "skip" },
-        { minimumListings: 3, gapAction: "skip" },
+        {
+          maximumPrice: 1,
+          minimumListings: 1,
+          gapAction: "use-next",
+          supportMode: "cluster",
+          minimumSellerSupport: 1,
+        },
+        {
+          maximumPrice: 5,
+          minimumListings: 2,
+          gapThresholdPercent: 3,
+          gapAction: "use-next",
+          supportMode: "cluster",
+          minimumSellerSupport: 2,
+        },
+        {
+          maximumPrice: 25,
+          minimumListings: 2,
+          gapThresholdPercent: 3,
+          gapAction: "use-next",
+          supportMode: "cluster",
+          minimumSellerSupport: 2,
+        },
+        {
+          maximumPrice: 100,
+          minimumListings: 3,
+          gapThresholdPercent: 3,
+          gapAction: "skip",
+          supportMode: "cluster",
+          minimumSellerSupport: 2,
+        },
+        {
+          minimumListings: 3,
+          gapThresholdPercent: 3,
+          gapAction: "skip",
+          supportMode: "cluster",
+          minimumSellerSupport: 2,
+        },
       ],
     });
     expect(config.rules).toHaveLength(1);
@@ -91,41 +124,81 @@ describe("application configuration", () => {
             percentage: 100,
             gapThresholdPercent: 20,
             gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 1,
+            supportWindowPercent: 5,
           },
           {
             maximumPrice: 5,
             minimumListings: 2,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 10,
+            gapThresholdPercent: 3,
             gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
           },
           {
             maximumPrice: 25,
             minimumListings: 2,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 10,
+            gapThresholdPercent: 3,
             gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
           },
           {
             maximumPrice: 100,
             minimumListings: 3,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 8,
+            gapThresholdPercent: 3,
             gapAction: "skip",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
           },
           {
             minimumListings: 3,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 5,
+            gapThresholdPercent: 3,
             gapAction: "skip",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
           },
         ],
       },
     ]);
+  });
+
+  it("preserves adjacent gap behavior for repricing profiles saved before seller bands", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      repricingProfiles: { ranges: Record<string, unknown>[] }[];
+    };
+    for (const range of value.repricingProfiles[0]?.ranges ?? []) {
+      delete range.supportMode;
+      delete range.minimumSellerSupport;
+      delete range.supportWindowPercent;
+    }
+
+    const ranges = parseConfig(value).repricingProfiles[0]?.ranges;
+
+    expect(ranges?.every((range) => range.supportMode === "adjacent")).toBe(
+      true,
+    );
+    expect(ranges?.every((range) => range.minimumSellerSupport === 2)).toBe(
+      true,
+    );
+    expect(ranges?.every((range) => range.supportWindowPercent === 5)).toBe(
+      true,
+    );
   });
 
   it("rejects invalid merchandise profiles and default references", async () => {

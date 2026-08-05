@@ -19,6 +19,7 @@ export type RepricingConditionPolicy = "same" | "same-or-better";
 export type RepricingPriceBasis = "item" | "delivered";
 export type RepricingPriceSource = "lowest" | "market";
 export type RepricingGapAction = "follow-lowest" | "use-next" | "skip";
+export type RepricingSupportMode = "adjacent" | "cluster";
 
 export interface RepricingRange {
   readonly maximumPrice?: number;
@@ -27,6 +28,10 @@ export interface RepricingRange {
   readonly percentage: number;
   readonly gapThresholdPercent: number;
   readonly gapAction: RepricingGapAction;
+  /** Missing on profiles saved before cluster support; preserve their adjacent-listing behavior. */
+  readonly supportMode?: RepricingSupportMode;
+  readonly minimumSellerSupport?: number;
+  readonly supportWindowPercent?: number;
 }
 
 export interface RepricingRules {
@@ -65,9 +70,18 @@ export interface RepricingPreviewRow {
   readonly nextLowestShipping?: number;
   readonly gapPercent?: number;
   readonly qualifyingListings?: number;
+  readonly distinctSellers?: number;
   readonly minimumQualifyingListings?: number;
+  readonly supportMode?: RepricingSupportMode;
+  readonly lowestSellerSupport?: number;
+  readonly minimumSellerSupport?: number;
+  readonly supportWindowPercent?: number;
+  readonly supportedClusterPrice?: number;
+  readonly supportedClusterShipping?: number;
+  readonly supportedClusterSellerCount?: number;
   readonly gapActionApplied?: Exclude<RepricingGapAction, "follow-lowest">;
-  readonly pricingSource?: RepricingPriceSource | "next-lowest";
+  readonly pricingSource?:
+    RepricingPriceSource | "next-lowest" | "supported-cluster";
   readonly pricingPercentage?: number;
   readonly rangeMaximumPrice?: number;
   readonly minimumApplied: boolean;
@@ -176,6 +190,9 @@ function parseRepricingRanges(
         percentage: 100,
         gapThresholdPercent: 0,
         gapAction: "follow-lowest",
+        supportMode: "adjacent",
+        minimumSellerSupport: 2,
+        supportWindowPercent: 5,
       },
     ];
   }
@@ -244,6 +261,27 @@ function parseRepricingRanges(
     ) {
       issues.push(`${path} gap action is invalid.`);
     }
+    const supportMode = range?.supportMode ?? "adjacent";
+    if (supportMode !== "adjacent" && supportMode !== "cluster") {
+      issues.push(`${path} support mode is invalid.`);
+    }
+    const minimumSellerSupport = range?.minimumSellerSupport ?? 2;
+    if (
+      !Number.isInteger(minimumSellerSupport) ||
+      Number(minimumSellerSupport) < 1 ||
+      Number(minimumSellerSupport) > 100
+    ) {
+      issues.push(`${path} minimum seller support must be between 1 and 100.`);
+    }
+    const supportWindowPercent = range?.supportWindowPercent ?? 5;
+    if (
+      typeof supportWindowPercent !== "number" ||
+      !Number.isFinite(supportWindowPercent) ||
+      supportWindowPercent < 0 ||
+      supportWindowPercent > 100
+    ) {
+      issues.push(`${path} support window must be between 0 and 100%.`);
+    }
     return {
       ...(index < value.length - 1 && typeof maximumPrice === "number"
         ? { maximumPrice }
@@ -253,6 +291,9 @@ function parseRepricingRanges(
       percentage: Number(percentage),
       gapThresholdPercent: Number(gapThresholdPercent),
       gapAction: gapAction as RepricingGapAction,
+      supportMode: supportMode as RepricingSupportMode,
+      minimumSellerSupport: Number(minimumSellerSupport),
+      supportWindowPercent: Number(supportWindowPercent),
     };
   });
 }
@@ -283,6 +324,61 @@ function listingBasis(
   basis: RepricingPriceBasis,
 ): number {
   return listing.price + (basis === "delivered" ? listing.shippingPrice : 0);
+}
+
+interface SupportedSellerCluster {
+  readonly listing: MarketplaceListing;
+  readonly sellerCount: number;
+}
+
+function cheapestListingsBySeller(
+  candidates: readonly MarketplaceListing[],
+): readonly MarketplaceListing[] {
+  const seen = new Set<string>();
+  return candidates.filter((listing) => {
+    if (seen.has(listing.sellerKey)) return false;
+    seen.add(listing.sellerKey);
+    return true;
+  });
+}
+
+function sellerSupportAt(
+  listings: readonly MarketplaceListing[],
+  index: number,
+  basis: RepricingPriceBasis,
+  windowPercent: number,
+): number {
+  const anchor = listings[index];
+  if (anchor === undefined) return 0;
+  const maximum = listingBasis(anchor, basis) * (1 + windowPercent / 100);
+  let count = 0;
+  for (
+    let candidateIndex = index;
+    candidateIndex < listings.length;
+    candidateIndex += 1
+  ) {
+    const candidate = listings[candidateIndex];
+    if (candidate === undefined || listingBasis(candidate, basis) > maximum)
+      break;
+    count += 1;
+  }
+  return count;
+}
+
+function cheapestSupportedCluster(
+  listings: readonly MarketplaceListing[],
+  basis: RepricingPriceBasis,
+  windowPercent: number,
+  minimumSellerSupport: number,
+): SupportedSellerCluster | undefined {
+  for (let index = 0; index < listings.length; index += 1) {
+    const sellerCount = sellerSupportAt(listings, index, basis, windowPercent);
+    if (sellerCount >= minimumSellerSupport) {
+      const listing = listings[index];
+      if (listing !== undefined) return { listing, sellerCount };
+    }
+  }
+  return undefined;
 }
 
 function matchingRange(
@@ -354,12 +450,9 @@ export function calculateRepricingRow(
     });
   const lowest = candidates[0];
   const nextLowest = candidates[1];
+  const sellerListings = cheapestListingsBySeller(candidates);
   const lowestBasis =
     lowest === undefined ? undefined : listingBasis(lowest, rules.priceBasis);
-  const nextLowestBasis =
-    nextLowest === undefined
-      ? undefined
-      : listingBasis(nextLowest, rules.priceBasis);
   const marketPrice =
     own.product.marketPrice > 0 ? own.product.marketPrice : undefined;
   // The exact filtered marketplace comparison is a better value-tier signal
@@ -373,15 +466,34 @@ export function calculateRepricingRow(
   }
   const range = matchingRange(rangeReference, rules.ranges);
   const minimumListings = range.minimumListings ?? 0;
+  const supportMode = range.supportMode ?? "adjacent";
+  const minimumSellerSupport = range.minimumSellerSupport ?? 2;
+  const supportWindowPercent = range.supportWindowPercent ?? 5;
+  const supportedCluster =
+    supportMode === "cluster"
+      ? cheapestSupportedCluster(
+          sellerListings,
+          rules.priceBasis,
+          supportWindowPercent,
+          minimumSellerSupport,
+        )
+      : undefined;
+  const gapReferenceListing =
+    supportMode === "cluster" ? supportedCluster?.listing : nextLowest;
+  const gapReferenceBasis =
+    gapReferenceListing === undefined
+      ? undefined
+      : listingBasis(gapReferenceListing, rules.priceBasis);
   const gapPercent =
-    nextLowestBasis === undefined ||
+    gapReferenceBasis === undefined ||
     lowestBasis === undefined ||
     lowestBasis <= 0
       ? undefined
-      : ((nextLowestBasis - lowestBasis) / lowestBasis) * 100;
+      : ((gapReferenceBasis - lowestBasis) / lowestBasis) * 100;
   const gapDetected =
     range.gapAction !== "follow-lowest" &&
     gapPercent !== undefined &&
+    (supportMode === "adjacent" || gapPercent > 0) &&
     gapPercent >= range.gapThresholdPercent;
   const rangeDetails = {
     ...(marketPrice === undefined ? {} : { marketPrice }),
@@ -399,7 +511,29 @@ export function calculateRepricingRow(
         }),
     ...(gapPercent === undefined ? {} : { gapPercent }),
     qualifyingListings: candidates.length,
+    distinctSellers: sellerListings.length,
     minimumQualifyingListings: minimumListings,
+    supportMode,
+    ...(supportMode === "cluster"
+      ? {
+          lowestSellerSupport: sellerSupportAt(
+            sellerListings,
+            0,
+            rules.priceBasis,
+            supportWindowPercent,
+          ),
+          minimumSellerSupport,
+          supportWindowPercent,
+          ...(supportedCluster === undefined
+            ? {}
+            : {
+                supportedClusterPrice: supportedCluster.listing.price,
+                supportedClusterShipping:
+                  supportedCluster.listing.shippingPrice,
+                supportedClusterSellerCount: supportedCluster.sellerCount,
+              }),
+        }
+      : {}),
     pricingPercentage: range.percentage,
     ...(range.maximumPrice === undefined
       ? {}
@@ -416,6 +550,21 @@ export function calculateRepricingRow(
       queueable: false,
     };
   }
+  if (
+    supportMode === "cluster" &&
+    range.gapAction !== "follow-lowest" &&
+    supportedCluster === undefined
+  ) {
+    return {
+      ...base,
+      ...rangeDetails,
+      proposedPrice: own.listing.price,
+      minimumApplied: false,
+      status: "skipped",
+      reason: `No price band within ${String(supportWindowPercent)}% has support from ${String(minimumSellerSupport)} distinct sellers.`,
+      queueable: false,
+    };
+  }
   if (gapDetected && range.gapAction === "skip") {
     return {
       ...base,
@@ -424,20 +573,25 @@ export function calculateRepricingRow(
       proposedPrice: own.listing.price,
       minimumApplied: false,
       status: "skipped",
-      reason: `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range waits without changing the price.`,
+      reason:
+        supportMode === "cluster"
+          ? `The lowest seller is ${gapPercent.toFixed(1)}% below the supported price band, so this range waits without changing the price.`
+          : `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range waits without changing the price.`,
       queueable: false,
     };
   }
   const useNext = gapDetected && range.gapAction === "use-next";
   const referenceListing = useNext
-    ? nextLowest
+    ? gapReferenceListing
     : range.priceSource === "lowest"
       ? lowest
       : undefined;
   if (useNext && referenceListing === undefined) {
     return skippedRow(
       base,
-      "No second qualifying listing was found for the configured gap rule.",
+      supportMode === "cluster"
+        ? "No supported seller price band was found for the configured gap rule."
+        : "No second qualifying listing was found for the configured gap rule.",
     );
   }
   if (range.priceSource === "lowest" && referenceListing === undefined) {
@@ -452,8 +606,11 @@ export function calculateRepricingRow(
       "No market price was available for the selected pricing range.",
     );
   }
-  const pricingSource: RepricingPriceSource | "next-lowest" = useNext
-    ? "next-lowest"
+  const pricingSource:
+    RepricingPriceSource | "next-lowest" | "supported-cluster" = useNext
+    ? supportMode === "cluster"
+      ? "supported-cluster"
+      : "next-lowest"
     : range.priceSource;
   let sourcePrice: number;
   if (referenceListing !== undefined) {
@@ -488,7 +645,9 @@ export function calculateRepricingRow(
     minimumApplied,
   };
   const strategyReason = useNext
-    ? `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range uses ${String(range.percentage)}% of the next listing.`
+    ? supportMode === "cluster"
+      ? `The lowest seller is ${gapPercent.toFixed(1)}% below a price band supported by ${String(supportedCluster?.sellerCount ?? 0)} sellers, so this range uses ${String(range.percentage)}% of that band.`
+      : `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range uses ${String(range.percentage)}% of the next listing.`
     : range.priceSource === "market"
       ? `Uses ${String(range.percentage)}% of market price.`
       : `Uses ${String(range.percentage)}% of the lowest qualifying listing.`;

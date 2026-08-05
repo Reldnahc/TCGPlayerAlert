@@ -313,6 +313,197 @@ describe("smart repricing", () => {
     });
   });
 
+  it("prices from the cheapest band supported by distinct sellers", () => {
+    const ownListing = listing({ price: 1, shippingPrice: 1.49 });
+    const row = calculateRepricingRow(
+      {
+        product: { ...product(ownListing), marketPrice: 2.57 },
+        listing: ownListing,
+      },
+      [
+        listing({
+          listingId: 2,
+          sellerKey: "isolated",
+          price: 0.56,
+          shippingPrice: 1.49,
+        }),
+        listing({
+          listingId: 3,
+          sellerKey: "isolated",
+          price: 0.57,
+          shippingPrice: 1.49,
+        }),
+        listing({
+          listingId: 4,
+          sellerKey: "band-a",
+          price: 0.75,
+          shippingPrice: 1.49,
+        }),
+        listing({
+          listingId: 5,
+          sellerKey: "band-b",
+          price: 0.76,
+          shippingPrice: 1.49,
+        }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-supported-band",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 0.75,
+      lowestPrice: 0.56,
+      lowestSellerSupport: 1,
+      distinctSellers: 3,
+      supportedClusterPrice: 0.75,
+      supportedClusterSellerCount: 2,
+      pricingSource: "supported-cluster",
+      gapActionApplied: "use-next",
+    });
+    expect(row.gapPercent).toBeCloseTo(9.27, 1);
+    expect(row.reason).toContain("supported by 2 sellers");
+  });
+
+  it("follows the low when multiple sellers support its price band", () => {
+    const ownListing = listing({ price: 1, shippingPrice: 1.49 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [
+        listing({
+          listingId: 2,
+          sellerKey: "low-a",
+          price: 0.56,
+          shippingPrice: 1.49,
+        }),
+        listing({
+          listingId: 3,
+          sellerKey: "low-b",
+          price: 0.58,
+          shippingPrice: 1.49,
+        }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-supported-low",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 0.56,
+      lowestSellerSupport: 2,
+      supportedClusterPrice: 0.56,
+      supportedClusterSellerCount: 2,
+      pricingSource: "lowest",
+    });
+    expect(row.gapPercent).toBe(0);
+    expect(row.gapActionApplied).toBeUndefined();
+  });
+
+  it("skips when no price band has enough distinct sellers", () => {
+    const ownListing = listing({ price: 8 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [
+        listing({ listingId: 2, sellerKey: "seller-a", price: 2 }),
+        listing({ listingId: 3, sellerKey: "seller-b", price: 4 }),
+        listing({ listingId: 4, sellerKey: "seller-c", price: 7 }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-no-band",
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 8,
+      lowestSellerSupport: 1,
+      queueable: false,
+    });
+    expect(row.supportedClusterPrice).toBeUndefined();
+    expect(row.reason).toContain("No price band within 5%");
+  });
+
+  it("holds a high-value isolated low when the cluster rule says to skip", () => {
+    const ownListing = listing({ price: 40 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [
+        listing({ listingId: 2, sellerKey: "isolated", price: 30 }),
+        listing({ listingId: 3, sellerKey: "band-a", price: 32 }),
+        listing({ listingId: 4, sellerKey: "band-b", price: 33 }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "skip",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-high-value-band",
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      lowestSellerSupport: 1,
+      supportedClusterPrice: 32,
+      supportedClusterSellerCount: 2,
+      gapActionApplied: "skip",
+      queueable: false,
+    });
+    expect(row.reason).toContain("supported price band");
+  });
+
   it("applies gap thresholds proportionally at ordinary card prices", () => {
     const proportionalRules: RepricingRules = {
       ...rules,

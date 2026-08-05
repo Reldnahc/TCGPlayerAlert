@@ -118,6 +118,9 @@ export interface RepricingRangeConfig {
   readonly percentage: number;
   readonly gapThresholdPercent: number;
   readonly gapAction: "follow-lowest" | "use-next" | "skip";
+  readonly supportMode?: "adjacent" | "cluster";
+  readonly minimumSellerSupport?: number;
+  readonly supportWindowPercent?: number;
 }
 
 export interface RepricingProfileConfig {
@@ -328,37 +331,52 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
       percentage: 100,
       gapThresholdPercent: 20,
       gapAction: "use-next",
+      supportMode: "cluster",
+      minimumSellerSupport: 1,
+      supportWindowPercent: 5,
     },
     {
       maximumPrice: 5,
       minimumListings: 2,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 10,
+      gapThresholdPercent: 3,
       gapAction: "use-next",
+      supportMode: "cluster",
+      minimumSellerSupport: 2,
+      supportWindowPercent: 5,
     },
     {
       maximumPrice: 25,
       minimumListings: 2,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 10,
+      gapThresholdPercent: 3,
       gapAction: "use-next",
+      supportMode: "cluster",
+      minimumSellerSupport: 2,
+      supportWindowPercent: 5,
     },
     {
       maximumPrice: 100,
       minimumListings: 3,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 8,
+      gapThresholdPercent: 3,
       gapAction: "skip",
+      supportMode: "cluster",
+      minimumSellerSupport: 2,
+      supportWindowPercent: 5,
     },
     {
       minimumListings: 3,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 5,
+      gapThresholdPercent: 3,
       gapAction: "skip",
+      supportMode: "cluster",
+      minimumSellerSupport: 2,
+      supportWindowPercent: 5,
     },
   ],
 };
@@ -510,6 +528,7 @@ function parseRepricingRange(
   const source = record(value);
   const priceSource = source?.priceSource;
   const gapAction = source?.gapAction;
+  const supportMode = source?.supportMode ?? "adjacent";
   if (priceSource !== "lowest" && priceSource !== "market") {
     issues.push(`${path}.priceSource must be lowest or market.`);
   }
@@ -519,6 +538,9 @@ function parseRepricingRange(
     gapAction !== "skip"
   ) {
     issues.push(`${path}.gapAction is invalid.`);
+  }
+  if (supportMode !== "adjacent" && supportMode !== "cluster") {
+    issues.push(`${path}.supportMode is invalid.`);
   }
   let maximumPrice: number | undefined;
   if (index < count - 1) {
@@ -550,6 +572,17 @@ function parseRepricingRange(
       issues,
     ),
     gapAction: gapAction as RepricingRangeConfig["gapAction"],
+    supportMode: supportMode as NonNullable<
+      RepricingRangeConfig["supportMode"]
+    >,
+    minimumSellerSupport:
+      source?.minimumSellerSupport === undefined
+        ? 2
+        : integer(source, "minimumSellerSupport", path, 1, 100, issues),
+    supportWindowPercent:
+      source?.supportWindowPercent === undefined
+        ? 5
+        : numberValue(source, "supportWindowPercent", path, 0, 100, issues),
   };
 }
 

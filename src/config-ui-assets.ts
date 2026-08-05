@@ -396,7 +396,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .repricing-range-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
 .repricing-range-head strong { font-size: .84rem; }
 .repricing-ranges { display: grid; gap: 9px; }
-.repricing-range { display: grid; grid-template-columns: minmax(95px, .65fr) repeat(5, minmax(120px, 1fr)) auto; align-items: end; gap: 10px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: white; }
+.repricing-range { display: grid; grid-template-columns: minmax(95px, .65fr) repeat(9, minmax(105px, 1fr)) auto; align-items: end; gap: 10px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: white; }
 .repricing-range-label { align-self: center; color: var(--green-dark); font-size: .78rem; font-weight: 800; }
 .repricing-range-remove { align-self: center; border: 0; background: transparent; color: #8c4630; font-weight: 800; }
 .inventory-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
@@ -777,12 +777,21 @@ export const CONFIG_UI_JS = String.raw`(() => {
         ])
       : field("Range maximum ($)", numberInput("maximumPrice", range.maximumPrice, Math.round((previousMaximum + 0.01) * 100) / 100, 1000000, "0.01"));
     const gapThreshold = numberInput("gapThresholdPercent", range.gapThresholdPercent, 0, 10000, "0.1");
-    const gapAction = selectInput("gapAction", range.gapAction, [["follow-lowest", "Ignore gap"], ["use-next", "Use next listing"], ["skip", "Skip card"]]);
-    const updateGapThreshold = () => {
+    const gapAction = selectInput("gapAction", range.gapAction, [["follow-lowest", "Ignore gap"], ["use-next", "Use reference above low"], ["skip", "Skip card"]]);
+    const supportMode = selectInput("supportMode", range.supportMode ?? "adjacent", [["cluster", "Seller price bands"], ["adjacent", "First vs second (legacy)"]]);
+    const minimumSellerSupport = numberInput("minimumSellerSupport", range.minimumSellerSupport ?? 2, 1, 100, "1");
+    const supportWindowPercent = numberInput("supportWindowPercent", range.supportWindowPercent ?? 5, 0, 100, "0.1");
+    const updateGapControls = () => {
+      const clusterMode = supportMode.value === "cluster";
       gapThreshold.disabled = gapAction.value === "follow-lowest";
+      minimumSellerSupport.disabled = !clusterMode || gapAction.value === "follow-lowest";
+      supportWindowPercent.disabled = !clusterMode || gapAction.value === "follow-lowest";
+      const useReferenceOption = [...gapAction.options].find((option) => option.value === "use-next");
+      if (useReferenceOption) useReferenceOption.textContent = clusterMode ? "Use supported band" : "Use next listing";
     };
-    gapAction.addEventListener("change", updateGapThreshold);
-    updateGapThreshold();
+    gapAction.addEventListener("change", updateGapControls);
+    supportMode.addEventListener("change", updateGapControls);
+    updateGapControls();
     const remove = el("button", {
       className: "repricing-range-remove",
       type: "button",
@@ -797,7 +806,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
       field("Minimum comparables", numberInput("minimumListings", range.minimumListings ?? 0, 0, 100, "1")),
       field("Price from", selectInput("priceSource", range.priceSource, [["lowest", "Lowest listing"], ["market", "Market price"]])),
       field("Use percentage", numberInput("percentage", range.percentage, 1, 500, "0.1")),
-      field("Gap threshold (%)", gapThreshold),
+      field("Gap analysis", supportMode),
+      field("Sellers supporting band", minimumSellerSupport),
+      field("Price band width (%)", supportWindowPercent),
+      field("Isolated-low gap (%)", gapThreshold),
       field("When gap is reached", gapAction),
       remove,
     ]);
@@ -2012,9 +2024,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const comparableCount = row.qualifyingListings === undefined
       ? ""
       : " · " + row.qualifyingListings + " comparable" + (row.qualifyingListings === 1 ? "" : "s");
+    const supportDetail = row.supportMode !== "cluster"
+      ? ""
+      : " · " + row.lowestSellerSupport + " seller" + (row.lowestSellerSupport === 1 ? "" : "s") + " near low"
+        + (row.supportedClusterPrice === undefined
+          ? " · no supported band"
+          : " · band " + money(row.supportedClusterPrice) + (row.supportedClusterShipping > 0 ? " + " + money(row.supportedClusterShipping) + " shipping" : "") + " (" + row.supportedClusterSellerCount + " sellers)");
     const lowest = row.lowestPrice === undefined
       ? "—" + comparableCount
-      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + (row.gapPercent === undefined ? "" : " · " + row.gapPercent.toFixed(1) + "% to next") + comparableCount;
+      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + (row.gapPercent === undefined || row.gapPercent === 0 ? "" : " · " + row.gapPercent.toFixed(1) + "% to reference") + supportDetail + comparableCount;
     const proposed = el("td", {}, [
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);
@@ -2230,6 +2248,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
         percentage: Number(rangeCard.querySelector('[name="percentage"]').value),
         gapThresholdPercent: Number(rangeCard.querySelector('[name="gapThresholdPercent"]').value),
         gapAction: rangeCard.querySelector('[name="gapAction"]').value,
+        supportMode: rangeCard.querySelector('[name="supportMode"]').value,
+        minimumSellerSupport: Number(rangeCard.querySelector('[name="minimumSellerSupport"]').value),
+        supportWindowPercent: Number(rangeCard.querySelector('[name="supportWindowPercent"]').value),
       })),
     };
   }

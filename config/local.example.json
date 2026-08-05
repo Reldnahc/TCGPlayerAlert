@@ -50,38 +50,53 @@
           "priceSource": "lowest",
           "percentage": 100,
           "gapThresholdPercent": 20,
-          "gapAction": "use-next"
+          "gapAction": "use-next",
+          "supportMode": "cluster",
+          "minimumSellerSupport": 1,
+          "supportWindowPercent": 5
         },
         {
           "maximumPrice": 5,
           "minimumListings": 2,
           "priceSource": "lowest",
           "percentage": 100,
-          "gapThresholdPercent": 10,
-          "gapAction": "use-next"
+          "gapThresholdPercent": 3,
+          "gapAction": "use-next",
+          "supportMode": "cluster",
+          "minimumSellerSupport": 2,
+          "supportWindowPercent": 5
         },
         {
           "maximumPrice": 25,
           "minimumListings": 2,
           "priceSource": "lowest",
           "percentage": 100,
-          "gapThresholdPercent": 10,
-          "gapAction": "use-next"
+          "gapThresholdPercent": 3,
+          "gapAction": "use-next",
+          "supportMode": "cluster",
+          "minimumSellerSupport": 2,
+          "supportWindowPercent": 5
         },
         {
           "maximumPrice": 100,
           "minimumListings": 3,
           "priceSource": "lowest",
           "percentage": 100,
-          "gapThresholdPercent": 8,
-          "gapAction": "skip"
+          "gapThresholdPercent": 3,
+          "gapAction": "skip",
+          "supportMode": "cluster",
+          "minimumSellerSupport": 2,
+          "supportWindowPercent": 5
         },
         {
           "minimumListings": 3,
           "priceSource": "lowest",
           "percentage": 100,
-          "gapThresholdPercent": 5,
-          "gapAction": "skip"
+          "gapThresholdPercent": 3,
+          "gapAction": "skip",
+          "supportMode": "cluster",
+          "minimumSellerSupport": 2,
+          "supportWindowPercent": 5
         }
       ]
     }

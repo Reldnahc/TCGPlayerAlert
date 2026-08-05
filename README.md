@@ -121,22 +121,22 @@ Create repricing profiles in **Settings**, then use **Inventory**:
 
 1. Set the profile floor, item or delivered-price basis, condition matching, cent adjustment, and whether increases are allowed.
 2. Add ordered value ranges. For each range, choose the minimum number of qualifying comparable listings, lowest listing or market price, and the percentage to use.
-3. Optionally set a gap threshold and choose **Use next listing** to wait out a separated low listing, or **Skip card** to make no proposal. **Ignore gap** disables gap handling for that range.
-4. Select the profile in **Inventory**, click **Refresh inventory & preview**, review the market, lowest price, detected gap, proposed price, and explanation, then queue selected rows.
+3. Choose **Seller price bands** to count distinct sellers rather than raw listings. Set how many sellers must support a band, the percentage width of that band, and the isolated-low gap that triggers **Use supported band** or **Skip card**. **Ignore gap** disables gap handling. **First vs second (legacy)** remains available for older policies.
+4. Select the profile in **Inventory**, click **Refresh inventory & preview**, review the market, absolute low, seller support, supported band, proposed price, and explanation, then queue selected rows.
 
-Ranges are chosen by the lowest qualifying listing, falling back to market price only when no comparable exists. This prevents a product-level market figure from placing a particular condition or printing in the wrong risk tier. Gap percentages compare the cheapest and second-cheapest qualifying listings. These calculations reuse the preview's marketplace response and do not make a request per card.
+Ranges are chosen by the lowest qualifying listing, falling back to market price only when no comparable exists. This prevents a product-level market figure from placing a particular condition or printing in the wrong risk tier. Seller-band analysis first keeps only each seller's cheapest eligible listing, so one seller cannot create artificial support with several listings. Starting at the absolute low, it finds the cheapest price whose configured percentage window contains the required number of distinct sellers. The isolated-low gap compares the absolute low with that supported band's starting price. A low already supported by enough sellers remains the reference; an unsupported low can be ignored only when a supported band exists above it. No supported band means the card is skipped. These calculations reuse the preview's marketplace response and do not make a request per card.
 
 Each refreshed preview also shows **Listed inventory value**, calculated from the current item price times quantity for every live marketplace listing in the preview. Shipping is excluded from this inventory-value total.
 
-The built-in **Smart conservative** profile uses delivered price and 100% of the lowest qualifying comparable in every tier:
+The built-in **Smart conservative** profile uses delivered price, 100% pricing, and a 5% seller-band width in every tier:
 
-- Up to $1: one comparable; use the next listing when the low is at least 20% below it.
-- $1.01-$5: two comparables; use the next listing at a 10% gap. That is 20 cents on a $2 low or 50 cents on a $5 low.
-- $5.01-$25: two comparables; use the next listing at a 10% gap.
-- $25.01-$100: three comparables; skip the card for review at an 8% gap.
-- Above $100: three comparables; skip the card for review at a 5% gap.
+- Up to $1: one seller is sufficient, keeping ordinary low-value inventory responsive instead of skipping sparse listings.
+- $1.01-$5: require two distinct sellers in a 5% band; use that band when a singleton low is at least 3% below it.
+- $5.01-$25: require two distinct sellers in a 5% band; use that band at a 3% isolated-low gap.
+- $25.01-$100: require three total comparables and two sellers in a 5% band; skip for review at a 3% isolated-low gap.
+- Above $100: use the same three-comparable, two-seller evidence floor and skip isolated lows at 3%.
 
-This is a conservative starting policy, not a claim that the thresholds maximize profit. TCGplayer confirms that customer visibility is ordered by item price plus shipping and describes Market Price as an average of recent condition-specific sales. TCGplayer's own Market-Low concept protects against short-lived low-price swings, while statistical guidance recommends treating apparent outliers as evidence to investigate rather than automatically deleting them. The default therefore uses printing-, language-, and condition-filtered live comparables for decisions, requires more evidence as value rises, and holds high-value gaps for operator review. Calibrate the editable tiers against your own sell-through time, margin, and repricing history.
+This is a conservative starting policy, not a claim that the thresholds maximize profit. TCGplayer confirms that customer visibility is ordered by item price plus shipping and describes Market Price as an average of recent condition-specific sales. The default therefore uses printing-, language-, and condition-filtered live comparables, treats agreement between independent sellers as stronger evidence than one listing, and holds high-value isolated lows for operator review. Calibrate the editable tiers against your own sell-through time, margin, and repricing history.
 
 The default same-or-better rule treats conditions as `Near Mint > Lightly Played > Moderately Played > Heavily Played > Damaged`. For example, a Moderately Played card at $3 can match a qualifying Lightly Played listing at $2. Printing and language must also match. Price increases are off by default, the undercut is zero cents by default, and the configured minimum is a hard floor.
 

@@ -615,12 +615,16 @@ function parseRepricingProfileUpdate(
         issues.push(`${rangePath} has an invalid price source.`);
       }
       const gapAction = rangeSource?.gapAction;
+      const supportMode = rangeSource?.supportMode ?? "adjacent";
       if (
         gapAction !== "follow-lowest" &&
         gapAction !== "use-next" &&
         gapAction !== "skip"
       ) {
         issues.push(`${rangePath} has an invalid gap action.`);
+      }
+      if (supportMode !== "adjacent" && supportMode !== "cluster") {
+        issues.push(`${rangePath} has an invalid support mode.`);
       }
       const maximumPrice =
         rangeIndex < (Array.isArray(rangeValues) ? rangeValues.length - 1 : 0)
@@ -666,6 +670,23 @@ function parseRepricingProfileUpdate(
         ),
         gapAction:
           gapAction as RepricingProfileConfig["ranges"][number]["gapAction"],
+        supportMode: supportMode as NonNullable<
+          RepricingProfileConfig["ranges"][number]["supportMode"]
+        >,
+        minimumSellerSupport: boundedNumber(
+          rangeSource?.minimumSellerSupport ?? 2,
+          1,
+          100,
+          `${rangePath} minimum seller support`,
+          issues,
+        ),
+        supportWindowPercent: boundedNumber(
+          rangeSource?.supportWindowPercent ?? 5,
+          0,
+          100,
+          `${rangePath} support window`,
+          issues,
+        ),
       };
     },
   );

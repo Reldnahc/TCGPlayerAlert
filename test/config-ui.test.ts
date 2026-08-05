@@ -150,8 +150,17 @@ describe("configuration UI service", () => {
           id: "match-lowest",
           name: "Wait out gaps",
           ranges: [
-            { maximumPrice: 5, gapAction: "use-next" },
-            { priceSource: "market", percentage: 95, gapAction: "skip" },
+            {
+              maximumPrice: 5,
+              gapAction: "use-next",
+              supportMode: "adjacent",
+            },
+            {
+              priceSource: "market",
+              percentage: 95,
+              gapAction: "skip",
+              supportMode: "adjacent",
+            },
           ],
         },
       ],
@@ -239,7 +248,10 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("function renderRepricingRange(");
     expect(CONFIG_UI_JS).toContain("gapThresholdPercent");
     expect(CONFIG_UI_JS).toContain("minimumListings");
-    expect(CONFIG_UI_JS).toContain('["use-next", "Use next listing"]');
+    expect(CONFIG_UI_JS).toContain("minimumSellerSupport");
+    expect(CONFIG_UI_JS).toContain("supportWindowPercent");
+    expect(CONFIG_UI_JS).toContain('["cluster", "Seller price bands"]');
+    expect(CONFIG_UI_JS).toContain('clusterMode ? "Use supported band"');
     expect(CONFIG_UI_JS).toContain("ranges: profile.ranges");
     expect(CONFIG_UI_JS).not.toContain(
       'document.querySelector("#catalog-results").hidden = true',
