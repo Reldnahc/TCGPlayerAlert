@@ -592,7 +592,7 @@ describe("configuration UI service", () => {
       '<th class="order-actions-column">Actions</th>',
     );
     expect(CONFIG_UI_CSS).toContain(
-      ".full-order-table .order-status-column, .full-order-table .order-status-cell { width: 150px; min-width: 150px; }",
+      ".full-order-table .order-status-column, .full-order-table .order-status-cell { width: 300px; min-width: 300px; }",
     );
     expect(CONFIG_UI_CSS).toContain(
       ".full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }",
