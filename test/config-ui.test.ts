@@ -586,6 +586,18 @@ describe("configuration UI service", () => {
       "<th>Products</th><th>Shipping</th><th>Total</th>",
     );
     expect(CONFIG_UI_HTML).toContain(
+      '<th class="order-status-column">Status</th>',
+    );
+    expect(CONFIG_UI_HTML).toContain(
+      '<th class="order-actions-column">Actions</th>',
+    );
+    expect(CONFIG_UI_CSS).toContain(
+      ".full-order-table .order-status-column, .full-order-table .order-status-cell { width: 150px; min-width: 150px; }",
+    );
+    expect(CONFIG_UI_CSS).toContain(
+      ".full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }",
+    );
+    expect(CONFIG_UI_HTML).toContain(
       "<th>Total</th><th>Pirate Ship</th><th>Add tracking</th>",
     );
     expect(CONFIG_UI_JS).toContain('dashboardToggle("Dry run"');

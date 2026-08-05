@@ -49,7 +49,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <p id="orders-message" class="order-message" aria-live="polite"></p>
             <div class="order-table-wrap">
               <table class="order-table full-order-table">
-                <thead><tr><th>Order #</th><th>Buyer</th><th>Order date</th><th>Status</th><th>Shipping type</th><th>Products</th><th>Shipping</th><th>Total</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Order #</th><th>Buyer</th><th>Order date</th><th class="order-status-column">Status</th><th>Shipping type</th><th>Products</th><th>Shipping</th><th>Total</th><th class="order-actions-column">Actions</th></tr></thead>
                 <tbody id="order-rows"></tbody>
               </table>
             </div>
@@ -332,6 +332,10 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .order-table .empty-cell { padding: 28px 18px; color: var(--muted); text-align: center; }
 .order-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 360px; }
 .order-action { border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--green-dark); padding: 7px 9px; font-size: .73rem; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.full-order-table .order-status-column, .full-order-table .order-status-cell { width: 150px; min-width: 150px; }
+.full-order-table .order-actions-column, .full-order-table .order-actions-cell { width: 300px; }
+.full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }
+.full-order-table .order-action { padding: 5px 7px; border-radius: 7px; font-size: .68rem; }
 .order-action:hover { background: var(--green-soft); }
 .order-action:disabled { cursor: wait; opacity: .6; }
 .order-action.ship-action { border-color: #c9d8cf; background: var(--green-soft); }
@@ -1307,12 +1311,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
       el("td", {}, [el("strong", { text: order.orderNumber })]),
       el("td", { text: order.buyerName }),
       el("td", { className: "date-cell", text: dateText(order.orderDate) }),
-      el("td", {}, [el("span", { className: "status-pill", text: order.status })]),
+      el("td", { className: "order-status-cell" }, [el("span", { className: "status-pill", text: order.status })]),
       el("td", { text: order.shippingType }),
       el("td", { className: "money-cell", text: money(order.productAmount) }),
       el("td", { className: "money-cell", text: money(order.shippingAmount) }),
       el("td", { className: "money-cell", text: money(order.totalAmount) }),
-      el("td", {}, [actions]),
+      el("td", { className: "order-actions-cell" }, [actions]),
     ]);
     return [row, tracking];
   }
