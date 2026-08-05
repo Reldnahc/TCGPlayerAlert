@@ -12,6 +12,7 @@ describe("application configuration", () => {
 
     expect(config.version).toBe(1);
     expect(config.dryRun).toBe(true);
+    expect(config.priceUpdateQueue.delaySeconds).toBe(1);
     expect(config.inventoryAdditionQueue).toMatchObject({
       enabled: true,
       delaySeconds: 0,

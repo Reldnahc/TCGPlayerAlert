@@ -232,10 +232,8 @@ describe("price-update queue", () => {
     });
   });
 
-  it("refreshes live quantity and waits until the submitted price is visible", async () => {
+  it("refreshes live quantity immediately before submitting a queued price", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
-    let updateSubmitted = false;
-    let confirmationSearches = 0;
     const requestText = (input: URL | RequestInfo): string =>
       input instanceof Request
         ? input.url
@@ -258,7 +256,6 @@ describe("price-update queue", () => {
         };
         const isPrimaryChannel =
           body.listingSearch.filters.term.channelId === 0;
-        if (isPrimaryChannel && updateSubmitted) confirmationSearches += 1;
         const listings = isPrimaryChannel
           ? [
               {
@@ -274,8 +271,7 @@ describe("price-update queue", () => {
                 sellerKey: "seller_test",
                 sellerName: "Synthetic Seller",
                 quantity: 3,
-                price:
-                  updateSubmitted && confirmationSearches >= 2 ? 12.34 : 10,
+                price: 10,
                 shippingPrice: 0.99,
                 customData: {},
               },
@@ -308,7 +304,6 @@ describe("price-update queue", () => {
           { headers: { "content-type": "application/json" } },
         );
       }
-      updateSubmitted = true;
       return new Response(null, { status: 204 });
     };
     vi.stubGlobal("fetch", fetchImplementation);
@@ -317,14 +312,10 @@ describe("price-update queue", () => {
         await readFile("config/local.example.json", "utf8"),
       ) as unknown,
     );
-    const executor = createTcgplayerPriceUpdateExecutor(
-      config,
-      {
-        TCGPLAYER_AUTH_COOKIE: "synthetic-cookie",
-        TCGPLAYER_SELLER_KEY: "seller_test",
-      },
-      { confirmationDelaysMs: [0, 0] },
-    );
+    const executor = createTcgplayerPriceUpdateExecutor(config, {
+      TCGPLAYER_AUTH_COOKIE: "synthetic-cookie",
+      TCGPLAYER_SELLER_KEY: "seller_test",
+    });
 
     try {
       await executor.apply(syntheticUpdate);
@@ -332,7 +323,7 @@ describe("price-update queue", () => {
       vi.unstubAllGlobals();
     }
 
-    expect(requests).toHaveLength(5);
+    expect(requests).toHaveLength(3);
     expect(requests[2]?.url).toBe(
       "https://store.tcgplayer.com/admin/pricing/updateinventory",
     );
@@ -347,6 +338,5 @@ describe("price-update queue", () => {
     expect(
       form.get("productQuantityPrices[0][ConditionQuantityPrices][0][Price]"),
     ).toBe("12.34");
-    expect(confirmationSearches).toBe(2);
   });
 });

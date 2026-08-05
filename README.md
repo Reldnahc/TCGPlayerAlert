@@ -34,7 +34,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.4.4 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.4.5 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -165,7 +165,7 @@ The JSON file may contain one update or `{ "updates": [...] }`. A complete item 
 }
 ```
 
-Pending jobs for the same SKU/channel are superseded by the newest price. The service submits one listing at a time. After Seller Portal accepts a mutation, the worker polls the exact SKU with bounded backoff and does not claim the next job until the new price is visible. The optional cooldown starts after that confirmation. If the accepted price does not become visible within about 23 seconds, the job becomes `review-required`; it is not automatically resubmitted. A definite HTTP 429 is delayed for five minutes, while authentication and validation failures stop as failed. Check the listing in Seller Portal before deciding what to do with a review-required job.
+Pending jobs for the same SKU/channel are superseded by the newest price. The service keeps one mutation request in flight, waits for TCGplayer to accept it, and then applies the configured cooldown before claiming the next job. The default cooldown is one second. An `applied` queue status means Seller Portal accepted the update; TCGplayer documents that site-visible prices may lag by up to five minutes, and configured rounding or Direct price floors can make the displayed price differ from the submitted price. A definite HTTP 429 is delayed for five minutes. Authentication and validation failures stop as failed, while a timeout, disconnect, or lost mutation response becomes `review-required` and is never resubmitted automatically.
 
 ## Enable printing safely
 

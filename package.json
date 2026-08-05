@@ -27,7 +27,7 @@
     "@napi-rs/canvas": "0.1.88",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
-    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.4.4.tgz"
+    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.4.5.tgz"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

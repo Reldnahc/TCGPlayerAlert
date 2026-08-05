@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import {
   createTcgplayerSellerClient,
   isTcgplayerApiError,
-  TcgplayerApiError,
   type SellerPriceUpdate,
 } from "tcgplayer-private-api";
 import type { AppConfig, PriceUpdateQueueConfig } from "./config.js";
@@ -423,9 +422,6 @@ export class PriceUpdateWorker {
 export function createTcgplayerPriceUpdateExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
-  options: {
-    readonly confirmationDelaysMs?: readonly number[];
-  } = {},
 ): PriceUpdateExecutor {
   const authCookie = environment[config.provider.authCookieEnv]?.trim();
   const sellerKey = environment[config.provider.sellerKeyEnv]?.trim();
@@ -440,19 +436,6 @@ export function createTcgplayerPriceUpdateExecutor(
     ]);
   }
   const client = createTcgplayerSellerClient({ session: { authCookie } });
-  const confirmationDelaysMs = options.confirmationDelaysMs ?? [
-    1_000, 1_500, 2_500, 4_000, 6_000, 8_000,
-  ];
-  if (
-    confirmationDelaysMs.length === 0 ||
-    confirmationDelaysMs.some(
-      (delay) => !Number.isInteger(delay) || delay < 0 || delay > 60_000,
-    )
-  ) {
-    throw new ConfigurationError([
-      "Price confirmation delays must contain valid millisecond delays.",
-    ]);
-  }
   return {
     apply: async (update, signal) => {
       const requestOptions = signal === undefined ? undefined : { signal };
@@ -524,38 +507,6 @@ export function createTcgplayerPriceUpdateExecutor(
           ],
         },
         requestOptions,
-      );
-      const waitSignal = signal ?? new AbortController().signal;
-      for (const delayMs of confirmationDelaysMs) {
-        await wait(delayMs, waitSignal);
-        if (waitSignal.aborted) {
-          throw new TcgplayerApiError(
-            "AMBIGUOUS_RESULT",
-            "TCGplayer accepted the price update, but confirmation was interrupted. Reconcile the listing before retrying.",
-          );
-        }
-        const confirmation = await client.searchMarketplaceProducts(
-          {
-            productIds: [update.productId],
-            sellerKey,
-            channelId: update.channelId,
-            limit: 24,
-          },
-          requestOptions,
-        );
-        const confirmedListing = confirmation.products
-          .flatMap((product) => product.listings)
-          .find(
-            (listing) =>
-              listing.productConditionId === update.productConditionId &&
-              listing.sellerKey === sellerKey &&
-              listing.channelId === update.channelId,
-          );
-        if (confirmedListing?.price === update.price) return;
-      }
-      throw new TcgplayerApiError(
-        "AMBIGUOUS_RESULT",
-        "TCGplayer accepted the price update, but the new price did not become visible before confirmation timed out. Reconcile the listing before retrying.",
       );
     },
   };

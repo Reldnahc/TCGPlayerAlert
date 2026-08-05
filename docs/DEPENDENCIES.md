@@ -2,10 +2,10 @@
 
 ## tcgplayer-private-api
 
-- npm contract: `tcgplayer-private-api@0.4.4`
+- npm contract: `tcgplayer-private-api@0.4.5`
 - Source repository: <https://github.com/Reldnahc/tcgplayer-private-api>
-- Source commit: `0364bfebd55079e8af4888e67013d4b601b06221`
-- Development artifact: `tcgplayer-private-api-0.4.4.tgz`
+- Source commit: `99c6a03e0cd77af674982ccfd39cbeff2f3f298c`
+- Development artifact: `tcgplayer-private-api-0.4.5.tgz`
 - Publication status: unpublished
 
 The local tarball is generated from the adjacent repository and excluded from Git. `package-lock.json` records its package version and integrity. CI checks out the exact source commit above, builds the tarball, and installs it through npm before validating this application.
