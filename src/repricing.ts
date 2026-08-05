@@ -451,7 +451,6 @@ export function calculateRepricingRow(
       (listing) =>
         listing.productId === own.listing.productId &&
         listing.sellerKey !== sellerKey &&
-        listing.channelId === own.listing.channelId &&
         listing.printing === own.listing.printing &&
         listing.languageId === own.listing.languageId &&
         conditions.includes(listing.condition) &&
@@ -923,18 +922,31 @@ export class RepricingService {
         ...new Set(contexts.map((context) => context.product.productId)),
       ];
       for (const productIdChunk of chunks(productIds, 24)) {
-        const result = await this.client.searchMarketplaceProducts({
-          productIds: productIdChunk,
-          conditions: TCGPLAYER_CONDITION_ORDER,
-          printings: [printing],
-          languages: [language],
-          channelId: 0,
-          limit: 24,
-        });
-        for (const product of result.products) {
-          const listings = comparisons.get(product.productId) ?? [];
-          listings.push(...product.listings);
-          comparisons.set(product.productId, listings);
+        for (const channelId of [0, 1]) {
+          const result = await this.client.searchMarketplaceProducts({
+            productIds: productIdChunk,
+            conditions: TCGPLAYER_CONDITION_ORDER,
+            printings: [printing],
+            languages: [language],
+            channelId,
+            limit: 24,
+          });
+          for (const product of result.products) {
+            const listings = comparisons.get(product.productId) ?? [];
+            const listingKeys = new Set(
+              listings.map(
+                (listing) =>
+                  `${String(listing.listingId)}:${String(listing.channelId)}`,
+              ),
+            );
+            for (const listing of product.listings) {
+              const listingKey = `${String(listing.listingId)}:${String(listing.channelId)}`;
+              if (listingKeys.has(listingKey)) continue;
+              listingKeys.add(listingKey);
+              listings.push(listing);
+            }
+            comparisons.set(product.productId, listings);
+          }
         }
       }
     }

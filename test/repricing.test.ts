@@ -105,6 +105,32 @@ describe("smart repricing", () => {
     });
   });
 
+  it("uses Direct-channel listings as marketplace comparables", () => {
+    const ownListing = listing({ price: 3, channelId: 0 });
+    const directCompetitor = listing({
+      listingId: 2,
+      sellerKey: "direct-competitor",
+      sellerName: "Direct Store",
+      channelId: 1,
+      price: 2,
+    });
+
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [directCompetitor],
+      sellerKey,
+      rules,
+      "row-direct-comparable",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 2,
+      competitorPrice: 2,
+      qualifyingListings: 1,
+    });
+  });
+
   it("uses delivered price and never crosses the configured minimum", () => {
     const ownListing = listing({ shippingPrice: 0.99 });
     const competitor = listing({
@@ -627,6 +653,20 @@ describe("smart repricing", () => {
       channelId: 0,
       limit: 24,
     });
+    expect(searchMarketplaceProducts).toHaveBeenCalledWith({
+      productIds: [100],
+      conditions: [
+        "Near Mint",
+        "Lightly Played",
+        "Moderately Played",
+        "Heavily Played",
+        "Damaged",
+      ],
+      printings: ["Normal"],
+      languages: ["English"],
+      channelId: 1,
+      limit: 24,
+    });
     expect(updates).toEqual([
       expect.objectContaining({
         productConditionId: 1003,
@@ -670,7 +710,7 @@ describe("smart repricing", () => {
       source: "cache",
     });
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
 
     const row = second.rows[0];
     if (row === undefined) throw new Error("Missing cached preview row");
@@ -679,7 +719,7 @@ describe("smart repricing", () => {
 
     expect(afterQueue.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(4);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
   });
 
   it("reloads an expired or explicitly refreshed marketplace snapshot", async () => {
@@ -717,7 +757,7 @@ describe("smart repricing", () => {
     expect(expired.marketplaceSnapshot.source).toBe("fresh");
     expect(forced.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(6);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(3);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(6);
   });
 
   it("coalesces simultaneous marketplace snapshot loads", async () => {
@@ -757,6 +797,6 @@ describe("smart repricing", () => {
       second.marketplaceSnapshot.source,
     ]).toEqual(["fresh", "shared"]);
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
   });
 });
