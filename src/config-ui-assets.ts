@@ -187,8 +187,11 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <button id="edit-repricing-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
             <div class="repricing-options">
-              <span></span>
-              <button id="repricing-preview" class="primary-button dark-button" type="button">Refresh inventory &amp; preview</button>
+              <span id="repricing-snapshot-status">Marketplace data is cached for three minutes.</span>
+              <div class="repricing-refresh-actions">
+                <button id="repricing-preview" class="primary-button dark-button" type="button">Update preview</button>
+                <button id="repricing-force-refresh" class="quiet-button" type="button">Force marketplace refresh</button>
+              </div>
             </div>
             <p id="repricing-message" class="repricing-message"></p>
             <div id="repricing-results" hidden>
@@ -358,6 +361,8 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .repricing-panel { overflow: hidden; margin-bottom: 22px; }
 .repricing-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .repricing-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
+.repricing-options > span { color: var(--muted); font-size: .8rem; }
+.repricing-refresh-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
 .repricing-message { margin: 0; padding: 15px 25px; color: var(--muted); font-size: .86rem; }
 .repricing-message:empty { display: none; }
 .repricing-message.error { color: #93401c; background: #fff5f1; }
@@ -2083,15 +2088,17 @@ export const CONFIG_UI_JS = String.raw`(() => {
     };
   }
 
-  async function previewRepricing() {
+  async function previewRepricing(forceRefresh = false) {
     const button = document.querySelector("#repricing-preview");
+    const forceButton = document.querySelector("#repricing-force-refresh");
     const message = document.querySelector("#repricing-message");
     button.disabled = true;
+    forceButton.disabled = true;
     button.textContent = "Loading...";
     message.className = "repricing-message";
     message.textContent = "";
     try {
-      const response = await fetch("/api/repricing/preview", {
+      const response = await fetch("/api/repricing/preview" + (forceRefresh ? "?forceRefresh=true" : ""), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(repricingRules()),
@@ -2099,6 +2106,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The preview could not be created.");
       renderRepricingPreview(data);
+      const capturedAt = new Date(data.marketplaceSnapshot.capturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      document.querySelector("#repricing-snapshot-status").textContent =
+        (data.marketplaceSnapshot.source === "fresh" ? "Marketplace refreshed " : "Using marketplace data from ") + capturedAt + ".";
       message.className = "repricing-message";
       message.textContent = "";
     } catch (error) {
@@ -2106,7 +2116,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       message.textContent = error instanceof Error ? error.message : "The preview could not be created.";
     } finally {
       button.disabled = false;
-      button.textContent = "Refresh inventory & preview";
+      forceButton.disabled = false;
+      button.textContent = "Update preview";
     }
   }
 
@@ -2386,7 +2397,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
   quantityDialog.addEventListener("close", () => {
     state.inventoryQuantityProductId = null;
   });
-  document.querySelector("#repricing-preview").addEventListener("click", previewRepricing);
+  document.querySelector("#repricing-preview").addEventListener("click", () => previewRepricing(false));
+  document.querySelector("#repricing-force-refresh").addEventListener("click", () => previewRepricing(true));
   document.querySelector("#repricing-queue").addEventListener("click", queueRepricingSelection);
   document.querySelector("#repricing-select-all").addEventListener("click", () => {
     for (const checkbox of document.querySelectorAll('#repricing-rows input[type="checkbox"]:not(:disabled)')) checkbox.checked = true;

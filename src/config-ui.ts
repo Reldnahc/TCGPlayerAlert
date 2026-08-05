@@ -1082,7 +1082,9 @@ async function handleRequest(
       sendJson(
         response,
         200,
-        await repricingService.preview(await readJsonBody(request)),
+        await repricingService.preview(await readJsonBody(request), {
+          forceRefresh: url.searchParams.get("forceRefresh") === "true",
+        }),
       );
     } else if (
       request.method === "POST" &&

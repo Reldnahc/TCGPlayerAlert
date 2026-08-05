@@ -24,10 +24,11 @@ Price-only Seller Portal mutations also include quantity and reserve fields. A s
 - Require the operator to select preview rows before they enter the durable queue.
 - Skip custom listings, unsupported conditions, and SKUs with secondary-channel inventory rather than guessing reserve state.
 - Re-read the exact live listing immediately before each mutation, preserve current quantity, and stop if the listing disappeared, became custom, or gained secondary-channel inventory.
+- Cache the complete supported-condition marketplace snapshot in process memory for three minutes. Recalculate profiles locally from the cached snapshot, coalesce simultaneous loads, expose snapshot capture time in previews, and retain an explicit force-refresh control. Queuing a mutation invalidates the snapshot. This cache never replaces the mandatory live listing read before mutation.
 
 ## Consequences
 
-The application provides reusable bulk-repricing policies without making unattended pricing decisions. Percentage targets, comparable counts, seller support, and gap handling use the marketplace products and listings already loaded for the preview, so ranges do not add per-card API requests. Marketplace searches add read traffic before queuing and again before mutation, but avoid stale-quantity writes. The preview explains the chosen range, absolute low, distinct seller count, supported price band, detected gap, and any wait-or-skip decision before the operator queues selected rows.
+The application provides reusable bulk-repricing policies without making unattended pricing decisions. Percentage targets, comparable counts, seller support, and gap handling use a short-lived marketplace snapshot, so profile changes and ranges do not add per-card API requests. A normal preview reuses data captured within three minutes; explicit force refresh, expiry, or process restart triggers a new snapshot load. Marketplace searches add read traffic before queuing and the worker reads each listing again before mutation to avoid stale-quantity writes. The preview explains the chosen range, absolute low, distinct seller count, supported price band, detected gap, snapshot age, and any wait-or-skip decision before the operator queues selected rows.
 
 ## Research basis
 

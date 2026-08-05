@@ -102,6 +102,11 @@ export interface RepricingPreview {
     readonly totalQuantity: number;
     readonly currentListingValue: number;
   };
+  readonly marketplaceSnapshot: {
+    readonly capturedAt: string;
+    readonly expiresAt: string;
+    readonly source: "fresh" | "cache" | "shared";
+  };
 }
 
 interface SellerListingContext {
@@ -114,6 +119,14 @@ interface StoredPreview {
   readonly updates: ReadonlyMap<string, SellerPriceUpdate>;
 }
 
+interface MarketplaceSnapshot {
+  readonly inventory: readonly MarketplaceProduct[];
+  readonly secondaryInventory: readonly MarketplaceProduct[];
+  readonly comparisons: ReadonlyMap<number, readonly MarketplaceListing[]>;
+  readonly capturedAt: Date;
+  readonly expiresAt: Date;
+}
+
 export interface RepricingServiceOptions {
   readonly client: Pick<
     TcgplayerSellerClient,
@@ -123,6 +136,11 @@ export interface RepricingServiceOptions {
   readonly now?: () => Date;
   readonly id?: () => string;
   readonly previewLifetimeMs?: number;
+  readonly marketplaceCacheLifetimeMs?: number;
+}
+
+export interface RepricingPreviewOptions {
+  readonly forceRefresh?: boolean;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
@@ -702,17 +720,12 @@ function skippedRow(
   };
 }
 
-function comparisonGroupKey(
-  listing: MarketplaceListing,
-  rules: RepricingRules,
-): string | undefined {
-  const conditions = allowedConditions(
-    listing.condition,
-    rules.conditionPolicy,
-  );
-  return conditions === undefined
-    ? undefined
-    : JSON.stringify([conditions, listing.printing, listing.language]);
+function comparisonGroupKey(listing: MarketplaceListing): string | undefined {
+  return TCGPLAYER_CONDITION_ORDER.includes(
+    listing.condition as (typeof TCGPLAYER_CONDITION_ORDER)[number],
+  )
+    ? JSON.stringify([listing.printing, listing.language])
+    : undefined;
 }
 
 function chunks<T>(values: readonly T[], size: number): readonly T[][] {
@@ -729,7 +742,10 @@ export class RepricingService {
   private readonly now: () => Date;
   private readonly id: () => string;
   private readonly previewLifetimeMs: number;
+  private readonly marketplaceCacheLifetimeMs: number;
   private readonly previews = new Map<string, StoredPreview>();
+  private marketplaceCache: MarketplaceSnapshot | undefined;
+  private marketplaceLoad: Promise<MarketplaceSnapshot> | undefined;
 
   constructor(options: RepricingServiceOptions) {
     this.client = options.client;
@@ -737,66 +753,31 @@ export class RepricingService {
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? randomUUID;
     this.previewLifetimeMs = options.previewLifetimeMs ?? 15 * 60_000;
+    this.marketplaceCacheLifetimeMs =
+      options.marketplaceCacheLifetimeMs ?? 3 * 60_000;
   }
 
-  async preview(value: unknown): Promise<RepricingPreview> {
+  async preview(
+    value: unknown,
+    options: RepricingPreviewOptions = {},
+  ): Promise<RepricingPreview> {
     const rules = parseRepricingRules(value);
     this.removeExpiredPreviews();
-    const [inventory, secondaryInventory] = await Promise.all([
-      this.client.listSellerInventory({
-        sellerKey: this.sellerKey,
-        channelId: 0,
-      }),
-      this.client.listSellerInventory({
-        sellerKey: this.sellerKey,
-        channelId: 1,
-      }),
-    ]);
-    const secondarySkus = new Set(
-      secondaryInventory.flatMap((product) =>
-        product.listings.map((listing) => listing.productConditionId),
-      ),
+    const { snapshot, source } = await this.marketplaceSnapshot(
+      options.forceRefresh === true,
     );
+    const { inventory, secondaryInventory, comparisons } = snapshot;
     const sellerListings: SellerListingContext[] = inventory.flatMap(
       (product) =>
         product.listings
           .filter((listing) => listing.sellerKey === this.sellerKey)
           .map((listing) => ({ product, listing })),
     );
-    const groups = new Map<string, SellerListingContext[]>();
-    for (const context of sellerListings) {
-      const key = comparisonGroupKey(context.listing, rules);
-      if (key === undefined) continue;
-      const group = groups.get(key) ?? [];
-      group.push(context);
-      groups.set(key, group);
-    }
-    const comparisons = new Map<number, MarketplaceListing[]>();
-    for (const [key, contexts] of groups) {
-      const [conditions, printing, language] = JSON.parse(key) as [
-        string[],
-        string,
-        string,
-      ];
-      const productIds = [
-        ...new Set(contexts.map((context) => context.product.productId)),
-      ];
-      for (const productIdChunk of chunks(productIds, 24)) {
-        const result = await this.client.searchMarketplaceProducts({
-          productIds: productIdChunk,
-          conditions,
-          printings: [printing],
-          languages: [language],
-          channelId: 0,
-          limit: 24,
-        });
-        for (const product of result.products) {
-          const listings = comparisons.get(product.productId) ?? [];
-          listings.push(...product.listings);
-          comparisons.set(product.productId, listings);
-        }
-      }
-    }
+    const secondarySkus = new Set(
+      secondaryInventory.flatMap((product) =>
+        product.listings.map((listing) => listing.productConditionId),
+      ),
+    );
 
     const updates = new Map<string, SellerPriceUpdate>();
     const rows = sellerListings.map((context) => {
@@ -876,6 +857,96 @@ export class RepricingService {
           ),
         ),
       },
+      marketplaceSnapshot: {
+        capturedAt: snapshot.capturedAt.toISOString(),
+        expiresAt: snapshot.expiresAt.toISOString(),
+        source,
+      },
+    };
+  }
+
+  private async marketplaceSnapshot(forceRefresh: boolean): Promise<{
+    readonly snapshot: MarketplaceSnapshot;
+    readonly source: "fresh" | "cache" | "shared";
+  }> {
+    const now = this.now().getTime();
+    if (
+      !forceRefresh &&
+      this.marketplaceCache !== undefined &&
+      this.marketplaceCache.expiresAt.getTime() > now
+    ) {
+      return { snapshot: this.marketplaceCache, source: "cache" };
+    }
+    if (this.marketplaceLoad !== undefined) {
+      return { snapshot: await this.marketplaceLoad, source: "shared" };
+    }
+    const load = this.loadMarketplaceSnapshot();
+    this.marketplaceLoad = load;
+    try {
+      const snapshot = await load;
+      this.marketplaceCache = snapshot;
+      return { snapshot, source: "fresh" };
+    } finally {
+      if (this.marketplaceLoad === load) this.marketplaceLoad = undefined;
+    }
+  }
+
+  private async loadMarketplaceSnapshot(): Promise<MarketplaceSnapshot> {
+    const [inventory, secondaryInventory] = await Promise.all([
+      this.client.listSellerInventory({
+        sellerKey: this.sellerKey,
+        channelId: 0,
+      }),
+      this.client.listSellerInventory({
+        sellerKey: this.sellerKey,
+        channelId: 1,
+      }),
+    ]);
+    const sellerListings: SellerListingContext[] = inventory.flatMap(
+      (product) =>
+        product.listings
+          .filter((listing) => listing.sellerKey === this.sellerKey)
+          .map((listing) => ({ product, listing })),
+    );
+    const groups = new Map<string, SellerListingContext[]>();
+    for (const context of sellerListings) {
+      const key = comparisonGroupKey(context.listing);
+      if (key === undefined) continue;
+      const group = groups.get(key) ?? [];
+      group.push(context);
+      groups.set(key, group);
+    }
+    const comparisons = new Map<number, MarketplaceListing[]>();
+    for (const [key, contexts] of groups) {
+      const [printing, language] = JSON.parse(key) as [string, string];
+      const productIds = [
+        ...new Set(contexts.map((context) => context.product.productId)),
+      ];
+      for (const productIdChunk of chunks(productIds, 24)) {
+        const result = await this.client.searchMarketplaceProducts({
+          productIds: productIdChunk,
+          conditions: TCGPLAYER_CONDITION_ORDER,
+          printings: [printing],
+          languages: [language],
+          channelId: 0,
+          limit: 24,
+        });
+        for (const product of result.products) {
+          const listings = comparisons.get(product.productId) ?? [];
+          listings.push(...product.listings);
+          comparisons.set(product.productId, listings);
+        }
+      }
+    }
+    const capturedAt = this.now();
+    return {
+      inventory,
+      secondaryInventory,
+      comparisons,
+      capturedAt,
+      expiresAt: new Date(
+        capturedAt.getTime() + this.marketplaceCacheLifetimeMs,
+      ),
     };
   }
 
@@ -884,7 +955,7 @@ export class RepricingService {
     const preview = this.previews.get(previewId);
     if (preview === undefined) {
       throw new ConfigurationError([
-        "The repricing preview expired or does not exist. Refresh inventory and preview again.",
+        "The repricing preview expired or does not exist. Update the preview again.",
       ]);
     }
     const source = objectValue(value);
@@ -907,6 +978,8 @@ export class RepricingService {
       ]);
     }
     this.previews.delete(previewId);
+    // A queued mutation can make the seller-inventory portion stale immediately.
+    this.marketplaceCache = undefined;
     return updates as SellerPriceUpdate[];
   }
 

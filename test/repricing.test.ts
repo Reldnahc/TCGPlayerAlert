@@ -586,10 +586,10 @@ describe("smart repricing", () => {
       sellerKey: "competitor",
       price: 2,
     });
-    const listSellerInventory = vi
-      .fn()
-      .mockResolvedValueOnce([product(ownListing)])
-      .mockResolvedValueOnce([]);
+    const listSellerInventory = vi.fn(
+      (input: { readonly channelId?: number }) =>
+        Promise.resolve(input.channelId === 0 ? [product(ownListing)] : []),
+    );
     const searchMarketplaceProducts = vi.fn().mockResolvedValue({
       totalProducts: 1,
       products: [product(competitor)],
@@ -615,7 +615,13 @@ describe("smart repricing", () => {
 
     expect(searchMarketplaceProducts).toHaveBeenCalledWith({
       productIds: [100],
-      conditions: ["Near Mint", "Lightly Played", "Moderately Played"],
+      conditions: [
+        "Near Mint",
+        "Lightly Played",
+        "Moderately Played",
+        "Heavily Played",
+        "Damaged",
+      ],
       printings: ["Normal"],
       languages: ["English"],
       channelId: 0,
@@ -632,5 +638,125 @@ describe("smart repricing", () => {
     expect(() => service.takeUpdates(preview.id, { rowIds: [row.id] })).toThrow(
       "Configuration is invalid",
     );
+  });
+
+  it("reuses one marketplace snapshot across profile calculations", async () => {
+    const ownListing = listing();
+    const competitor = listing({
+      listingId: 2,
+      sellerKey: "competitor",
+      price: 2,
+    });
+    const listSellerInventory = vi.fn(
+      (input: { readonly channelId?: number }) =>
+        Promise.resolve(input.channelId === 0 ? [product(ownListing)] : []),
+    );
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
+    const service = new RepricingService({
+      client: { listSellerInventory, searchMarketplaceProducts },
+      sellerKey,
+      now: () => new Date("2026-08-05T12:00:00.000Z"),
+    });
+
+    const first = await service.preview(rules);
+    const second = await service.preview({ ...rules, priceBasis: "item" });
+
+    expect(first.marketplaceSnapshot).toMatchObject({ source: "fresh" });
+    expect(second.marketplaceSnapshot).toEqual({
+      ...first.marketplaceSnapshot,
+      source: "cache",
+    });
+    expect(listSellerInventory).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
+
+    const row = second.rows[0];
+    if (row === undefined) throw new Error("Missing cached preview row");
+    service.takeUpdates(second.id, { rowIds: [row.id] });
+    const afterQueue = await service.preview(rules);
+
+    expect(afterQueue.marketplaceSnapshot.source).toBe("fresh");
+    expect(listSellerInventory).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads an expired or explicitly refreshed marketplace snapshot", async () => {
+    const ownListing = listing();
+    const competitor = listing({
+      listingId: 2,
+      sellerKey: "competitor",
+      price: 2,
+    });
+    const listSellerInventory = vi
+      .fn()
+      .mockResolvedValueOnce([product(ownListing)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([product(ownListing)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([product(ownListing)])
+      .mockResolvedValueOnce([]);
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
+    let now = new Date("2026-08-05T12:00:00.000Z");
+    const service = new RepricingService({
+      client: { listSellerInventory, searchMarketplaceProducts },
+      sellerKey,
+      now: () => now,
+      marketplaceCacheLifetimeMs: 180_000,
+    });
+
+    await service.preview(rules);
+    now = new Date("2026-08-05T12:03:01.000Z");
+    const expired = await service.preview(rules);
+    const forced = await service.preview(rules, { forceRefresh: true });
+
+    expect(expired.marketplaceSnapshot.source).toBe("fresh");
+    expect(forced.marketplaceSnapshot.source).toBe("fresh");
+    expect(listSellerInventory).toHaveBeenCalledTimes(6);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(3);
+  });
+
+  it("coalesces simultaneous marketplace snapshot loads", async () => {
+    const ownListing = listing();
+    const competitor = listing({
+      listingId: 2,
+      sellerKey: "competitor",
+      price: 2,
+    });
+    let releaseInventory: (() => void) | undefined;
+    const inventoryGate = new Promise<void>((resolve) => {
+      releaseInventory = resolve;
+    });
+    const listSellerInventory = vi.fn(
+      async (input: { readonly channelId?: number }) => {
+        await inventoryGate;
+        return input.channelId === 0 ? [product(ownListing)] : [];
+      },
+    );
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
+    const service = new RepricingService({
+      client: { listSellerInventory, searchMarketplaceProducts },
+      sellerKey,
+      now: () => new Date("2026-08-05T12:00:00.000Z"),
+    });
+
+    const firstPromise = service.preview(rules);
+    const secondPromise = service.preview(rules);
+    releaseInventory?.();
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect([
+      first.marketplaceSnapshot.source,
+      second.marketplaceSnapshot.source,
+    ]).toEqual(["fresh", "shared"]);
+    expect(listSellerInventory).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
   });
 });

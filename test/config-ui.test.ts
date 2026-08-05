@@ -250,6 +250,9 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("minimumListings");
     expect(CONFIG_UI_JS).toContain("minimumSellerSupport");
     expect(CONFIG_UI_JS).toContain("supportWindowPercent");
+    expect(CONFIG_UI_HTML).toContain('id="repricing-force-refresh"');
+    expect(CONFIG_UI_JS).toContain("?forceRefresh=true");
+    expect(CONFIG_UI_JS).toContain("data.marketplaceSnapshot.capturedAt");
     expect(CONFIG_UI_JS).toContain('["cluster", "Seller price bands"]');
     expect(CONFIG_UI_JS).toContain('clusterMode ? "Use supported band"');
     expect(CONFIG_UI_JS).toContain("ranges: profile.ranges");
