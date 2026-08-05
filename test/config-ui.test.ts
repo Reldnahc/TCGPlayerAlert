@@ -88,6 +88,28 @@ describe("configuration UI service", () => {
         },
       ],
       defaultMerchandiseProfileId: "english-singles",
+      repricingProfiles: [
+        {
+          ...initial.repricingProfiles[0],
+          name: "Wait out gaps",
+          ranges: [
+            {
+              maximumPrice: 5,
+              priceSource: "lowest",
+              percentage: 100,
+              gapThresholdPercent: 30,
+              gapAction: "use-next",
+            },
+            {
+              priceSource: "market",
+              percentage: 95,
+              gapThresholdPercent: 20,
+              gapAction: "skip",
+            },
+          ],
+        },
+      ],
+      defaultRepricingProfileId: "match-lowest",
       outputs: [
         {
           actionId: address.actionId,
@@ -123,6 +145,17 @@ describe("configuration UI service", () => {
         },
       ],
       defaultMerchandiseProfileId: "english-singles",
+      repricingProfiles: [
+        {
+          id: "match-lowest",
+          name: "Wait out gaps",
+          ranges: [
+            { maximumPrice: 5, gapAction: "use-next" },
+            { priceSource: "market", percentage: 95, gapAction: "skip" },
+          ],
+        },
+      ],
+      defaultRepricingProfileId: "match-lowest",
     });
     expect(config.actions[address.actionId]?.enabled).toBe(false);
     expect(config.actions[packingSlip.actionId]?.enabled).toBe(true);
@@ -159,10 +192,14 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
     expect(CONFIG_UI_JS).not.toContain("defaultInventoryLanguage()");
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.merchandise-profile");
+    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.repricing-profile");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
     expect(CONFIG_UI_HTML).toContain('id="inventory-profile-select"');
     expect(CONFIG_UI_HTML).toContain('id="inventory-quantity-dialog"');
     expect(CONFIG_UI_HTML).toContain('id="merchandise-profile-list"');
+    expect(CONFIG_UI_HTML).toContain('id="repricing-profile-select"');
+    expect(CONFIG_UI_HTML).toContain('id="repricing-profile-list"');
+    expect(CONFIG_UI_HTML).not.toContain('id="repricing-minimum"');
     expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
@@ -199,6 +236,10 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('kind: "success"');
     expect(CONFIG_UI_JS).not.toContain("scheduleInventoryPreview");
     expect(CONFIG_UI_JS).not.toContain("inventoryPreviewInFlight");
+    expect(CONFIG_UI_JS).toContain("function renderRepricingRange(");
+    expect(CONFIG_UI_JS).toContain("gapThresholdPercent");
+    expect(CONFIG_UI_JS).toContain('["use-next", "Use next listing"]');
+    expect(CONFIG_UI_JS).toContain("ranges: profile.ranges");
     expect(CONFIG_UI_JS).not.toContain(
       'document.querySelector("#catalog-results").hidden = true',
     );

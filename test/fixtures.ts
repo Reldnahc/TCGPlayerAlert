@@ -78,6 +78,26 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       },
     ],
     defaultMerchandiseProfileId: "english-singles",
+    repricingProfiles: [
+      {
+        id: "match-lowest",
+        name: "Match lowest",
+        minimumPrice: 0.35,
+        conditionPolicy: "same-or-better",
+        priceBasis: "delivered",
+        adjustmentCents: 0,
+        allowPriceIncreases: false,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 25,
+            gapAction: "follow-lowest",
+          },
+        ],
+      },
+    ],
+    defaultRepricingProfileId: "match-lowest",
     provider: {
       type: "tcgplayer",
       authCookieEnv: "TCGPLAYER_AUTH_COOKIE",

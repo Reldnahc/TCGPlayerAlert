@@ -5,6 +5,7 @@ import type {
 } from "tcgplayer-private-api";
 import {
   calculateRepricingRow,
+  parseRepricingRules,
   RepricingService,
   type RepricingRules,
 } from "../src/repricing.js";
@@ -53,9 +54,28 @@ const rules: RepricingRules = {
   priceBasis: "delivered",
   adjustmentCents: 0,
   allowPriceIncreases: false,
+  ranges: [
+    {
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 0,
+      gapAction: "follow-lowest",
+    },
+  ],
 };
 
 describe("smart repricing", () => {
+  it("rejects invalid or non-open-ended pricing ranges", () => {
+    const range = rules.ranges[0];
+    if (range === undefined) throw new Error("Missing default repricing range");
+    expect(() =>
+      parseRepricingRules({
+        ...rules,
+        ranges: [{ ...range, maximumPrice: 5 }],
+      }),
+    ).toThrow("Configuration is invalid");
+  });
+
   it("lets a better-condition listing cap a worse-condition price", () => {
     const ownListing = listing();
     const competitor = listing({
@@ -121,6 +141,173 @@ describe("smart repricing", () => {
     expect(row).toMatchObject({
       proposedPrice: 1,
       status: "unchanged",
+      queueable: false,
+    });
+  });
+
+  it("prices a range as a percentage of market price", () => {
+    const ownListing = listing({ price: 5 });
+    const competitor = listing({ sellerKey: "competitor", price: 4 });
+    const row = calculateRepricingRow(
+      {
+        product: { ...product(ownListing), marketPrice: 3 },
+        listing: ownListing,
+      },
+      [competitor],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            priceSource: "market",
+            percentage: 90,
+            gapThresholdPercent: 0,
+            gapAction: "follow-lowest",
+          },
+        ],
+      },
+      "row-market",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 2.7,
+      marketPrice: 3,
+      pricingSource: "market",
+      pricingPercentage: 90,
+    });
+  });
+
+  it("can price from market when no competing listing exists", () => {
+    const ownListing = listing({ price: 5 });
+    const row = calculateRepricingRow(
+      {
+        product: { ...product(ownListing), marketPrice: 4 },
+        listing: ownListing,
+      },
+      [],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            priceSource: "market",
+            percentage: 95,
+            gapThresholdPercent: 25,
+            gapAction: "skip",
+          },
+        ],
+      },
+      "row-market-only",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 3.8,
+      marketPrice: 4,
+      pricingSource: "market",
+    });
+  });
+
+  it("selects the first range whose maximum includes the market price", () => {
+    const ownListing = listing({ price: 8 });
+    const competitor = listing({ sellerKey: "competitor", price: 6 });
+    const row = calculateRepricingRow(
+      {
+        product: { ...product(ownListing), marketPrice: 3 },
+        listing: ownListing,
+      },
+      [competitor],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            maximumPrice: 5,
+            priceSource: "market",
+            percentage: 80,
+            gapThresholdPercent: 25,
+            gapAction: "follow-lowest",
+          },
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 25,
+            gapAction: "follow-lowest",
+          },
+        ],
+      },
+      "row-range",
+    );
+
+    expect(row).toMatchObject({
+      proposedPrice: 2.4,
+      rangeMaximumPrice: 5,
+      pricingSource: "market",
+      pricingPercentage: 80,
+    });
+  });
+
+  it("waits out a separated lowest listing by pricing from the next listing", () => {
+    const ownListing = listing({ price: 6 });
+    const lowest = listing({ listingId: 2, sellerKey: "low", price: 2 });
+    const next = listing({ listingId: 3, sellerKey: "next", price: 4 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [next, lowest],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 50,
+            gapAction: "use-next",
+          },
+        ],
+      },
+      "row-gap-next",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 4,
+      lowestPrice: 2,
+      nextLowestPrice: 4,
+      gapPercent: 100,
+      gapActionApplied: "use-next",
+      pricingSource: "next-lowest",
+    });
+  });
+
+  it("skips a separated lowest listing when the range says to wait", () => {
+    const ownListing = listing({ price: 6 });
+    const lowest = listing({ listingId: 2, sellerKey: "low", price: 2 });
+    const next = listing({ listingId: 3, sellerKey: "next", price: 4 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [lowest, next],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 50,
+            gapAction: "skip",
+          },
+        ],
+      },
+      "row-gap-skip",
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 6,
+      gapPercent: 100,
+      gapActionApplied: "skip",
       queueable: false,
     });
   });

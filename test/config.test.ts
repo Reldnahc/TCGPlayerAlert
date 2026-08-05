@@ -24,6 +24,11 @@ describe("application configuration", () => {
         priceBasis: "delivered",
       }),
     ]);
+    expect(config.defaultRepricingProfileId).toBe("match-lowest");
+    expect(config.repricingProfiles[0]).toMatchObject({
+      name: "Match lowest",
+      ranges: [{ priceSource: "lowest", percentage: 100 }],
+    });
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
       enabled: true,
@@ -39,6 +44,8 @@ describe("application configuration", () => {
     delete value.inventoryAdditionQueue;
     delete value.merchandiseProfiles;
     delete value.defaultMerchandiseProfileId;
+    delete value.repricingProfiles;
+    delete value.defaultRepricingProfileId;
 
     expect(parseConfig(value).inventoryAdditionQueue).toEqual({
       enabled: true,
@@ -60,6 +67,25 @@ describe("application configuration", () => {
         noComparisonFallback: "market",
       },
     ]);
+    expect(parseConfig(value).repricingProfiles).toEqual([
+      {
+        id: "match-lowest",
+        name: "Match lowest",
+        minimumPrice: 0.35,
+        conditionPolicy: "same-or-better",
+        priceBasis: "delivered",
+        adjustmentCents: 0,
+        allowPriceIncreases: false,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 25,
+            gapAction: "follow-lowest",
+          },
+        ],
+      },
+    ]);
   });
 
   it("rejects invalid merchandise profiles and default references", async () => {
@@ -73,6 +99,27 @@ describe("application configuration", () => {
       ...value.merchandiseProfiles[0],
     } as { id: string });
     value.defaultMerchandiseProfileId = "missing-profile";
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
+  });
+
+  it("rejects unordered repricing ranges and invalid defaults", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      defaultRepricingProfileId: string;
+      repricingProfiles: { ranges: Record<string, unknown>[] }[];
+    };
+    const profile = value.repricingProfiles[0];
+    const source = profile?.ranges[0];
+    if (profile === undefined || source === undefined)
+      throw new Error("Missing repricing range fixture");
+    profile.ranges = [
+      { ...source, maximumPrice: 10 },
+      { ...source, maximumPrice: 5 },
+      { ...source },
+    ];
+    value.defaultRepricingProfileId = "missing-profile";
 
     expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });

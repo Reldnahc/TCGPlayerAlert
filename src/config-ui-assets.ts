@@ -80,6 +80,17 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div class="section-heading">
             <div>
+              <h2 id="repricing-profiles-title">Repricing profiles</h2>
+            </div>
+            <button id="add-repricing-profile" class="quiet-button" type="button">Add profile</button>
+          </div>
+          <section class="panel profile-settings-panel" aria-labelledby="repricing-profiles-title">
+            <p class="profile-help">Value ranges can price from the lowest listing or market, and decide whether to wait out a separated low listing.</p>
+            <div id="repricing-profile-list" class="profile-list"></div>
+          </section>
+
+          <div class="section-heading">
+            <div>
               <h2 id="merchandise-profiles-title">Merchandise profiles</h2>
             </div>
             <button id="add-merchandise-profile" class="quiet-button" type="button">Add profile</button>
@@ -170,18 +181,13 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
           </div>
           <section class="panel repricing-panel" aria-labelledby="repricing-title">
-            <div class="repricing-rules">
-              <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="repricing-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
-              <label class="field"><span>Condition comparison</span><select id="repricing-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
-              <label class="field"><span>Compare using</span><select id="repricing-basis"><option value="delivered">Item + shipping</option><option value="item">Item price only</option></select></label>
-              <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="repricing-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
+            <div class="repricing-profile-bar">
+              <label class="field profile-picker"><span>Repricing profile</span><select id="repricing-profile-select"></select></label>
+              <p id="repricing-profile-summary" class="inventory-profile-summary"></p>
+              <button id="edit-repricing-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
             <div class="repricing-options">
-              <label class="switch-row">
-                <span><strong>Allow price increases</strong><small>Cards below the target remain unchanged when off.</small></span>
-                <input id="repricing-allow-increases" type="checkbox" />
-                <span class="switch" aria-hidden="true"></span>
-              </label>
+              <span></span>
               <button id="repricing-preview" class="primary-button dark-button" type="button">Refresh inventory &amp; preview</button>
             </div>
             <p id="repricing-message" class="repricing-message"></p>
@@ -195,7 +201,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               </div>
               <div class="repricing-table-wrap">
                 <table class="repricing-table">
-                  <thead><tr><th><span class="sr-only">Select</span></th><th>Card</th><th>Condition</th><th>Current</th><th>Lowest match</th><th>Proposed</th><th>Result</th></tr></thead>
+                  <thead><tr><th><span class="sr-only">Select</span></th><th>Card</th><th>Condition</th><th>Current</th><th>Market</th><th>Lowest match</th><th>Proposed</th><th>Result</th></tr></thead>
                   <tbody id="repricing-rows"></tbody>
                 </table>
               </div>
@@ -343,9 +349,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .print-test-button { flex: 0 0 auto; }
 .repricing-heading { margin-top: 40px; }
 .repricing-panel { overflow: hidden; margin-bottom: 22px; }
-.repricing-rules { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 15px 25px 21px; }
-.money-input { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; }
-.money-input > span { font-size: 1rem; color: var(--ink); }
+.repricing-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .repricing-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .repricing-message { margin: 0; padding: 15px 25px; color: var(--muted); font-size: .86rem; }
 .repricing-message:empty { display: none; }
@@ -377,6 +381,12 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .profile-default input { width: 17px; height: 17px; accent-color: var(--green); }
 .profile-remove { border: 0; background: transparent; color: #8c4630; font-weight: 750; }
 .profile-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
+.repricing-range-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+.repricing-range-head strong { font-size: .84rem; }
+.repricing-ranges { display: grid; gap: 9px; }
+.repricing-range { display: grid; grid-template-columns: minmax(95px, .65fr) repeat(5, minmax(120px, 1fr)) auto; align-items: end; gap: 10px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: white; }
+.repricing-range-label { align-self: center; color: var(--green-dark); font-size: .78rem; font-weight: 800; }
+.repricing-range-remove { align-self: center; border: 0; background: transparent; color: #8c4630; font-weight: 800; }
 .inventory-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .inventory-profile-summary { align-self: center; margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
 .catalog-search-row { display: grid; grid-template-columns: 1.35fr 1fr auto; align-items: end; gap: 14px; padding: 16px 25px 20px; }
@@ -457,9 +467,10 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .dashboard-toggle + .dashboard-toggle { border-left: 0; border-top: 1px solid var(--line); }
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
-  .repricing-rules { grid-template-columns: 1fr 1fr; }
   .profile-fields { grid-template-columns: 1fr 1fr; }
-  .inventory-profile-bar { grid-template-columns: 1fr auto; }
+  .repricing-range { grid-template-columns: 1fr 1fr; }
+  .repricing-range-label, .repricing-range-remove { grid-column: span 2; }
+  .inventory-profile-bar, .repricing-profile-bar { grid-template-columns: 1fr auto; }
   .inventory-profile-summary { grid-column: 1 / -1; grid-row: 2; }
   .catalog-search-row { grid-template-columns: 1fr 1fr; }
   .catalog-search-row button { grid-column: 1 / -1; }
@@ -489,6 +500,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     inventoryProductDetailsById: new Map(),
     inventoryResultByProductId: new Map(),
     selectedMerchandiseProfileId: null,
+    selectedRepricingProfileId: null,
     inventoryQuantityProductId: null,
     inventoryFoilProductIds: new Set(),
     inventoryConditionByProductId: new Map(),
@@ -500,6 +512,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     pirateShipPreparations: new Map(),
   };
   const merchandiseProfileStorageKey = "tcgplayer-alert.merchandise-profile";
+  const repricingProfileStorageKey = "tcgplayer-alert.repricing-profile";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
   const tabIds = ["dashboard", "orders", "add-cards", "inventory", "settings", "jobs"];
   const form = document.querySelector("#settings-form");
@@ -739,6 +752,197 @@ export const CONFIG_UI_JS = String.raw`(() => {
     updateSaveBarVisibility();
   }
 
+  function renderRepricingRange(profile, range, index) {
+    const previousMaximum = index === 0 ? 0 : profile.ranges[index - 1].maximumPrice;
+    const isLast = index === profile.ranges.length - 1;
+    const rangeLabel = isLast
+      ? (previousMaximum ? "Above " + money(previousMaximum) : "All values")
+      : (previousMaximum ? "Above " + money(previousMaximum) + " to " + money(range.maximumPrice) : "Up to " + money(range.maximumPrice));
+    const maximum = isLast
+      ? el("div", { className: "field" }, [
+          el("span", { text: "Range maximum" }),
+          el("strong", { text: "No maximum" }),
+        ])
+      : field("Range maximum ($)", numberInput("maximumPrice", range.maximumPrice, Math.round((previousMaximum + 0.01) * 100) / 100, 1000000, "0.01"));
+    const gapThreshold = numberInput("gapThresholdPercent", range.gapThresholdPercent, 0, 10000, "0.1");
+    const gapAction = selectInput("gapAction", range.gapAction, [["follow-lowest", "Ignore gap"], ["use-next", "Use next listing"], ["skip", "Skip card"]]);
+    const updateGapThreshold = () => {
+      gapThreshold.disabled = gapAction.value === "follow-lowest";
+    };
+    gapAction.addEventListener("change", updateGapThreshold);
+    updateGapThreshold();
+    const remove = el("button", {
+      className: "repricing-range-remove",
+      type: "button",
+      text: "Remove",
+      title: "Remove this range",
+    });
+    remove.disabled = profile.ranges.length === 1;
+    remove.addEventListener("click", () => removeRepricingRange(profile.id, index));
+    return el("div", { className: "repricing-range", "data-range-index": String(index) }, [
+      el("div", { className: "repricing-range-label", text: rangeLabel }),
+      maximum,
+      field("Price from", selectInput("priceSource", range.priceSource, [["lowest", "Lowest listing"], ["market", "Market price"]])),
+      field("Use percentage", numberInput("percentage", range.percentage, 1, 500, "0.1")),
+      field("Gap threshold (%)", gapThreshold),
+      field("When gap is reached", gapAction),
+      remove,
+    ]);
+  }
+
+  function renderRepricingProfile(profile) {
+    const card = el("section", {
+      className: "profile-card",
+      "data-repricing-profile-id": profile.id,
+    });
+    const defaultInput = el("input", {
+      type: "radio",
+      name: "defaultRepricingProfileId",
+      value: profile.id,
+    });
+    defaultInput.checked = profile.id === state.settings.defaultRepricingProfileId;
+    const remove = el("button", {
+      className: "profile-remove",
+      type: "button",
+      text: "Remove",
+    });
+    remove.disabled = state.settings.repricingProfiles.length === 1;
+    remove.addEventListener("click", () => removeRepricingProfile(profile.id));
+    const name = el("input", { name: "profileName", maxlength: "80", required: "" });
+    name.value = profile.name;
+    const allowIncreases = el("input", { type: "checkbox", name: "allowPriceIncreases" });
+    allowIncreases.checked = profile.allowPriceIncreases;
+    const addRange = el("button", {
+      className: "quiet-button",
+      type: "button",
+      text: "Add range",
+    });
+    addRange.disabled = profile.ranges.length >= 20 || (profile.ranges.at(-2)?.maximumPrice ?? 0) >= 1000000;
+    addRange.addEventListener("click", () => addRepricingRange(profile.id));
+    card.append(
+      el("div", { className: "profile-card-head" }, [
+        el("label", { className: "profile-default" }, [
+          defaultInput,
+          el("span", { text: "Default profile" }),
+        ]),
+        remove,
+      ]),
+      el("div", { className: "profile-fields" }, [
+        field("Profile name", name),
+        field("Minimum item price ($)", numberInput("minimumPrice", profile.minimumPrice, 0.01, 1000000, "0.01")),
+        field("Compare using", selectInput("priceBasis", profile.priceBasis, [["delivered", "Item + shipping"], ["item", "Item price only"]])),
+        field("Compare against", selectInput("conditionPolicy", profile.conditionPolicy, [["same-or-better", "Same or better condition"], ["same", "Same condition only"]])),
+        field("Adjustment (cents)", numberInput("adjustmentCents", profile.adjustmentCents, 0, 100000)),
+        el("label", { className: "switch-row" }, [
+          el("span", {}, [el("strong", { text: "Allow price increases" })]),
+          allowIncreases,
+          el("span", { className: "switch", "aria-hidden": "true" }),
+        ]),
+      ]),
+      el("div", { className: "repricing-range-head" }, [
+        el("strong", { text: "Value ranges" }),
+        addRange,
+      ]),
+      el("div", { className: "repricing-ranges" }, profile.ranges.map((range, index) => renderRepricingRange(profile, range, index))),
+    );
+    return card;
+  }
+
+  function renderRepricingProfiles() {
+    document.querySelector("#repricing-profile-list").replaceChildren(
+      ...state.settings.repricingProfiles.map(renderRepricingProfile),
+    );
+  }
+
+  function repricingProfileDrafts() {
+    const cards = [...document.querySelectorAll("#repricing-profile-list [data-repricing-profile-id]")];
+    return cards.length > 0
+      ? cards.map(collectRepricingProfile)
+      : [...state.settings.repricingProfiles];
+  }
+
+  function repricingProfileDefaultDraft() {
+    return document.querySelector('#repricing-profile-list [name="defaultRepricingProfileId"]:checked')?.value
+      ?? state.settings.defaultRepricingProfileId;
+  }
+
+  function replaceRepricingProfile(profileId, update) {
+    const profiles = repricingProfileDrafts();
+    state.settings = {
+      ...state.settings,
+      repricingProfiles: profiles.map((profile) => profile.id === profileId ? update(profile) : profile),
+      defaultRepricingProfileId: repricingProfileDefaultDraft(),
+    };
+    renderRepricingProfiles();
+    updateSaveBarVisibility();
+  }
+
+  function addRepricingProfile() {
+    if (state.settings.repricingProfiles.length >= 20) return;
+    const profiles = repricingProfileDrafts();
+    const source = profiles.find((profile) => profile.id === state.selectedRepricingProfileId)
+      ?? profiles.find((profile) => profile.id === repricingProfileDefaultDraft())
+      ?? profiles[0];
+    let suffix = Date.now().toString(36);
+    let id = "repricing-" + suffix;
+    while (state.settings.repricingProfiles.some((profile) => profile.id === id)) {
+      suffix += "x";
+      id = "repricing-" + suffix;
+    }
+    state.settings = {
+      ...state.settings,
+      repricingProfiles: [...profiles, { ...source, id, name: "New repricing profile" }],
+      defaultRepricingProfileId: repricingProfileDefaultDraft(),
+    };
+    renderRepricingProfiles();
+    updateSaveBarVisibility();
+    document.querySelector('[data-repricing-profile-id="' + CSS.escape(id) + '"] [name="profileName"]').select();
+  }
+
+  function removeRepricingProfile(id) {
+    if (state.settings.repricingProfiles.length === 1) return;
+    const repricingProfiles = repricingProfileDrafts().filter((profile) => profile.id !== id);
+    const defaultDraft = repricingProfileDefaultDraft();
+    const defaultRepricingProfileId = defaultDraft === id ? repricingProfiles[0].id : defaultDraft;
+    state.settings = { ...state.settings, repricingProfiles, defaultRepricingProfileId };
+    if (state.selectedRepricingProfileId === id) state.selectedRepricingProfileId = defaultRepricingProfileId;
+    renderRepricingProfiles();
+    renderRepricingProfileSelector();
+    updateSaveBarVisibility();
+  }
+
+  function addRepricingRange(profileId) {
+    replaceRepricingProfile(profileId, (profile) => {
+      if (profile.ranges.length >= 20) return profile;
+      const ranges = [...profile.ranges];
+      const openRange = ranges.pop();
+      const previousMaximum = ranges.at(-1)?.maximumPrice ?? 0;
+      if (previousMaximum >= 1000000) return profile;
+      const suggestedMaximum = previousMaximum < 5
+        ? 5
+        : Math.min(1000000, Math.round(previousMaximum * 2 * 100) / 100);
+      const { maximumPrice: _maximumPrice, ...openRangeWithoutMaximum } = openRange;
+      return {
+        ...profile,
+        ranges: [
+          ...ranges,
+          { ...openRangeWithoutMaximum, maximumPrice: suggestedMaximum },
+          openRangeWithoutMaximum,
+        ],
+      };
+    });
+  }
+
+  function removeRepricingRange(profileId, rangeIndex) {
+    replaceRepricingProfile(profileId, (profile) => {
+      if (profile.ranges.length === 1) return profile;
+      const ranges = profile.ranges.filter((_range, index) => index !== rangeIndex);
+      const last = ranges.at(-1);
+      const { maximumPrice: _maximumPrice, ...lastWithoutMaximum } = last;
+      return { ...profile, ranges: [...ranges.slice(0, -1), lastWithoutMaximum] };
+    });
+  }
+
   function printerSelect(output) {
     const select = el("select", { name: "printerName", required: "" });
     const names = state.settings.installedPrinters.map((printer) => printer.name);
@@ -896,6 +1100,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     outputs.replaceChildren(...state.settings.outputs.map(renderOutput));
     renderMerchandiseProfiles();
     renderMerchandiseProfileSelector();
+    renderRepricingProfiles();
+    renderRepricingProfileSelector();
     renderDashboardAutomation();
     state.savedSettingsFingerprint = settingsFingerprint();
     updateSaveBarVisibility();
@@ -1569,6 +1775,58 @@ export const CONFIG_UI_JS = String.raw`(() => {
     state.selectedMerchandiseProfileId = selected;
   }
 
+  function activeRepricingProfile() {
+    if (!state.settings) return null;
+    return state.settings.repricingProfiles.find(
+      (profile) => profile.id === state.selectedRepricingProfileId,
+    ) ?? state.settings.repricingProfiles.find(
+      (profile) => profile.id === state.settings.defaultRepricingProfileId,
+    ) ?? state.settings.repricingProfiles[0] ?? null;
+  }
+
+  function renderRepricingProfileSelector() {
+    const select = document.querySelector("#repricing-profile-select");
+    if (!state.settings || !select) return;
+    if (!state.settings.repricingProfiles.some((profile) => profile.id === state.selectedRepricingProfileId)) {
+      state.selectedRepricingProfileId = state.settings.defaultRepricingProfileId;
+    }
+    select.replaceChildren(...state.settings.repricingProfiles.map((profile) => {
+      const option = el("option", { value: profile.id, text: profile.name });
+      if (profile.id === state.selectedRepricingProfileId) option.selected = true;
+      return option;
+    }));
+    const profile = activeRepricingProfile();
+    document.querySelector("#repricing-profile-summary").textContent = profile
+      ? String(profile.ranges.length) + (profile.ranges.length === 1 ? " range" : " ranges") + " · min " + money(profile.minimumPrice) + " · " + (profile.priceBasis === "delivered" ? "delivered price" : "item price") + " · " + (profile.allowPriceIncreases ? "increases allowed" : "decreases only")
+      : "";
+  }
+
+  function selectRepricingProfile(id) {
+    state.selectedRepricingProfileId = id;
+    try {
+      window.localStorage.setItem(repricingProfileStorageKey, id);
+    } catch {
+      // The saved default remains available when browser storage is unavailable.
+    }
+    state.repricingPreview = null;
+    document.querySelector("#repricing-results").hidden = true;
+    renderRepricingProfileSelector();
+  }
+
+  function restoreRepricingProfilePreference() {
+    if (!state.settings) return;
+    let selected = state.settings.defaultRepricingProfileId;
+    try {
+      const stored = window.localStorage.getItem(repricingProfileStorageKey);
+      if (state.settings.repricingProfiles.some((profile) => profile.id === stored)) {
+        selected = stored;
+      }
+    } catch {
+      // The configured default remains selected when browser storage is unavailable.
+    }
+    state.selectedRepricingProfileId = selected;
+  }
+
   function selectInventoryCondition(productId, condition) {
     state.inventoryConditionByProductId.set(productId, condition);
     state.inventoryResultByProductId.delete(productId);
@@ -1738,9 +1996,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     });
     checkbox.checked = row.queueable;
     checkbox.disabled = !row.queueable;
-    const competitor = row.competitorPrice === undefined
+    const lowest = row.lowestPrice === undefined
       ? "—"
-      : money(row.competitorPrice) + (row.competitorShipping > 0 ? " + " + money(row.competitorShipping) + " shipping" : "") + " · " + row.competitorCondition;
+      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + (row.gapPercent === undefined ? "" : " · " + row.gapPercent.toFixed(1) + "% to next");
     const proposed = el("td", {}, [
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);
@@ -1754,7 +2012,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       ])]),
       el("td", { text: row.condition }),
       el("td", { className: "price-old", text: money(row.currentPrice) }),
-      el("td", { text: competitor }),
+      el("td", { text: row.marketPrice === undefined ? "—" : money(row.marketPrice) }),
+      el("td", { text: lowest }),
       proposed,
       el("td", {}, [
         el("span", { className: "status-pill " + row.status, text: row.status }),
@@ -1775,12 +2034,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function repricingRules() {
+    const profile = activeRepricingProfile();
+    if (!profile) return null;
     return {
-      minimumPrice: Number(document.querySelector("#repricing-minimum").value),
-      conditionPolicy: document.querySelector("#repricing-condition").value,
-      priceBasis: document.querySelector("#repricing-basis").value,
-      adjustmentCents: Number(document.querySelector("#repricing-adjustment").value),
-      allowPriceIncreases: document.querySelector("#repricing-allow-increases").checked,
+      minimumPrice: profile.minimumPrice,
+      conditionPolicy: profile.conditionPolicy,
+      priceBasis: profile.priceBasis,
+      adjustmentCents: profile.adjustmentCents,
+      allowPriceIncreases: profile.allowPriceIncreases,
+      ranges: profile.ranges,
     };
   }
 
@@ -1887,6 +2149,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (!response.ok) throw new Error(data.message || "The settings file could not be read.");
       state.settings = data;
       restoreMerchandiseProfilePreference();
+      restoreRepricingProfilePreference();
       render();
     } catch (error) {
       form.hidden = true;
@@ -1929,9 +2192,33 @@ export const CONFIG_UI_JS = String.raw`(() => {
     };
   }
 
+  function collectRepricingProfile(card) {
+    const rangeCards = [...card.querySelectorAll("[data-range-index]")];
+    return {
+      id: card.dataset.repricingProfileId,
+      name: card.querySelector('[name="profileName"]').value.trim(),
+      minimumPrice: Number(card.querySelector('[name="minimumPrice"]').value),
+      conditionPolicy: card.querySelector('[name="conditionPolicy"]').value,
+      priceBasis: card.querySelector('[name="priceBasis"]').value,
+      adjustmentCents: Number(card.querySelector('[name="adjustmentCents"]').value),
+      allowPriceIncreases: card.querySelector('[name="allowPriceIncreases"]').checked,
+      ranges: rangeCards.map((rangeCard, index) => ({
+        ...(index === rangeCards.length - 1
+          ? {}
+          : { maximumPrice: Number(rangeCard.querySelector('[name="maximumPrice"]').value) }),
+        priceSource: rangeCard.querySelector('[name="priceSource"]').value,
+        percentage: Number(rangeCard.querySelector('[name="percentage"]').value),
+        gapThresholdPercent: Number(rangeCard.querySelector('[name="gapThresholdPercent"]').value),
+        gapAction: rangeCard.querySelector('[name="gapAction"]').value,
+      })),
+    };
+  }
+
   function collectSettingsUpdate() {
     const profileCards = [...document.querySelectorAll("#merchandise-profile-list [data-profile-id]")];
     const defaultProfile = document.querySelector('#merchandise-profile-list [name="defaultMerchandiseProfileId"]:checked');
+    const repricingProfileCards = [...document.querySelectorAll("#repricing-profile-list [data-repricing-profile-id]")];
+    const defaultRepricingProfile = document.querySelector('#repricing-profile-list [name="defaultRepricingProfileId"]:checked');
     return {
       revision: state.settings.revision,
       pollIntervalMinutes: Number(document.querySelector("#poll-interval").value),
@@ -1946,6 +2233,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       },
       merchandiseProfiles: profileCards.map(collectMerchandiseProfile),
       defaultMerchandiseProfileId: defaultProfile?.value ?? "",
+      repricingProfiles: repricingProfileCards.map(collectRepricingProfile),
+      defaultRepricingProfileId: defaultRepricingProfile?.value ?? "",
       outputs: state.settings.outputs.map((output) => {
         const card = outputs.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
         return collectOutput(card, output);
@@ -2024,11 +2313,19 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#inventory-profile-select").addEventListener("change", (event) => {
     selectMerchandiseProfile(event.target.value);
   });
+  document.querySelector("#repricing-profile-select").addEventListener("change", (event) => {
+    selectRepricingProfile(event.target.value);
+  });
   document.querySelector("#edit-merchandise-profiles").addEventListener("click", () => {
     activateTab("settings", true, true);
     document.querySelector("#merchandise-profiles-title").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   document.querySelector("#add-merchandise-profile").addEventListener("click", addMerchandiseProfile);
+  document.querySelector("#edit-repricing-profiles").addEventListener("click", () => {
+    activateTab("settings", true, true);
+    document.querySelector("#repricing-profiles-title").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  document.querySelector("#add-repricing-profile").addEventListener("click", addRepricingProfile);
   const quantityDialog = document.querySelector("#inventory-quantity-dialog");
   document.querySelector("#inventory-quantity-cancel").addEventListener("click", () => quantityDialog.close());
   document.querySelector("#inventory-quantity-apply").addEventListener("click", () => {

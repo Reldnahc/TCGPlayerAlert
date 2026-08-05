@@ -111,6 +111,25 @@ export interface MerchandiseProfileConfig {
   readonly manualPrice?: number;
 }
 
+export interface RepricingRangeConfig {
+  readonly maximumPrice?: number;
+  readonly priceSource: "lowest" | "market";
+  readonly percentage: number;
+  readonly gapThresholdPercent: number;
+  readonly gapAction: "follow-lowest" | "use-next" | "skip";
+}
+
+export interface RepricingProfileConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly minimumPrice: number;
+  readonly conditionPolicy: "same" | "same-or-better";
+  readonly priceBasis: "item" | "delivered";
+  readonly adjustmentCents: number;
+  readonly allowPriceIncreases: boolean;
+  readonly ranges: readonly RepricingRangeConfig[];
+}
+
 export interface AppConfig {
   readonly version: 1;
   readonly pollIntervalMinutes: number;
@@ -123,6 +142,8 @@ export interface AppConfig {
   readonly inventoryAdditionQueue: InventoryAdditionQueueConfig;
   readonly merchandiseProfiles: readonly MerchandiseProfileConfig[];
   readonly defaultMerchandiseProfileId: string;
+  readonly repricingProfiles: readonly RepricingProfileConfig[];
+  readonly defaultRepricingProfileId: string;
   readonly provider: {
     readonly type: "tcgplayer";
     readonly authCookieEnv: string;
@@ -290,6 +311,24 @@ const DEFAULT_MERCHANDISE_PROFILE: MerchandiseProfileConfig = {
   noComparisonFallback: "market",
 };
 
+const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
+  id: "match-lowest",
+  name: "Match lowest",
+  minimumPrice: 0.35,
+  conditionPolicy: "same-or-better",
+  priceBasis: "delivered",
+  adjustmentCents: 0,
+  allowPriceIncreases: false,
+  ranges: [
+    {
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 25,
+      gapAction: "follow-lowest",
+    },
+  ],
+};
+
 function parseMerchandiseProfile(
   value: unknown,
   index: number,
@@ -349,6 +388,130 @@ function parseMerchandiseProfile(
     noComparisonFallback:
       fallback as MerchandiseProfileConfig["noComparisonFallback"],
     ...(manualPrice === undefined ? {} : { manualPrice }),
+  };
+}
+
+function parseRepricingProfile(
+  value: unknown,
+  index: number,
+  issues: string[],
+): RepricingProfileConfig {
+  const source = record(value);
+  const path = `config.repricingProfiles[${String(index)}]`;
+  const conditionPolicy = source?.conditionPolicy;
+  const priceBasis = source?.priceBasis;
+  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
+    issues.push(`${path}.conditionPolicy must be same or same-or-better.`);
+  }
+  if (priceBasis !== "item" && priceBasis !== "delivered") {
+    issues.push(`${path}.priceBasis must be item or delivered.`);
+  }
+  const rangeValues = source?.ranges;
+  if (!Array.isArray(rangeValues)) {
+    issues.push(`${path}.ranges must be an array.`);
+  }
+  const ranges = (Array.isArray(rangeValues) ? rangeValues : []).map(
+    (range, rangeIndex) =>
+      parseRepricingRange(
+        range,
+        `${path}.ranges[${String(rangeIndex)}]`,
+        rangeIndex,
+        Array.isArray(rangeValues) ? rangeValues.length : 0,
+        issues,
+      ),
+  );
+  if (ranges.length < 1 || ranges.length > 20) {
+    issues.push(`${path}.ranges must contain between 1 and 20 ranges.`);
+  }
+  for (let rangeIndex = 1; rangeIndex < ranges.length; rangeIndex += 1) {
+    const previous = ranges[rangeIndex - 1]?.maximumPrice;
+    const current = ranges[rangeIndex]?.maximumPrice;
+    if (
+      previous === undefined ||
+      (current !== undefined && current <= previous)
+    ) {
+      issues.push(`${path}.ranges maximum prices must increase.`);
+      break;
+    }
+  }
+  return {
+    id: identifier(source?.id, `${path}.id`, issues),
+    name: text(source, "name", path, issues),
+    minimumPrice: numberValue(
+      source,
+      "minimumPrice",
+      path,
+      0.01,
+      1_000_000,
+      issues,
+    ),
+    conditionPolicy:
+      conditionPolicy as RepricingProfileConfig["conditionPolicy"],
+    priceBasis: priceBasis as RepricingProfileConfig["priceBasis"],
+    adjustmentCents: integer(
+      source,
+      "adjustmentCents",
+      path,
+      0,
+      100_000,
+      issues,
+    ),
+    allowPriceIncreases: booleanValue(
+      source,
+      "allowPriceIncreases",
+      path,
+      issues,
+    ),
+    ranges,
+  };
+}
+
+function parseRepricingRange(
+  value: unknown,
+  path: string,
+  index: number,
+  count: number,
+  issues: string[],
+): RepricingRangeConfig {
+  const source = record(value);
+  const priceSource = source?.priceSource;
+  const gapAction = source?.gapAction;
+  if (priceSource !== "lowest" && priceSource !== "market") {
+    issues.push(`${path}.priceSource must be lowest or market.`);
+  }
+  if (
+    gapAction !== "follow-lowest" &&
+    gapAction !== "use-next" &&
+    gapAction !== "skip"
+  ) {
+    issues.push(`${path}.gapAction is invalid.`);
+  }
+  let maximumPrice: number | undefined;
+  if (index < count - 1) {
+    maximumPrice = numberValue(
+      source,
+      "maximumPrice",
+      path,
+      0.01,
+      1_000_000,
+      issues,
+    );
+  } else if (source?.maximumPrice !== undefined) {
+    issues.push(`${path}.maximumPrice must be omitted for the final range.`);
+  }
+  return {
+    ...(maximumPrice === undefined ? {} : { maximumPrice }),
+    priceSource: priceSource as RepricingRangeConfig["priceSource"],
+    percentage: numberValue(source, "percentage", path, 1, 500, issues),
+    gapThresholdPercent: numberValue(
+      source,
+      "gapThresholdPercent",
+      path,
+      0,
+      10_000,
+      issues,
+    ),
+    gapAction: gapAction as RepricingRangeConfig["gapAction"],
   };
 }
 
@@ -474,6 +637,50 @@ export function parseConfig(value: unknown): AppConfig {
   ) {
     issues.push(
       "config.defaultMerchandiseProfileId must reference a merchandise profile.",
+    );
+  }
+  const repricingProfileValues = root?.repricingProfiles;
+  if (
+    repricingProfileValues !== undefined &&
+    !Array.isArray(repricingProfileValues)
+  ) {
+    issues.push("config.repricingProfiles must be an array.");
+  }
+  const repricingProfiles =
+    repricingProfileValues === undefined
+      ? [DEFAULT_REPRICING_PROFILE]
+      : (Array.isArray(repricingProfileValues)
+          ? repricingProfileValues
+          : []
+        ).map((profile, index) =>
+          parseRepricingProfile(profile, index, issues),
+        );
+  if (repricingProfiles.length < 1 || repricingProfiles.length > 20) {
+    issues.push(
+      "config.repricingProfiles must contain between 1 and 20 profiles.",
+    );
+  }
+  if (
+    new Set(repricingProfiles.map((profile) => profile.id)).size !==
+    repricingProfiles.length
+  ) {
+    issues.push("config.repricingProfiles ids must be unique.");
+  }
+  const defaultRepricingProfileId =
+    root?.defaultRepricingProfileId === undefined
+      ? (repricingProfiles[0]?.id ?? DEFAULT_REPRICING_PROFILE.id)
+      : identifier(
+          root.defaultRepricingProfileId,
+          "config.defaultRepricingProfileId",
+          issues,
+        );
+  if (
+    !repricingProfiles.some(
+      (profile) => profile.id === defaultRepricingProfileId,
+    )
+  ) {
+    issues.push(
+      "config.defaultRepricingProfileId must reference a repricing profile.",
     );
   }
 
@@ -873,6 +1080,8 @@ export function parseConfig(value: unknown): AppConfig {
     inventoryAdditionQueue: inventoryAdditionQueueConfig,
     merchandiseProfiles,
     defaultMerchandiseProfileId,
+    repricingProfiles,
+    defaultRepricingProfileId,
     provider: {
       type: "tcgplayer",
       authCookieEnv,

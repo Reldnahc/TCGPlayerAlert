@@ -11,6 +11,7 @@ import type {
   AppConfig,
   MerchandiseProfileConfig,
   PrinterConfig,
+  RepricingProfileConfig,
   WindowsPdfPrinterConfig,
 } from "./config.js";
 import { parseConfig } from "./config.js";
@@ -75,6 +76,8 @@ export interface ConfigurationUiSettings {
   };
   readonly merchandiseProfiles: readonly MerchandiseProfileConfig[];
   readonly defaultMerchandiseProfileId: string;
+  readonly repricingProfiles: readonly RepricingProfileConfig[];
+  readonly defaultRepricingProfileId: string;
   readonly outputs: readonly OutputSettings[];
   readonly installedPrinters: PrinterDiscoveryResult["printers"];
   readonly discoveryIssue?: string;
@@ -94,6 +97,8 @@ export interface ConfigurationUiUpdate {
   };
   readonly merchandiseProfiles: readonly MerchandiseProfileConfig[];
   readonly defaultMerchandiseProfileId: string;
+  readonly repricingProfiles: readonly RepricingProfileConfig[];
+  readonly defaultRepricingProfileId: string;
   readonly outputs: readonly OutputSettingsUpdate[];
 }
 
@@ -190,6 +195,8 @@ export class ConfigurationService {
       },
       merchandiseProfiles: config.merchandiseProfiles,
       defaultMerchandiseProfileId: config.defaultMerchandiseProfileId,
+      repricingProfiles: config.repricingProfiles,
+      defaultRepricingProfileId: config.defaultRepricingProfileId,
       outputs: Object.entries(config.actions).map(([actionId, action]) =>
         outputSettings(actionId, action, config.printers[action.printer]),
       ),
@@ -419,6 +426,43 @@ function parseUiUpdate(
       defaultMerchandiseProfileId = defaultProfileValue;
     }
   }
+  let repricingProfiles = config.repricingProfiles;
+  let defaultRepricingProfileId = config.defaultRepricingProfileId;
+  const repricingProfileValues = source?.repricingProfiles;
+  const defaultRepricingProfileValue = source?.defaultRepricingProfileId;
+  if (
+    repricingProfileValues !== undefined ||
+    defaultRepricingProfileValue !== undefined
+  ) {
+    if (
+      !Array.isArray(repricingProfileValues) ||
+      repricingProfileValues.length < 1 ||
+      repricingProfileValues.length > 20
+    ) {
+      issues.push("Repricing profiles must contain between 1 and 20 profiles.");
+    }
+    repricingProfiles = (
+      Array.isArray(repricingProfileValues) ? repricingProfileValues : []
+    ).map((profile, index) =>
+      parseRepricingProfileUpdate(profile, index, issues),
+    );
+    if (
+      new Set(repricingProfiles.map((profile) => profile.id)).size !==
+      repricingProfiles.length
+    ) {
+      issues.push("Repricing profile ids must be unique.");
+    }
+    if (
+      typeof defaultRepricingProfileValue !== "string" ||
+      !repricingProfiles.some(
+        (profile) => profile.id === defaultRepricingProfileValue,
+      )
+    ) {
+      issues.push("The default repricing profile must reference a profile.");
+    } else {
+      defaultRepricingProfileId = defaultRepricingProfileValue;
+    }
+  }
   const outputValues = source?.outputs;
   if (!Array.isArray(outputValues))
     issues.push("Print actions must be an array.");
@@ -449,6 +493,8 @@ function parseUiUpdate(
     },
     merchandiseProfiles,
     defaultMerchandiseProfileId,
+    repricingProfiles,
+    defaultRepricingProfileId,
     outputs,
   };
 }
@@ -525,6 +571,130 @@ function parseMerchandiseProfileUpdate(
     noComparisonFallback:
       noComparisonFallback as MerchandiseProfileConfig["noComparisonFallback"],
     ...(manualPrice === undefined ? {} : { manualPrice }),
+  };
+}
+
+function parseRepricingProfileUpdate(
+  value: unknown,
+  index: number,
+  issues: string[],
+): RepricingProfileConfig {
+  const source = objectValue(value);
+  const path = `Repricing profile ${String(index + 1)}`;
+  const id = source?.id;
+  if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/u.test(id)) {
+    issues.push(`${path} has an invalid id.`);
+  }
+  const name = source?.name;
+  if (!safeText(name)) issues.push(`${path} requires a valid name.`);
+  const conditionPolicy = source?.conditionPolicy;
+  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
+    issues.push(`${path} has an invalid condition comparison.`);
+  }
+  const priceBasis = source?.priceBasis;
+  if (priceBasis !== "item" && priceBasis !== "delivered") {
+    issues.push(`${path} has an invalid price basis.`);
+  }
+  if (typeof source?.allowPriceIncreases !== "boolean") {
+    issues.push(`${path} requires a price-increase setting.`);
+  }
+  const rangeValues = source?.ranges;
+  if (
+    !Array.isArray(rangeValues) ||
+    rangeValues.length < 1 ||
+    rangeValues.length > 20
+  ) {
+    issues.push(`${path} must contain between 1 and 20 ranges.`);
+  }
+  const ranges = (Array.isArray(rangeValues) ? rangeValues : []).map(
+    (range, rangeIndex) => {
+      const rangeSource = objectValue(range);
+      const rangePath = `${path} range ${String(rangeIndex + 1)}`;
+      const priceSource = rangeSource?.priceSource;
+      if (priceSource !== "lowest" && priceSource !== "market") {
+        issues.push(`${rangePath} has an invalid price source.`);
+      }
+      const gapAction = rangeSource?.gapAction;
+      if (
+        gapAction !== "follow-lowest" &&
+        gapAction !== "use-next" &&
+        gapAction !== "skip"
+      ) {
+        issues.push(`${rangePath} has an invalid gap action.`);
+      }
+      const maximumPrice =
+        rangeIndex < (Array.isArray(rangeValues) ? rangeValues.length - 1 : 0)
+          ? boundedNumber(
+              rangeSource?.maximumPrice,
+              0.01,
+              1_000_000,
+              `${rangePath} maximum price`,
+              issues,
+            )
+          : undefined;
+      if (
+        rangeIndex ===
+          (Array.isArray(rangeValues) ? rangeValues.length - 1 : -1) &&
+        rangeSource?.maximumPrice !== undefined
+      ) {
+        issues.push(`${rangePath} must be open ended.`);
+      }
+      return {
+        ...(maximumPrice === undefined ? {} : { maximumPrice }),
+        priceSource:
+          priceSource as RepricingProfileConfig["ranges"][number]["priceSource"],
+        percentage: boundedNumber(
+          rangeSource?.percentage,
+          1,
+          500,
+          `${rangePath} percentage`,
+          issues,
+        ),
+        gapThresholdPercent: boundedNumber(
+          rangeSource?.gapThresholdPercent,
+          0,
+          10_000,
+          `${rangePath} gap threshold`,
+          issues,
+        ),
+        gapAction:
+          gapAction as RepricingProfileConfig["ranges"][number]["gapAction"],
+      };
+    },
+  );
+  for (let rangeIndex = 1; rangeIndex < ranges.length; rangeIndex += 1) {
+    const previous = ranges[rangeIndex - 1]?.maximumPrice;
+    const current = ranges[rangeIndex]?.maximumPrice;
+    if (
+      previous === undefined ||
+      (current !== undefined && current <= previous)
+    ) {
+      issues.push(`${path} range maximum prices must increase.`);
+      break;
+    }
+  }
+  return {
+    id: typeof id === "string" ? id : "invalid",
+    name: typeof name === "string" ? name.trim() : "",
+    minimumPrice: boundedNumber(
+      source?.minimumPrice,
+      0.01,
+      1_000_000,
+      `${path} minimum price`,
+      issues,
+    ),
+    conditionPolicy:
+      conditionPolicy as RepricingProfileConfig["conditionPolicy"],
+    priceBasis: priceBasis as RepricingProfileConfig["priceBasis"],
+    adjustmentCents: boundedInteger(
+      source?.adjustmentCents,
+      0,
+      100_000,
+      `${path} adjustment`,
+      issues,
+    ),
+    allowPriceIncreases: source?.allowPriceIncreases as boolean,
+    ranges,
   };
 }
 
@@ -677,6 +847,8 @@ function applyUpdate(
     },
     merchandiseProfiles: update.merchandiseProfiles,
     defaultMerchandiseProfileId: update.defaultMerchandiseProfileId,
+    repricingProfiles: update.repricingProfiles,
+    defaultRepricingProfileId: update.defaultRepricingProfileId,
     printers,
     actions,
   };

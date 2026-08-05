@@ -17,6 +17,16 @@ export const TCGPLAYER_CONDITION_ORDER = [
 
 export type RepricingConditionPolicy = "same" | "same-or-better";
 export type RepricingPriceBasis = "item" | "delivered";
+export type RepricingPriceSource = "lowest" | "market";
+export type RepricingGapAction = "follow-lowest" | "use-next" | "skip";
+
+export interface RepricingRange {
+  readonly maximumPrice?: number;
+  readonly priceSource: RepricingPriceSource;
+  readonly percentage: number;
+  readonly gapThresholdPercent: number;
+  readonly gapAction: RepricingGapAction;
+}
 
 export interface RepricingRules {
   readonly minimumPrice: number;
@@ -25,6 +35,7 @@ export interface RepricingRules {
   /** Zero matches the competitor; one undercuts by one cent. */
   readonly adjustmentCents: number;
   readonly allowPriceIncreases: boolean;
+  readonly ranges: readonly RepricingRange[];
 }
 
 export type RepricingRowStatus = "ready" | "unchanged" | "skipped";
@@ -46,6 +57,16 @@ export interface RepricingPreviewRow {
   readonly competitorPrice?: number;
   readonly competitorShipping?: number;
   readonly competitorCondition?: string;
+  readonly marketPrice?: number;
+  readonly lowestPrice?: number;
+  readonly lowestShipping?: number;
+  readonly nextLowestPrice?: number;
+  readonly nextLowestShipping?: number;
+  readonly gapPercent?: number;
+  readonly gapActionApplied?: Exclude<RepricingGapAction, "follow-lowest">;
+  readonly pricingSource?: RepricingPriceSource | "next-lowest";
+  readonly pricingPercentage?: number;
+  readonly rangeMaximumPrice?: number;
   readonly minimumApplied: boolean;
   readonly status: RepricingRowStatus;
   readonly reason: string;
@@ -123,6 +144,7 @@ export function parseRepricingRules(value: unknown): RepricingRules {
   if (typeof source?.allowPriceIncreases !== "boolean") {
     issues.push("Allow-price-increases must be true or false.");
   }
+  const ranges = parseRepricingRanges(source?.ranges, issues);
   if (issues.length > 0) throw new ConfigurationError(issues);
   return {
     minimumPrice: Number(minimumPrice),
@@ -130,7 +152,90 @@ export function parseRepricingRules(value: unknown): RepricingRules {
     priceBasis: priceBasis as RepricingPriceBasis,
     adjustmentCents: Number(adjustmentCents),
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
+    ranges,
   };
+}
+
+function parseRepricingRanges(
+  value: unknown,
+  issues: string[],
+): readonly RepricingRange[] {
+  if (value === undefined) {
+    return [
+      {
+        priceSource: "lowest",
+        percentage: 100,
+        gapThresholdPercent: 0,
+        gapAction: "follow-lowest",
+      },
+    ];
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > 20) {
+    issues.push("Repricing ranges must contain between 1 and 20 ranges.");
+    return [];
+  }
+  let previousMaximum = 0;
+  return value.map((entry, index) => {
+    const range = objectValue(entry);
+    const path = `Repricing range ${String(index + 1)}`;
+    const maximumPrice = range?.maximumPrice;
+    if (index < value.length - 1) {
+      if (
+        typeof maximumPrice !== "number" ||
+        !Number.isFinite(maximumPrice) ||
+        maximumPrice <= previousMaximum ||
+        maximumPrice > 1_000_000 ||
+        !hasAtMostTwoDecimals(maximumPrice)
+      ) {
+        issues.push(
+          `${path} maximum price must increase and be at most $1,000,000 with two decimals.`,
+        );
+      } else {
+        previousMaximum = maximumPrice;
+      }
+    } else if (maximumPrice !== undefined) {
+      issues.push("The final repricing range must have no maximum price.");
+    }
+    const priceSource = range?.priceSource;
+    if (priceSource !== "lowest" && priceSource !== "market") {
+      issues.push(`${path} price source must be lowest or market.`);
+    }
+    const percentage = range?.percentage;
+    if (
+      typeof percentage !== "number" ||
+      !Number.isFinite(percentage) ||
+      percentage < 1 ||
+      percentage > 500
+    ) {
+      issues.push(`${path} percentage must be between 1 and 500.`);
+    }
+    const gapThresholdPercent = range?.gapThresholdPercent;
+    if (
+      typeof gapThresholdPercent !== "number" ||
+      !Number.isFinite(gapThresholdPercent) ||
+      gapThresholdPercent < 0 ||
+      gapThresholdPercent > 10_000
+    ) {
+      issues.push(`${path} gap threshold must be between 0 and 10,000%.`);
+    }
+    const gapAction = range?.gapAction;
+    if (
+      gapAction !== "follow-lowest" &&
+      gapAction !== "use-next" &&
+      gapAction !== "skip"
+    ) {
+      issues.push(`${path} gap action is invalid.`);
+    }
+    return {
+      ...(index < value.length - 1 && typeof maximumPrice === "number"
+        ? { maximumPrice }
+        : {}),
+      priceSource: priceSource as RepricingPriceSource,
+      percentage: Number(percentage),
+      gapThresholdPercent: Number(gapThresholdPercent),
+      gapAction: gapAction as RepricingGapAction,
+    };
+  });
 }
 
 function hasAtMostTwoDecimals(value: number): boolean {
@@ -159,6 +264,22 @@ function listingBasis(
   basis: RepricingPriceBasis,
 ): number {
   return listing.price + (basis === "delivered" ? listing.shippingPrice : 0);
+}
+
+function matchingRange(
+  referencePrice: number,
+  ranges: readonly RepricingRange[],
+): RepricingRange {
+  const match = ranges.find(
+    (range) =>
+      range.maximumPrice === undefined || referencePrice <= range.maximumPrice,
+  );
+  if (match !== undefined) return match;
+  const finalRange = ranges.at(-1);
+  if (finalRange === undefined) {
+    throw new ConfigurationError(["At least one repricing range is required."]);
+  }
+  return finalRange;
 }
 
 export function calculateRepricingRow(
@@ -212,22 +333,130 @@ export function calculateRepricingRow(
         ? left.productConditionId - right.productConditionId
         : priceDifference;
     });
-  const competitor = candidates[0];
-  if (competitor === undefined) {
-    return skippedRow(base, "No qualifying competing listing was found.");
+  const lowest = candidates[0];
+  const nextLowest = candidates[1];
+  const lowestBasis =
+    lowest === undefined ? undefined : listingBasis(lowest, rules.priceBasis);
+  const nextLowestBasis =
+    nextLowest === undefined
+      ? undefined
+      : listingBasis(nextLowest, rules.priceBasis);
+  const marketPrice =
+    own.product.marketPrice > 0 ? own.product.marketPrice : undefined;
+  const rangeReference = marketPrice ?? lowestBasis;
+  if (rangeReference === undefined) {
+    return skippedRow(
+      base,
+      "No market price or qualifying competing listing was found.",
+    );
+  }
+  const range = matchingRange(rangeReference, rules.ranges);
+  const gapPercent =
+    nextLowestBasis === undefined ||
+    lowestBasis === undefined ||
+    lowestBasis <= 0
+      ? undefined
+      : ((nextLowestBasis - lowestBasis) / lowestBasis) * 100;
+  const gapDetected =
+    range.gapAction !== "follow-lowest" &&
+    gapPercent !== undefined &&
+    gapPercent >= range.gapThresholdPercent;
+  const rangeDetails = {
+    ...(marketPrice === undefined ? {} : { marketPrice }),
+    ...(lowest === undefined
+      ? {}
+      : {
+          lowestPrice: lowest.price,
+          lowestShipping: lowest.shippingPrice,
+        }),
+    ...(nextLowest === undefined
+      ? {}
+      : {
+          nextLowestPrice: nextLowest.price,
+          nextLowestShipping: nextLowest.shippingPrice,
+        }),
+    ...(gapPercent === undefined ? {} : { gapPercent }),
+    pricingPercentage: range.percentage,
+    ...(range.maximumPrice === undefined
+      ? {}
+      : { rangeMaximumPrice: range.maximumPrice }),
+  };
+  if (gapDetected && range.gapAction === "skip") {
+    return {
+      ...base,
+      ...rangeDetails,
+      gapActionApplied: "skip",
+      proposedPrice: own.listing.price,
+      minimumApplied: false,
+      status: "skipped",
+      reason: `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range waits without changing the price.`,
+      queueable: false,
+    };
+  }
+  const useNext = gapDetected && range.gapAction === "use-next";
+  const referenceListing = useNext
+    ? nextLowest
+    : range.priceSource === "lowest"
+      ? lowest
+      : undefined;
+  if (useNext && referenceListing === undefined) {
+    return skippedRow(
+      base,
+      "No second qualifying listing was found for the configured gap rule.",
+    );
+  }
+  if (range.priceSource === "lowest" && referenceListing === undefined) {
+    return skippedRow(
+      base,
+      "No qualifying competing listing was found for this range.",
+    );
+  }
+  if (referenceListing === undefined && marketPrice === undefined) {
+    return skippedRow(
+      base,
+      "No market price was available for the selected pricing range.",
+    );
+  }
+  const pricingSource: RepricingPriceSource | "next-lowest" = useNext
+    ? "next-lowest"
+    : range.priceSource;
+  let sourcePrice: number;
+  if (referenceListing !== undefined) {
+    sourcePrice = listingBasis(referenceListing, rules.priceBasis);
+  } else if (marketPrice !== undefined) {
+    sourcePrice = marketPrice;
+  } else {
+    return skippedRow(
+      base,
+      "No price reference was available for the selected pricing range.",
+    );
   }
   const rawTarget =
-    listingBasis(competitor, rules.priceBasis) -
-    (rules.priceBasis === "delivered" ? own.listing.shippingPrice : 0) -
+    (sourcePrice * range.percentage) / 100 -
+    (referenceListing !== undefined && rules.priceBasis === "delivered"
+      ? own.listing.shippingPrice
+      : 0) -
     rules.adjustmentCents / 100;
   const minimumApplied = rawTarget < rules.minimumPrice;
   const target = roundCurrency(Math.max(rules.minimumPrice, rawTarget));
   const comparison = {
-    competitorPrice: competitor.price,
-    competitorShipping: competitor.shippingPrice,
-    competitorCondition: competitor.condition,
+    ...rangeDetails,
+    ...(referenceListing === undefined
+      ? {}
+      : {
+          competitorPrice: referenceListing.price,
+          competitorShipping: referenceListing.shippingPrice,
+          competitorCondition: referenceListing.condition,
+        }),
+    ...(useNext ? { gapActionApplied: "use-next" as const } : {}),
+    pricingSource,
     minimumApplied,
   };
+  const strategyReason = useNext
+    ? `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range uses ${String(range.percentage)}% of the next listing.`
+    : range.priceSource === "market"
+      ? `Uses ${String(range.percentage)}% of market price.`
+      : `Uses ${String(range.percentage)}% of the lowest qualifying listing.`;
   if (target === own.listing.price) {
     return {
       ...base,
@@ -236,7 +465,7 @@ export function calculateRepricingRow(
       status: "unchanged",
       reason: minimumApplied
         ? "Already at the configured minimum."
-        : "Already matches the qualifying lowest listing.",
+        : `Already matches the profile target. ${strategyReason}`,
       queueable: false,
     };
   }
@@ -257,9 +486,7 @@ export function calculateRepricingRow(
     status: "ready",
     reason: minimumApplied
       ? "The minimum price overrides the calculated target."
-      : competitor.condition === own.listing.condition
-        ? "Matches the lowest qualifying listing."
-        : `Matches a lower-priced ${competitor.condition} listing because it is a better condition.`,
+      : strategyReason,
     queueable: true,
   };
 }
