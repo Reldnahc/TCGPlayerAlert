@@ -28,7 +28,8 @@ describe("application configuration", () => {
     expect(config.repricingProfiles[0]).toMatchObject({
       name: "Smart conservative",
       ranges: [
-        { maximumPrice: 5, minimumListings: 1, gapAction: "use-next" },
+        { maximumPrice: 1, minimumListings: 1, gapAction: "use-next" },
+        { maximumPrice: 5, minimumListings: 2, gapAction: "use-next" },
         { maximumPrice: 25, minimumListings: 2, gapAction: "use-next" },
         { maximumPrice: 100, minimumListings: 3, gapAction: "skip" },
         { minimumListings: 3, gapAction: "skip" },
@@ -83,11 +84,19 @@ describe("application configuration", () => {
         allowPriceIncreases: false,
         ranges: [
           {
-            maximumPrice: 5,
+            maximumPrice: 1,
             minimumListings: 1,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 50,
+            gapThresholdPercent: 20,
+            gapAction: "use-next",
+          },
+          {
+            maximumPrice: 5,
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 10,
             gapAction: "use-next",
           },
           {
@@ -95,7 +104,7 @@ describe("application configuration", () => {
             minimumListings: 2,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 30,
+            gapThresholdPercent: 10,
             gapAction: "use-next",
           },
           {
@@ -103,14 +112,14 @@ describe("application configuration", () => {
             minimumListings: 3,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 20,
+            gapThresholdPercent: 8,
             gapAction: "skip",
           },
           {
             minimumListings: 3,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 15,
+            gapThresholdPercent: 5,
             gapAction: "skip",
           },
         ],

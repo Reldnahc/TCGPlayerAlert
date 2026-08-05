@@ -313,6 +313,50 @@ describe("smart repricing", () => {
     });
   });
 
+  it("applies gap thresholds proportionally at ordinary card prices", () => {
+    const proportionalRules: RepricingRules = {
+      ...rules,
+      ranges: [
+        {
+          minimumListings: 2,
+          priceSource: "lowest",
+          percentage: 100,
+          gapThresholdPercent: 10,
+          gapAction: "use-next",
+        },
+      ],
+    };
+    const scenarios = [
+      { low: 2, next: 2.2, expected: 2.2 },
+      { low: 5, next: 5.5, expected: 5.5 },
+      { low: 5, next: 5.49, expected: 5 },
+    ];
+
+    for (const [index, scenario] of scenarios.entries()) {
+      const ownListing = listing({ price: 8 });
+      const row = calculateRepricingRow(
+        { product: product(ownListing), listing: ownListing },
+        [
+          listing({
+            listingId: 10 + index * 2,
+            sellerKey: `low-${String(index)}`,
+            price: scenario.low,
+          }),
+          listing({
+            listingId: 11 + index * 2,
+            sellerKey: `next-${String(index)}`,
+            price: scenario.next,
+          }),
+        ],
+        sellerKey,
+        proportionalRules,
+        `row-proportional-${String(index)}`,
+      );
+
+      expect(row.proposedPrice).toBe(scenario.expected);
+    }
+  });
+
   it("skips a separated lowest listing when the range says to wait", () => {
     const ownListing = listing({ price: 6 });
     const lowest = listing({ listingId: 2, sellerKey: "low", price: 2 });

@@ -128,10 +128,11 @@ Ranges are chosen by the lowest qualifying listing, falling back to market price
 
 The built-in **Smart conservative** profile uses delivered price and 100% of the lowest qualifying comparable in every tier:
 
-- Up to $5: one comparable; use the next listing when the low is at least 50% below it.
-- $5.01-$25: two comparables; use the next listing at a 30% gap.
-- $25.01-$100: three comparables; skip the card for review at a 20% gap.
-- Above $100: three comparables; skip the card for review at a 15% gap.
+- Up to $1: one comparable; use the next listing when the low is at least 20% below it.
+- $1.01-$5: two comparables; use the next listing at a 10% gap. That is 20 cents on a $2 low or 50 cents on a $5 low.
+- $5.01-$25: two comparables; use the next listing at a 10% gap.
+- $25.01-$100: three comparables; skip the card for review at an 8% gap.
+- Above $100: three comparables; skip the card for review at a 5% gap.
 
 This is a conservative starting policy, not a claim that the thresholds maximize profit. TCGplayer confirms that customer visibility is ordered by item price plus shipping and describes Market Price as an average of recent condition-specific sales. TCGplayer's own Market-Low concept protects against short-lived low-price swings, while statistical guidance recommends treating apparent outliers as evidence to investigate rather than automatically deleting them. The default therefore uses printing-, language-, and condition-filtered live comparables for decisions, requires more evidence as value rises, and holds high-value gaps for operator review. Calibrate the editable tiers against your own sell-through time, margin, and repricing history.
 

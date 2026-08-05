@@ -322,11 +322,19 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
   allowPriceIncreases: false,
   ranges: [
     {
-      maximumPrice: 5,
+      maximumPrice: 1,
       minimumListings: 1,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 50,
+      gapThresholdPercent: 20,
+      gapAction: "use-next",
+    },
+    {
+      maximumPrice: 5,
+      minimumListings: 2,
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 10,
       gapAction: "use-next",
     },
     {
@@ -334,7 +342,7 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
       minimumListings: 2,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 30,
+      gapThresholdPercent: 10,
       gapAction: "use-next",
     },
     {
@@ -342,14 +350,14 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
       minimumListings: 3,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 20,
+      gapThresholdPercent: 8,
       gapAction: "skip",
     },
     {
       minimumListings: 3,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 15,
+      gapThresholdPercent: 5,
       gapAction: "skip",
     },
   ],
