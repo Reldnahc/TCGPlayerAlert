@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import {
   createTcgplayerSellerClient,
   isTcgplayerApiError,
+  TcgplayerApiError,
   type SellerPriceUpdate,
 } from "tcgplayer-private-api";
 import type { AppConfig, PriceUpdateQueueConfig } from "./config.js";
@@ -47,7 +48,7 @@ export interface PriceUpdateQueueSnapshot {
 }
 
 export interface PriceUpdateExecutor {
-  apply(update: SellerPriceUpdate): Promise<void>;
+  apply(update: SellerPriceUpdate, signal?: AbortSignal): Promise<void>;
 }
 
 export interface PriceUpdateQueueStoreOptions {
@@ -377,7 +378,7 @@ export class PriceUpdateWorker {
         attempt: job.attempts,
       });
       try {
-        await this.options.executor.apply(job.update);
+        await this.options.executor.apply(job.update, signal);
         await this.options.queue.finish(job.id, "applied");
         this.options.logger.info("price-queue.applied", {
           jobId: job.id,
@@ -422,6 +423,9 @@ export class PriceUpdateWorker {
 export function createTcgplayerPriceUpdateExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  options: {
+    readonly confirmationDelaysMs?: readonly number[];
+  } = {},
 ): PriceUpdateExecutor {
   const authCookie = environment[config.provider.authCookieEnv]?.trim();
   const sellerKey = environment[config.provider.sellerKeyEnv]?.trim();
@@ -436,22 +440,42 @@ export function createTcgplayerPriceUpdateExecutor(
     ]);
   }
   const client = createTcgplayerSellerClient({ session: { authCookie } });
+  const confirmationDelaysMs = options.confirmationDelaysMs ?? [
+    1_000, 1_500, 2_500, 4_000, 6_000, 8_000,
+  ];
+  if (
+    confirmationDelaysMs.length === 0 ||
+    confirmationDelaysMs.some(
+      (delay) => !Number.isInteger(delay) || delay < 0 || delay > 60_000,
+    )
+  ) {
+    throw new ConfigurationError([
+      "Price confirmation delays must contain valid millisecond delays.",
+    ]);
+  }
   return {
-    apply: async (update) => {
+    apply: async (update, signal) => {
+      const requestOptions = signal === undefined ? undefined : { signal };
       const [currentResult, secondaryResult] = await Promise.all([
-        client.searchMarketplaceProducts({
-          productIds: [update.productId],
-          sellerKey,
-          channelId: update.channelId,
-          limit: 24,
-        }),
+        client.searchMarketplaceProducts(
+          {
+            productIds: [update.productId],
+            sellerKey,
+            channelId: update.channelId,
+            limit: 24,
+          },
+          requestOptions,
+        ),
         update.channelId === 0
-          ? client.searchMarketplaceProducts({
-              productIds: [update.productId],
-              sellerKey,
-              channelId: 1,
-              limit: 24,
-            })
+          ? client.searchMarketplaceProducts(
+              {
+                productIds: [update.productId],
+                sellerKey,
+                channelId: 1,
+                limit: 24,
+              },
+              requestOptions,
+            )
           : Promise.resolve({ totalProducts: 0, products: [] }),
       ]);
       const currentListing = currentResult.products
@@ -488,16 +512,51 @@ export function createTcgplayerPriceUpdateExecutor(
         );
       }
       if (currentListing.price === update.price) return;
-      await client.updateSellerPrices({
-        updates: [
+      await client.updateSellerPrices(
+        {
+          updates: [
+            {
+              ...update,
+              conditionId: currentListing.conditionId,
+              channelId: currentListing.channelId,
+              quantity: currentListing.quantity,
+            },
+          ],
+        },
+        requestOptions,
+      );
+      const waitSignal = signal ?? new AbortController().signal;
+      for (const delayMs of confirmationDelaysMs) {
+        await wait(delayMs, waitSignal);
+        if (waitSignal.aborted) {
+          throw new TcgplayerApiError(
+            "AMBIGUOUS_RESULT",
+            "TCGplayer accepted the price update, but confirmation was interrupted. Reconcile the listing before retrying.",
+          );
+        }
+        const confirmation = await client.searchMarketplaceProducts(
           {
-            ...update,
-            conditionId: currentListing.conditionId,
-            channelId: currentListing.channelId,
-            quantity: currentListing.quantity,
+            productIds: [update.productId],
+            sellerKey,
+            channelId: update.channelId,
+            limit: 24,
           },
-        ],
-      });
+          requestOptions,
+        );
+        const confirmedListing = confirmation.products
+          .flatMap((product) => product.listings)
+          .find(
+            (listing) =>
+              listing.productConditionId === update.productConditionId &&
+              listing.sellerKey === sellerKey &&
+              listing.channelId === update.channelId,
+          );
+        if (confirmedListing?.price === update.price) return;
+      }
+      throw new TcgplayerApiError(
+        "AMBIGUOUS_RESULT",
+        "TCGplayer accepted the price update, but the new price did not become visible before confirmation timed out. Reconcile the listing before retrying.",
+      );
     },
   };
 }

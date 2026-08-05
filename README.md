@@ -165,7 +165,7 @@ The JSON file may contain one update or `{ "updates": [...] }`. A complete item 
 }
 ```
 
-Pending jobs for the same SKU/channel are superseded by the newest price. The service submits one listing per request and starts the next as soon as the previous request finishes; an optional cooldown can be configured. A definite HTTP 429 is delayed for five minutes; authentication and validation failures stop as failed. A timeout, disconnect, server error, or interrupted in-flight update becomes `review-required` and is never retried automatically. Check the listing in Seller Portal before deciding what to do with a review-required job. Seller Portal may continue processing after it accepts a request.
+Pending jobs for the same SKU/channel are superseded by the newest price. The service submits one listing at a time. After Seller Portal accepts a mutation, the worker polls the exact SKU with bounded backoff and does not claim the next job until the new price is visible. The optional cooldown starts after that confirmation. If the accepted price does not become visible within about 23 seconds, the job becomes `review-required`; it is not automatically resubmitted. A definite HTTP 429 is delayed for five minutes, while authentication and validation failures stop as failed. Check the listing in Seller Portal before deciding what to do with a review-required job.
 
 ## Enable printing safely
 

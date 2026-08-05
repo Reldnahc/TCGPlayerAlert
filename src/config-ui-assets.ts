@@ -132,7 +132,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                 <span class="switch" aria-hidden="true"></span>
               </label>
               <label class="field compact-field">
-                <span>Cooldown after each update</span>
+                <span>Cooldown after each confirmed update</span>
                 <span class="input-with-unit">
                   <input id="price-delay" type="number" min="0" max="3600" required />
                   <span>seconds</span>
