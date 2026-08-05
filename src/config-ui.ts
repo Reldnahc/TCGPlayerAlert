@@ -641,6 +641,13 @@ function parseRepricingProfileUpdate(
       }
       return {
         ...(maximumPrice === undefined ? {} : { maximumPrice }),
+        minimumListings: boundedNumber(
+          rangeSource?.minimumListings ?? 0,
+          0,
+          100,
+          `${rangePath} minimum listings`,
+          issues,
+        ),
         priceSource:
           priceSource as RepricingProfileConfig["ranges"][number]["priceSource"],
         percentage: boundedNumber(

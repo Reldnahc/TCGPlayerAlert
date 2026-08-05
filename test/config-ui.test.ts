@@ -238,6 +238,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain("inventoryPreviewInFlight");
     expect(CONFIG_UI_JS).toContain("function renderRepricingRange(");
     expect(CONFIG_UI_JS).toContain("gapThresholdPercent");
+    expect(CONFIG_UI_JS).toContain("minimumListings");
     expect(CONFIG_UI_JS).toContain('["use-next", "Use next listing"]');
     expect(CONFIG_UI_JS).toContain("ranges: profile.ranges");
     expect(CONFIG_UI_JS).not.toContain(

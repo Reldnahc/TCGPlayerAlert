@@ -209,7 +209,7 @@ describe("smart repricing", () => {
     });
   });
 
-  it("selects the first range whose maximum includes the market price", () => {
+  it("selects the value range from the exact lowest comparable before product market", () => {
     const ownListing = listing({ price: 8 });
     const competitor = listing({ sellerKey: "competitor", price: 6 });
     const row = calculateRepricingRow(
@@ -241,11 +241,43 @@ describe("smart repricing", () => {
     );
 
     expect(row).toMatchObject({
-      proposedPrice: 2.4,
-      rangeMaximumPrice: 5,
-      pricingSource: "market",
-      pricingPercentage: 80,
+      proposedPrice: 6,
+      pricingSource: "lowest",
+      pricingPercentage: 100,
     });
+    expect(row.rangeMaximumPrice).toBeUndefined();
+  });
+
+  it("skips a value tier that does not have enough qualifying comparables", () => {
+    const ownListing = listing({ price: 40 });
+    const onlyCompetitor = listing({ sellerKey: "competitor", price: 30 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [onlyCompetitor],
+      sellerKey,
+      {
+        ...rules,
+        ranges: [
+          {
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 20,
+            gapAction: "skip",
+          },
+        ],
+      },
+      "row-thin-market",
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 40,
+      qualifyingListings: 1,
+      minimumQualifyingListings: 3,
+      queueable: false,
+    });
+    expect(row.reason).toContain("requires at least 3");
   });
 
   it("waits out a separated lowest listing by pricing from the next listing", () => {

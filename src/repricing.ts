@@ -22,6 +22,7 @@ export type RepricingGapAction = "follow-lowest" | "use-next" | "skip";
 
 export interface RepricingRange {
   readonly maximumPrice?: number;
+  readonly minimumListings?: number;
   readonly priceSource: RepricingPriceSource;
   readonly percentage: number;
   readonly gapThresholdPercent: number;
@@ -63,6 +64,8 @@ export interface RepricingPreviewRow {
   readonly nextLowestPrice?: number;
   readonly nextLowestShipping?: number;
   readonly gapPercent?: number;
+  readonly qualifyingListings?: number;
+  readonly minimumQualifyingListings?: number;
   readonly gapActionApplied?: Exclude<RepricingGapAction, "follow-lowest">;
   readonly pricingSource?: RepricingPriceSource | "next-lowest";
   readonly pricingPercentage?: number;
@@ -163,6 +166,7 @@ function parseRepricingRanges(
   if (value === undefined) {
     return [
       {
+        minimumListings: 0,
         priceSource: "lowest",
         percentage: 100,
         gapThresholdPercent: 0,
@@ -209,6 +213,15 @@ function parseRepricingRanges(
     ) {
       issues.push(`${path} percentage must be between 1 and 500.`);
     }
+    const minimumListings =
+      range?.minimumListings === undefined ? 0 : range.minimumListings;
+    if (
+      !Number.isInteger(minimumListings) ||
+      Number(minimumListings) < 0 ||
+      Number(minimumListings) > 100
+    ) {
+      issues.push(`${path} minimum listings must be between 0 and 100.`);
+    }
     const gapThresholdPercent = range?.gapThresholdPercent;
     if (
       typeof gapThresholdPercent !== "number" ||
@@ -230,6 +243,7 @@ function parseRepricingRanges(
       ...(index < value.length - 1 && typeof maximumPrice === "number"
         ? { maximumPrice }
         : {}),
+      minimumListings: Number(minimumListings),
       priceSource: priceSource as RepricingPriceSource,
       percentage: Number(percentage),
       gapThresholdPercent: Number(gapThresholdPercent),
@@ -343,7 +357,9 @@ export function calculateRepricingRow(
       : listingBasis(nextLowest, rules.priceBasis);
   const marketPrice =
     own.product.marketPrice > 0 ? own.product.marketPrice : undefined;
-  const rangeReference = marketPrice ?? lowestBasis;
+  // The exact filtered marketplace comparison is a better value-tier signal
+  // than the product-level market figure carried by the inventory response.
+  const rangeReference = lowestBasis ?? marketPrice;
   if (rangeReference === undefined) {
     return skippedRow(
       base,
@@ -351,6 +367,7 @@ export function calculateRepricingRow(
     );
   }
   const range = matchingRange(rangeReference, rules.ranges);
+  const minimumListings = range.minimumListings ?? 0;
   const gapPercent =
     nextLowestBasis === undefined ||
     lowestBasis === undefined ||
@@ -376,11 +393,24 @@ export function calculateRepricingRow(
           nextLowestShipping: nextLowest.shippingPrice,
         }),
     ...(gapPercent === undefined ? {} : { gapPercent }),
+    qualifyingListings: candidates.length,
+    minimumQualifyingListings: minimumListings,
     pricingPercentage: range.percentage,
     ...(range.maximumPrice === undefined
       ? {}
       : { rangeMaximumPrice: range.maximumPrice }),
   };
+  if (candidates.length < minimumListings) {
+    return {
+      ...base,
+      ...rangeDetails,
+      proposedPrice: own.listing.price,
+      minimumApplied: false,
+      status: "skipped",
+      reason: `Found ${String(candidates.length)} qualifying listing${candidates.length === 1 ? "" : "s"}; this value range requires at least ${String(minimumListings)}.`,
+      queueable: false,
+    };
+  }
   if (gapDetected && range.gapAction === "skip") {
     return {
       ...base,

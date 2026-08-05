@@ -113,6 +113,7 @@ export interface MerchandiseProfileConfig {
 
 export interface RepricingRangeConfig {
   readonly maximumPrice?: number;
+  readonly minimumListings: number;
   readonly priceSource: "lowest" | "market";
   readonly percentage: number;
   readonly gapThresholdPercent: number;
@@ -313,7 +314,7 @@ const DEFAULT_MERCHANDISE_PROFILE: MerchandiseProfileConfig = {
 
 const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
   id: "match-lowest",
-  name: "Match lowest",
+  name: "Smart conservative",
   minimumPrice: 0.35,
   conditionPolicy: "same-or-better",
   priceBasis: "delivered",
@@ -321,10 +322,35 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
   allowPriceIncreases: false,
   ranges: [
     {
+      maximumPrice: 5,
+      minimumListings: 1,
       priceSource: "lowest",
       percentage: 100,
-      gapThresholdPercent: 25,
-      gapAction: "follow-lowest",
+      gapThresholdPercent: 50,
+      gapAction: "use-next",
+    },
+    {
+      maximumPrice: 25,
+      minimumListings: 2,
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 30,
+      gapAction: "use-next",
+    },
+    {
+      maximumPrice: 100,
+      minimumListings: 3,
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 20,
+      gapAction: "skip",
+    },
+    {
+      minimumListings: 3,
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 15,
+      gapAction: "skip",
     },
   ],
 };
@@ -501,6 +527,10 @@ function parseRepricingRange(
   }
   return {
     ...(maximumPrice === undefined ? {} : { maximumPrice }),
+    minimumListings:
+      source?.minimumListings === undefined
+        ? 0
+        : integer(source, "minimumListings", path, 0, 100, issues),
     priceSource: priceSource as RepricingRangeConfig["priceSource"],
     percentage: numberValue(source, "percentage", path, 1, 500, issues),
     gapThresholdPercent: numberValue(

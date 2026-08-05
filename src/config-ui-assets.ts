@@ -782,6 +782,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return el("div", { className: "repricing-range", "data-range-index": String(index) }, [
       el("div", { className: "repricing-range-label", text: rangeLabel }),
       maximum,
+      field("Minimum comparables", numberInput("minimumListings", range.minimumListings ?? 0, 0, 100, "1")),
       field("Price from", selectInput("priceSource", range.priceSource, [["lowest", "Lowest listing"], ["market", "Market price"]])),
       field("Use percentage", numberInput("percentage", range.percentage, 1, 500, "0.1")),
       field("Gap threshold (%)", gapThreshold),
@@ -1996,9 +1997,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     });
     checkbox.checked = row.queueable;
     checkbox.disabled = !row.queueable;
+    const comparableCount = row.qualifyingListings === undefined
+      ? ""
+      : " · " + row.qualifyingListings + " comparable" + (row.qualifyingListings === 1 ? "" : "s");
     const lowest = row.lowestPrice === undefined
-      ? "—"
-      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + (row.gapPercent === undefined ? "" : " · " + row.gapPercent.toFixed(1) + "% to next");
+      ? "—" + comparableCount
+      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + (row.gapPercent === undefined ? "" : " · " + row.gapPercent.toFixed(1) + "% to next") + comparableCount;
     const proposed = el("td", {}, [
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);
@@ -2206,6 +2210,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         ...(index === rangeCards.length - 1
           ? {}
           : { maximumPrice: Number(rangeCard.querySelector('[name="maximumPrice"]').value) }),
+        minimumListings: Number(rangeCard.querySelector('[name="minimumListings"]').value),
         priceSource: rangeCard.querySelector('[name="priceSource"]').value,
         percentage: Number(rangeCard.querySelector('[name="percentage"]').value),
         gapThresholdPercent: Number(rangeCard.querySelector('[name="gapThresholdPercent"]').value),

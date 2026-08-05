@@ -81,7 +81,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     repricingProfiles: [
       {
         id: "match-lowest",
-        name: "Match lowest",
+        name: "Smart conservative",
         minimumPrice: 0.35,
         conditionPolicy: "same-or-better",
         priceBasis: "delivered",
@@ -89,10 +89,35 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         allowPriceIncreases: false,
         ranges: [
           {
+            maximumPrice: 5,
+            minimumListings: 1,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 25,
-            gapAction: "follow-lowest",
+            gapThresholdPercent: 50,
+            gapAction: "use-next",
+          },
+          {
+            maximumPrice: 25,
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 30,
+            gapAction: "use-next",
+          },
+          {
+            maximumPrice: 100,
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 20,
+            gapAction: "skip",
+          },
+          {
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 15,
+            gapAction: "skip",
           },
         ],
       },

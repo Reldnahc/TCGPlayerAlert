@@ -26,8 +26,13 @@ describe("application configuration", () => {
     ]);
     expect(config.defaultRepricingProfileId).toBe("match-lowest");
     expect(config.repricingProfiles[0]).toMatchObject({
-      name: "Match lowest",
-      ranges: [{ priceSource: "lowest", percentage: 100 }],
+      name: "Smart conservative",
+      ranges: [
+        { maximumPrice: 5, minimumListings: 1, gapAction: "use-next" },
+        { maximumPrice: 25, minimumListings: 2, gapAction: "use-next" },
+        { maximumPrice: 100, minimumListings: 3, gapAction: "skip" },
+        { minimumListings: 3, gapAction: "skip" },
+      ],
     });
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
@@ -70,7 +75,7 @@ describe("application configuration", () => {
     expect(parseConfig(value).repricingProfiles).toEqual([
       {
         id: "match-lowest",
-        name: "Match lowest",
+        name: "Smart conservative",
         minimumPrice: 0.35,
         conditionPolicy: "same-or-better",
         priceBasis: "delivered",
@@ -78,10 +83,35 @@ describe("application configuration", () => {
         allowPriceIncreases: false,
         ranges: [
           {
+            maximumPrice: 5,
+            minimumListings: 1,
             priceSource: "lowest",
             percentage: 100,
-            gapThresholdPercent: 25,
-            gapAction: "follow-lowest",
+            gapThresholdPercent: 50,
+            gapAction: "use-next",
+          },
+          {
+            maximumPrice: 25,
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 30,
+            gapAction: "use-next",
+          },
+          {
+            maximumPrice: 100,
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 20,
+            gapAction: "skip",
+          },
+          {
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 15,
+            gapAction: "skip",
           },
         ],
       },

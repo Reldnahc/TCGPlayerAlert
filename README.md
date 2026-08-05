@@ -120,11 +120,20 @@ node dist/cli.js inventory cancel --job JOB_ID
 Create repricing profiles in **Settings**, then use **Inventory**:
 
 1. Set the profile floor, item or delivered-price basis, condition matching, cent adjustment, and whether increases are allowed.
-2. Add ordered value ranges. For each range, choose lowest listing or market price and the percentage to use.
+2. Add ordered value ranges. For each range, choose the minimum number of qualifying comparable listings, lowest listing or market price, and the percentage to use.
 3. Optionally set a gap threshold and choose **Use next listing** to wait out a separated low listing, or **Skip card** to make no proposal. **Ignore gap** disables gap handling for that range.
 4. Select the profile in **Inventory**, click **Refresh inventory & preview**, review the market, lowest price, detected gap, proposed price, and explanation, then queue selected rows.
 
-Ranges are chosen by market price, falling back to the lowest qualifying listing when market is unavailable. Gap percentages compare the cheapest and second-cheapest qualifying listings. These calculations reuse the preview's marketplace response and do not make a request per card.
+Ranges are chosen by the lowest qualifying listing, falling back to market price only when no comparable exists. This prevents a product-level market figure from placing a particular condition or printing in the wrong risk tier. Gap percentages compare the cheapest and second-cheapest qualifying listings. These calculations reuse the preview's marketplace response and do not make a request per card.
+
+The built-in **Smart conservative** profile uses delivered price and 100% of the lowest qualifying comparable in every tier:
+
+- Up to $5: one comparable; use the next listing when the low is at least 50% below it.
+- $5.01-$25: two comparables; use the next listing at a 30% gap.
+- $25.01-$100: three comparables; skip the card for review at a 20% gap.
+- Above $100: three comparables; skip the card for review at a 15% gap.
+
+This is a conservative starting policy, not a claim that the thresholds maximize profit. TCGplayer confirms that customer visibility is ordered by item price plus shipping and describes Market Price as an average of recent condition-specific sales. TCGplayer's own Market-Low concept protects against short-lived low-price swings, while statistical guidance recommends treating apparent outliers as evidence to investigate rather than automatically deleting them. The default therefore uses printing-, language-, and condition-filtered live comparables for decisions, requires more evidence as value rises, and holds high-value gaps for operator review. Calibrate the editable tiers against your own sell-through time, margin, and repricing history.
 
 The default same-or-better rule treats conditions as `Near Mint > Lightly Played > Moderately Played > Heavily Played > Damaged`. For example, a Moderately Played card at $3 can match a qualifying Lightly Played listing at $2. Printing and language must also match. Price increases are off by default, the undercut is zero cents by default, and the configured minimum is a hard floor.
 
