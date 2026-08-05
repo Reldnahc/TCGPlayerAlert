@@ -130,7 +130,7 @@ Each refreshed preview also shows **Listed inventory value**, calculated from th
 
 The built-in **Smart conservative** profile uses delivered price, 100% pricing, and a 5% seller-band width in every tier:
 
-- Up to $1: one seller is sufficient, keeping ordinary low-value inventory responsive instead of skipping sparse listings.
+- Up to $1: require two distinct sellers in a 5% band. A profile can explicitly lower this to one seller for sparse low-value inventory.
 - $1.01-$5: require two distinct sellers in a 5% band; use that band when a singleton low is at least 3% below it.
 - $5.01-$25: require two distinct sellers in a 5% band; use that band at a 3% isolated-low gap.
 - $25.01-$100: require three total comparables and two sellers in a 5% band; skip for review at a 3% isolated-low gap.

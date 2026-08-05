@@ -31,10 +31,10 @@ describe("application configuration", () => {
       ranges: [
         {
           maximumPrice: 1,
-          minimumListings: 1,
+          minimumListings: 2,
           gapAction: "use-next",
           supportMode: "cluster",
-          minimumSellerSupport: 1,
+          minimumSellerSupport: 2,
         },
         {
           maximumPrice: 5,
@@ -119,13 +119,13 @@ describe("application configuration", () => {
         ranges: [
           {
             maximumPrice: 1,
-            minimumListings: 1,
+            minimumListings: 2,
             priceSource: "lowest",
             percentage: 100,
             gapThresholdPercent: 20,
             gapAction: "use-next",
             supportMode: "cluster",
-            minimumSellerSupport: 1,
+            minimumSellerSupport: 2,
             supportWindowPercent: 5,
           },
           {
