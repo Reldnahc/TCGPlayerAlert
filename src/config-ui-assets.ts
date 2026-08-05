@@ -332,7 +332,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .order-table .empty-cell { padding: 28px 18px; color: var(--muted); text-align: center; }
 .order-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 360px; }
 .order-action { border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--green-dark); padding: 7px 9px; font-size: .73rem; font-weight: 750; text-decoration: none; white-space: nowrap; }
-.full-order-table .order-status-column, .full-order-table .order-status-cell { width: 300px; min-width: 300px; }
+.full-order-table .order-status-column, .full-order-table .order-status-cell { width: 225px; min-width: 225px; }
 .full-order-table .order-actions-column, .full-order-table .order-actions-cell { width: 300px; }
 .full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }
 .full-order-table .order-action { padding: 5px 7px; border-radius: 7px; font-size: .68rem; }
