@@ -16,6 +16,14 @@ describe("application configuration", () => {
       enabled: true,
       delaySeconds: 0,
     });
+    expect(config.defaultMerchandiseProfileId).toBe("english-singles");
+    expect(config.merchandiseProfiles).toEqual([
+      expect.objectContaining({
+        name: "English singles",
+        language: "English",
+        priceBasis: "delivered",
+      }),
+    ]);
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
       enabled: true,
@@ -29,6 +37,8 @@ describe("application configuration", () => {
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
     delete value.inventoryAdditionQueue;
+    delete value.merchandiseProfiles;
+    delete value.defaultMerchandiseProfileId;
 
     expect(parseConfig(value).inventoryAdditionQueue).toEqual({
       enabled: true,
@@ -37,6 +47,34 @@ describe("application configuration", () => {
       rateLimitDelaySeconds: 300,
       historyLimit: 500,
     });
+    expect(parseConfig(value).merchandiseProfiles).toEqual([
+      {
+        id: "english-singles",
+        name: "English singles",
+        language: "English",
+        minimumPrice: 0.35,
+        estimatedShippingPrice: 0,
+        conditionPolicy: "same-or-better",
+        priceBasis: "delivered",
+        adjustmentCents: 0,
+        noComparisonFallback: "market",
+      },
+    ]);
+  });
+
+  it("rejects invalid merchandise profiles and default references", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      defaultMerchandiseProfileId: string;
+      merchandiseProfiles: { id: string }[];
+    };
+    value.merchandiseProfiles.push({
+      ...value.merchandiseProfiles[0],
+    } as { id: string });
+    value.defaultMerchandiseProfileId = "missing-profile";
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });
 
   it("reports multiple actionable configuration issues together", () => {

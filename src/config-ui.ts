@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
 import type {
   ActionConfig,
   AppConfig,
+  MerchandiseProfileConfig,
   PrinterConfig,
   WindowsPdfPrinterConfig,
 } from "./config.js";
@@ -72,6 +73,8 @@ export interface ConfigurationUiSettings {
     readonly enabled: boolean;
     readonly delaySeconds: number;
   };
+  readonly merchandiseProfiles: readonly MerchandiseProfileConfig[];
+  readonly defaultMerchandiseProfileId: string;
   readonly outputs: readonly OutputSettings[];
   readonly installedPrinters: PrinterDiscoveryResult["printers"];
   readonly discoveryIssue?: string;
@@ -89,6 +92,8 @@ export interface ConfigurationUiUpdate {
     readonly enabled: boolean;
     readonly delaySeconds: number;
   };
+  readonly merchandiseProfiles: readonly MerchandiseProfileConfig[];
+  readonly defaultMerchandiseProfileId: string;
   readonly outputs: readonly OutputSettingsUpdate[];
 }
 
@@ -183,6 +188,8 @@ export class ConfigurationService {
         enabled: config.inventoryAdditionQueue.enabled,
         delaySeconds: config.inventoryAdditionQueue.delaySeconds,
       },
+      merchandiseProfiles: config.merchandiseProfiles,
+      defaultMerchandiseProfileId: config.defaultMerchandiseProfileId,
       outputs: Object.entries(config.actions).map(([actionId, action]) =>
         outputSettings(actionId, action, config.printers[action.printer]),
       ),
@@ -378,6 +385,40 @@ function parseUiUpdate(
   ) {
     issues.push("Inventory-addition delay must be between 0 and 3600 seconds.");
   }
+  let merchandiseProfiles = config.merchandiseProfiles;
+  let defaultMerchandiseProfileId = config.defaultMerchandiseProfileId;
+  const profileValues = source?.merchandiseProfiles;
+  const defaultProfileValue = source?.defaultMerchandiseProfileId;
+  if (profileValues !== undefined || defaultProfileValue !== undefined) {
+    if (
+      !Array.isArray(profileValues) ||
+      profileValues.length < 1 ||
+      profileValues.length > 20
+    ) {
+      issues.push(
+        "Merchandise profiles must contain between 1 and 20 profiles.",
+      );
+    }
+    merchandiseProfiles = (
+      Array.isArray(profileValues) ? profileValues : []
+    ).map((profile, index) =>
+      parseMerchandiseProfileUpdate(profile, index, issues),
+    );
+    if (
+      new Set(merchandiseProfiles.map((profile) => profile.id)).size !==
+      merchandiseProfiles.length
+    ) {
+      issues.push("Merchandise profile ids must be unique.");
+    }
+    if (
+      typeof defaultProfileValue !== "string" ||
+      !merchandiseProfiles.some((profile) => profile.id === defaultProfileValue)
+    ) {
+      issues.push("The default merchandise profile must reference a profile.");
+    } else {
+      defaultMerchandiseProfileId = defaultProfileValue;
+    }
+  }
   const outputValues = source?.outputs;
   if (!Array.isArray(outputValues))
     issues.push("Print actions must be an array.");
@@ -406,7 +447,84 @@ function parseUiUpdate(
       enabled: inventoryAdditionQueueEnabled as boolean,
       delaySeconds: Number(inventoryAdditionDelaySeconds),
     },
+    merchandiseProfiles,
+    defaultMerchandiseProfileId,
     outputs,
+  };
+}
+
+function parseMerchandiseProfileUpdate(
+  value: unknown,
+  index: number,
+  issues: string[],
+): MerchandiseProfileConfig {
+  const source = objectValue(value);
+  const path = `Merchandise profile ${String(index + 1)}`;
+  const id = source?.id;
+  if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/u.test(id)) {
+    issues.push(`${path} has an invalid id.`);
+  }
+  const name = source?.name;
+  if (!safeText(name)) issues.push(`${path} requires a valid name.`);
+  const language = source?.language;
+  if (!safeText(language)) issues.push(`${path} requires a valid language.`);
+  const conditionPolicy = source?.conditionPolicy;
+  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
+    issues.push(`${path} has an invalid condition comparison.`);
+  }
+  const priceBasis = source?.priceBasis;
+  if (priceBasis !== "item" && priceBasis !== "delivered") {
+    issues.push(`${path} has an invalid price basis.`);
+  }
+  const noComparisonFallback = source?.noComparisonFallback;
+  if (
+    noComparisonFallback !== "market" &&
+    noComparisonFallback !== "manual" &&
+    noComparisonFallback !== "stop"
+  ) {
+    issues.push(`${path} has an invalid no-listing fallback.`);
+  }
+  const manualPrice =
+    noComparisonFallback === "manual"
+      ? boundedNumber(
+          source?.manualPrice,
+          0.01,
+          1_000_000,
+          `${path} manual fallback price`,
+          issues,
+        )
+      : undefined;
+  return {
+    id: typeof id === "string" ? id : "invalid",
+    name: typeof name === "string" ? name.trim() : "",
+    language: typeof language === "string" ? language.trim() : "",
+    minimumPrice: boundedNumber(
+      source?.minimumPrice,
+      0.01,
+      1_000_000,
+      `${path} minimum price`,
+      issues,
+    ),
+    estimatedShippingPrice: boundedNumber(
+      source?.estimatedShippingPrice,
+      0,
+      1_000_000,
+      `${path} shipping rate`,
+      issues,
+    ),
+    conditionPolicy:
+      conditionPolicy as MerchandiseProfileConfig["conditionPolicy"],
+    priceBasis: priceBasis as MerchandiseProfileConfig["priceBasis"],
+    adjustmentCents: boundedInteger(
+      source?.adjustmentCents,
+      0,
+      100_000,
+      `${path} adjustment`,
+      issues,
+    ),
+    noComparisonFallback:
+      noComparisonFallback as MerchandiseProfileConfig["noComparisonFallback"],
+    ...(manualPrice === undefined ? {} : { manualPrice }),
   };
 }
 
@@ -557,6 +675,8 @@ function applyUpdate(
       enabled: update.inventoryAdditionQueue.enabled,
       delaySeconds: update.inventoryAdditionQueue.delaySeconds,
     },
+    merchandiseProfiles: update.merchandiseProfiles,
+    defaultMerchandiseProfileId: update.defaultMerchandiseProfileId,
     printers,
     actions,
   };

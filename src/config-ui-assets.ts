@@ -80,6 +80,17 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div class="section-heading">
             <div>
+              <h2 id="merchandise-profiles-title">Merchandise profiles</h2>
+            </div>
+            <button id="add-merchandise-profile" class="quiet-button" type="button">Add profile</button>
+          </div>
+          <section class="panel profile-settings-panel" aria-labelledby="merchandise-profiles-title">
+            <p class="profile-help">For items under $5, effective shipping is at least $1.49.</p>
+            <div id="merchandise-profile-list" class="profile-list"></div>
+          </section>
+
+          <div class="section-heading">
+            <div>
               <h2>Printing</h2>
             </div>
             <button id="refresh-printers" class="quiet-button" type="button">Refresh printers</button>
@@ -127,21 +138,10 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
           </div>
           <section class="panel inventory-panel" aria-labelledby="add-cards-title">
-            <div class="inventory-defaults">
-              <div class="inventory-defaults-head">
-                <h3>Add defaults</h3>
-                <small>Applied to each card unless its row overrides the SKU.</small>
-              </div>
-              <div class="inventory-default-fields">
-                <label class="field"><span>Default language</span><input id="inventory-language-default" type="text" maxlength="64" value="English" placeholder="English" /><small class="field-note">Used when that language is available.</small></label>
-                <label class="field"><span>Minimum item price</span><span class="money-input"><span>$</span><input id="inventory-minimum" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
-                <label class="field"><span>Your shipping rate</span><span class="money-input"><span>$</span><input id="inventory-shipping" type="number" min="0" max="1000000" step="0.01" value="0" /></span><small class="field-note">Pricing only. For items under $5, effective shipping is at least $1.49.</small></label>
-                <label class="field"><span>Compare using</span><select id="inventory-basis"><option value="delivered">Item + shipping</option><option value="item">Item price only</option></select></label>
-                <label class="field"><span>Compare against</span><select id="inventory-condition"><option value="same-or-better">Same or better condition</option><option value="same">Same condition only</option></select></label>
-                <label class="field"><span>Undercut by</span><span class="input-with-unit"><input id="inventory-adjustment" type="number" min="0" max="100000" step="1" value="0" /><span>cents</span></span></label>
-                <label class="field"><span>If no listing matches</span><select id="inventory-fallback"><option value="market">Use market price</option><option value="stop">Stop for review</option><option value="manual">Use manual price</option></select></label>
-                <label id="inventory-manual-field" class="field" hidden><span>Manual fallback price</span><span class="money-input"><span>$</span><input id="inventory-manual-price" type="number" min="0.01" max="1000000" step="0.01" value="0.35" /></span></label>
-              </div>
+            <div class="inventory-profile-bar">
+              <label class="field profile-picker"><span>Merchandise profile</span><select id="inventory-profile-select"></select></label>
+              <p id="inventory-profile-summary" class="inventory-profile-summary"></p>
+              <button id="edit-merchandise-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
             <div class="catalog-search-row">
               <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
@@ -151,6 +151,16 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <p id="inventory-message" class="repricing-message"></p>
             <div id="catalog-results" class="catalog-results" hidden></div>
           </section>
+          <dialog id="inventory-quantity-dialog" class="quantity-dialog">
+            <div class="quantity-dialog-content">
+              <h3>Custom quantity</h3>
+              <label class="field"><span>Quantity to add</span><input id="inventory-custom-quantity" type="number" min="1" max="10000000" step="1" value="5" /></label>
+              <div class="quantity-dialog-actions">
+                <button id="inventory-quantity-cancel" class="quiet-button" type="button">Cancel</button>
+                <button id="inventory-quantity-apply" class="primary-button dark-button" type="button">Preview quantity</button>
+              </div>
+            </div>
+          </dialog>
           </div>
 
           <div id="panel-inventory" class="tab-panel" role="tabpanel" aria-labelledby="tab-inventory" tabindex="0" data-panel="inventory" hidden>
@@ -358,11 +368,17 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .inventory-heading { margin-top: 40px; }
 .inventory-panel { overflow: hidden; margin-bottom: 22px; }
-.inventory-defaults { padding: 18px 25px 20px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
-.inventory-defaults-head { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
-.inventory-defaults-head h3 { margin: 0; font-size: .95rem; }
-.inventory-defaults-head small { color: var(--muted); }
-.inventory-default-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.profile-settings-panel { overflow: hidden; margin-bottom: 22px; }
+.profile-help { margin: 0; padding: 16px 25px 0; color: var(--muted); font-size: .8rem; }
+.profile-list { display: grid; gap: 12px; padding: 18px 25px 22px; }
+.profile-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcf7; }
+.profile-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-default { display: flex; align-items: center; gap: 8px; color: var(--green-dark); font-size: .8rem; font-weight: 800; }
+.profile-default input { width: 17px; height: 17px; accent-color: var(--green); }
+.profile-remove { border: 0; background: transparent; color: #8c4630; font-weight: 750; }
+.profile-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
+.inventory-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
+.inventory-profile-summary { align-self: center; margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
 .catalog-search-row { display: grid; grid-template-columns: 1.35fr 1fr auto; align-items: end; gap: 14px; padding: 16px 25px 20px; }
 .catalog-results { display: grid; gap: 16px; max-height: 560px; overflow: auto; padding: 0 25px 22px; }
 .catalog-section { display: grid; gap: 8px; }
@@ -372,6 +388,11 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-section-list { display: grid; gap: 8px; }
 .catalog-result { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 15px 10px 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .catalog-result.active { border-color: #9bcaae; box-shadow: 0 0 0 2px rgba(47, 125, 82, .08); }
+.catalog-result.foil { border: 2px solid transparent; padding: 9px 14px 9px 9px; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(125deg, #4dc8c0, #8a79df, #f29bc1, #e8c65a, #69c58a) border-box; }
+.catalog-result-actions { display: flex; align-items: center; gap: 6px; }
+.catalog-result-actions button { min-width: 38px; padding: 8px 9px; }
+.foil-toggle[aria-pressed="true"] { background: linear-gradient(125deg, #dff8f3, #e9e3ff, #ffe3ef, #fff2bd); color: #4c356f; }
+.quantity-choice.selected { background: var(--green); color: white; }
 .product-image { display: grid; place-items: center; width: 64px; aspect-ratio: 200 / 279; overflow: hidden; border-radius: 7px; background: #eef0e8; color: var(--muted); font-size: .62rem; text-align: center; }
 .product-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .product-image.missing { padding: 5px; }
@@ -381,7 +402,13 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
 .catalog-inline-loading, .catalog-inline-editor { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 14px 4px 4px; }
 .catalog-inline-loading { color: var(--muted); font-size: .82rem; }
-.inventory-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding-bottom: 14px; }
+.inventory-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 14px; padding-bottom: 14px; }
+.inventory-selection-note { align-self: center; color: var(--muted); font-size: .8rem; font-weight: 700; }
+.quantity-dialog { width: min(420px, calc(100% - 32px)); border: 0; border-radius: 17px; padding: 0; box-shadow: 0 24px 70px rgba(12,26,18,.28); }
+.quantity-dialog::backdrop { background: rgba(12, 26, 18, .45); }
+.quantity-dialog-content { display: grid; gap: 18px; padding: 24px; }
+.quantity-dialog-content h3 { margin: 0; }
+.quantity-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
 .inventory-preview-result { padding: 14px; border: 1px solid #badcc8; border-radius: 13px; background: var(--green-soft); }
 .inventory-preview-result.error { border-color: #efc7b6; background: #fff5f1; }
 .inventory-preview-result.loading { border-color: var(--line); background: var(--paper); color: var(--muted); }
@@ -441,7 +468,9 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
   .repricing-rules { grid-template-columns: 1fr 1fr; }
-  .inventory-default-fields { grid-template-columns: 1fr 1fr; }
+  .profile-fields { grid-template-columns: 1fr 1fr; }
+  .inventory-profile-bar { grid-template-columns: 1fr auto; }
+  .inventory-profile-summary { grid-column: 1 / -1; grid-row: 2; }
   .catalog-search-row { grid-template-columns: 1fr 1fr; }
   .catalog-search-row button { grid-column: 1 / -1; }
   .inventory-fields { grid-template-columns: 1fr 1fr; }
@@ -455,7 +484,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .queue-job { grid-template-columns: minmax(0, 1fr) auto; }
   .queue-job .cancel-job { grid-column: 1 / -1; justify-self: end; }
   .catalog-result { grid-template-columns: 56px minmax(0, 1fr); }
-  .catalog-result > .quiet-button { grid-column: 1 / -1; justify-self: start; }
+  .catalog-result-actions { grid-column: 1 / -1; flex-wrap: wrap; }
   .preview-footer { align-items: stretch; flex-direction: column; }
   .save-bar { bottom: 10px; width: calc(100% - 20px); }
   .save-bar span { display: none; }
@@ -477,6 +506,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     inventoryPreviewInFlight: false,
     inventoryPreviewQueued: false,
     inventoryPreviewTimer: null,
+    selectedMerchandiseProfileId: null,
+    inventoryQuantityProductId: null,
+    inventoryFoilProductIds: new Set(),
     catalogSearch: null,
     catalogSearchToken: 0,
     catalogSearchController: null,
@@ -484,8 +516,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     orderLoading: { all: false, "ready-to-ship": false },
     pirateShipPreparations: new Map(),
   };
-  const inventoryShippingStorageKey = "tcgplayer-alert.inventory-shipping";
-  const inventoryLanguageStorageKey = "tcgplayer-alert.inventory-language";
+  const merchandiseProfileStorageKey = "tcgplayer-alert.merchandise-profile";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
   const tabIds = ["dashboard", "orders", "add-cards", "inventory", "settings", "jobs"];
   const form = document.querySelector("#settings-form");
@@ -584,6 +615,145 @@ export const CONFIG_UI_JS = String.raw`(() => {
     });
     input.value = String(value);
     return input;
+  }
+
+  function selectInput(name, value, choices) {
+    const select = el("select", { name });
+    for (const [optionValue, label] of choices) {
+      const option = el("option", { value: optionValue, text: label });
+      if (optionValue === value) option.selected = true;
+      select.append(option);
+    }
+    return select;
+  }
+
+  function renderMerchandiseProfile(profile) {
+    const card = el("section", {
+      className: "profile-card",
+      "data-profile-id": profile.id,
+    });
+    const defaultInput = el("input", {
+      type: "radio",
+      name: "defaultMerchandiseProfileId",
+      value: profile.id,
+    });
+    defaultInput.checked = profile.id === state.settings.defaultMerchandiseProfileId;
+    const remove = el("button", {
+      className: "profile-remove",
+      type: "button",
+      text: "Remove",
+    });
+    remove.disabled = state.settings.merchandiseProfiles.length === 1;
+    remove.addEventListener("click", () => removeMerchandiseProfile(profile.id));
+    const name = el("input", { name: "profileName", maxlength: "80", required: "" });
+    name.value = profile.name;
+    const language = el("input", { name: "language", maxlength: "64", required: "" });
+    language.value = profile.language;
+    const fallback = selectInput("noComparisonFallback", profile.noComparisonFallback, [
+      ["market", "Use market price"],
+      ["stop", "Stop for review"],
+      ["manual", "Use manual price"],
+    ]);
+    const manualPrice = numberInput(
+      "manualPrice",
+      profile.manualPrice ?? profile.minimumPrice,
+      0.01,
+      1000000,
+      "0.01",
+    );
+    const manualField = field("Manual fallback price ($)", manualPrice);
+    const updateManualVisibility = () => {
+      manualField.hidden = fallback.value !== "manual";
+      manualPrice.required = fallback.value === "manual";
+    };
+    fallback.addEventListener("change", updateManualVisibility);
+    updateManualVisibility();
+    card.append(
+      el("div", { className: "profile-card-head" }, [
+        el("label", { className: "profile-default" }, [
+          defaultInput,
+          el("span", { text: "Default profile" }),
+        ]),
+        remove,
+      ]),
+      el("div", { className: "profile-fields" }, [
+        field("Profile name", name),
+        field("Language", language),
+        field("Minimum item price ($)", numberInput("minimumPrice", profile.minimumPrice, 0.01, 1000000, "0.01")),
+        field("Shipping rate ($)", numberInput("estimatedShippingPrice", profile.estimatedShippingPrice, 0, 1000000, "0.01")),
+        field("Compare using", selectInput("priceBasis", profile.priceBasis, [["delivered", "Item + shipping"], ["item", "Item price only"]])),
+        field("Compare against", selectInput("conditionPolicy", profile.conditionPolicy, [["same-or-better", "Same or better condition"], ["same", "Same condition only"]])),
+        field("Undercut (cents)", numberInput("adjustmentCents", profile.adjustmentCents, 0, 100000)),
+        field("If no listing matches", fallback),
+        manualField,
+      ]),
+    );
+    return card;
+  }
+
+  function renderMerchandiseProfiles() {
+    document.querySelector("#merchandise-profile-list").replaceChildren(
+      ...state.settings.merchandiseProfiles.map(renderMerchandiseProfile),
+    );
+  }
+
+  function merchandiseProfileDrafts() {
+    const cards = [...document.querySelectorAll("#merchandise-profile-list [data-profile-id]")];
+    return cards.length > 0
+      ? cards.map(collectMerchandiseProfile)
+      : [...state.settings.merchandiseProfiles];
+  }
+
+  function merchandiseProfileDefaultDraft() {
+    return document.querySelector('#merchandise-profile-list [name="defaultMerchandiseProfileId"]:checked')?.value
+      ?? state.settings.defaultMerchandiseProfileId;
+  }
+
+  function addMerchandiseProfile() {
+    if (state.settings.merchandiseProfiles.length >= 20) return;
+    const profiles = merchandiseProfileDrafts();
+    const source = profiles.find((profile) => profile.id === state.selectedMerchandiseProfileId)
+      ?? profiles.find((profile) => profile.id === merchandiseProfileDefaultDraft())
+      ?? profiles[0];
+    let suffix = Date.now().toString(36);
+    let id = "profile-" + suffix;
+    while (state.settings.merchandiseProfiles.some((profile) => profile.id === id)) {
+      suffix += "x";
+      id = "profile-" + suffix;
+    }
+    const profile = {
+      ...source,
+      id,
+      name: "New profile",
+    };
+    state.settings = {
+      ...state.settings,
+      merchandiseProfiles: [...profiles, profile],
+      defaultMerchandiseProfileId: merchandiseProfileDefaultDraft(),
+    };
+    renderMerchandiseProfiles();
+    updateSaveBarVisibility();
+    document.querySelector('[data-profile-id="' + CSS.escape(id) + '"] [name="profileName"]').select();
+  }
+
+  function removeMerchandiseProfile(id) {
+    if (state.settings.merchandiseProfiles.length === 1) return;
+    const merchandiseProfiles = merchandiseProfileDrafts().filter((profile) => profile.id !== id);
+    const defaultDraft = merchandiseProfileDefaultDraft();
+    const defaultMerchandiseProfileId = defaultDraft === id
+      ? merchandiseProfiles[0].id
+      : defaultDraft;
+    state.settings = {
+      ...state.settings,
+      merchandiseProfiles,
+      defaultMerchandiseProfileId,
+    };
+    if (state.selectedMerchandiseProfileId === id) {
+      state.selectedMerchandiseProfileId = defaultMerchandiseProfileId;
+    }
+    renderMerchandiseProfiles();
+    renderMerchandiseProfileSelector();
+    updateSaveBarVisibility();
   }
 
   function printerSelect(output) {
@@ -741,6 +911,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#inventory-queue-enabled").checked = state.settings.inventoryAdditionQueue.enabled;
     document.querySelector("#inventory-delay").value = String(state.settings.inventoryAdditionQueue.delaySeconds);
     outputs.replaceChildren(...state.settings.outputs.map(renderOutput));
+    renderMerchandiseProfiles();
+    renderMerchandiseProfileSelector();
     renderDashboardAutomation();
     state.savedSettingsFingerprint = settingsFingerprint();
     updateSaveBarVisibility();
@@ -1135,14 +1307,41 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function catalogResult(product) {
     const active = state.inventoryProduct?.productId === product.productId;
     const loading = state.inventoryProductLoadingId === product.productId;
-    const choose = el("button", {
-      className: "quiet-button",
+    const foilSelected = state.inventoryFoilProductIds.has(product.productId);
+    const foil = el("button", {
+      className: "quiet-button foil-toggle",
       type: "button",
-      text: active ? "Close" : loading ? "Loading..." : "Add",
-      "aria-expanded": String(active),
+      text: "Foil",
+      "aria-pressed": String(foilSelected),
+      title: "Toggle foil printing",
     });
-    choose.disabled = loading;
-    choose.addEventListener("click", () => active ? closeInventoryRow() : selectCatalogProduct(product.productId));
+    foil.disabled = loading;
+    foil.addEventListener("click", () => toggleInventoryFoil(product.productId));
+    const quantityButtons = [1, 2, 3, 4].map((quantity) => {
+      const selected = active && Number(state.inventorySelection?.quantity) === quantity;
+      const button = el("button", {
+        className: "quiet-button quantity-choice" + (selected ? " selected" : ""),
+        type: "button",
+        text: "+" + String(quantity),
+        "aria-pressed": String(selected),
+      });
+      button.disabled = loading;
+      button.addEventListener("click", () => chooseInventoryQuantity(product.productId, quantity));
+      return button;
+    });
+    const custom = el("button", {
+      className: "quiet-button quantity-choice",
+      type: "button",
+      text: "+X",
+      title: "Enter a custom quantity",
+    });
+    custom.disabled = loading;
+    custom.addEventListener("click", () => openInventoryQuantityDialog(product.productId));
+    const actions = el("div", { className: "catalog-result-actions" }, [
+      foil,
+      ...quantityButtons,
+      custom,
+    ]);
     const children = [
       productImage(product),
       el("div", { className: "catalog-result-copy" }, [
@@ -1150,35 +1349,33 @@ export const CONFIG_UI_JS = String.raw`(() => {
         el("small", { text: product.productLineName + " / " + product.setName }),
         el("small", { text: (product.cardNumber ? "#" + product.cardNumber + " / " : "") + (product.rarityName || "No rarity") + " / market " + money(product.marketPrice) }),
       ]),
-      choose,
+      actions,
     ];
     if (loading) {
       children.push(el("div", { className: "catalog-inline-loading", text: "Loading card options..." }));
     } else if (active) {
       children.push(inventoryInlineEditor());
     }
-    return el("div", { className: "catalog-result" + (active ? " active" : "") }, children);
+    return el("div", {
+      className: "catalog-result" + (active ? " active" : "") + (foilSelected ? " foil" : ""),
+    }, children);
   }
 
   function inventoryInlineEditor() {
-    const selection = state.inventorySelection ?? { quantity: "1" };
     const condition = el("select", { id: "inventory-card-condition" });
-    const printing = el("select", { id: "inventory-printing" });
     const language = el("select", { id: "inventory-language" });
-    const quantity = el("input", {
-      id: "inventory-quantity",
-      type: "number",
-      min: "1",
-      max: "10000000",
-      step: "1",
+    const close = el("button", {
+      className: "quiet-button",
+      type: "button",
+      text: "Close preview",
     });
-    quantity.value = selection.quantity ?? "1";
+    close.addEventListener("click", closeInventoryRow);
     return el("div", { className: "catalog-inline-editor" }, [
       el("div", { className: "inventory-fields" }, [
         field("Condition", condition),
-        field("Printing", printing),
         field("Language", language),
-        field("Quantity to add", quantity),
+        el("div", { className: "inventory-selection-note", text: "Previewing +" + String(state.inventorySelection?.quantity ?? 1) + (state.inventorySelection?.printing === "Foil" ? " foil" : " normal") }),
+        close,
       ]),
       el("div", { id: "inventory-preview-result", className: "inventory-preview-result", hidden: "" }),
     ]);
@@ -1375,15 +1572,70 @@ export const CONFIG_UI_JS = String.raw`(() => {
     else if (values.includes(previous)) select.value = previous;
   }
 
+  function activeMerchandiseProfile() {
+    if (!state.settings) return null;
+    return state.settings.merchandiseProfiles.find(
+      (profile) => profile.id === state.selectedMerchandiseProfileId,
+    ) ?? state.settings.merchandiseProfiles.find(
+      (profile) => profile.id === state.settings.defaultMerchandiseProfileId,
+    ) ?? state.settings.merchandiseProfiles[0] ?? null;
+  }
+
+  function renderMerchandiseProfileSelector() {
+    const select = document.querySelector("#inventory-profile-select");
+    if (!state.settings || !select) return;
+    if (!state.settings.merchandiseProfiles.some((profile) => profile.id === state.selectedMerchandiseProfileId)) {
+      state.selectedMerchandiseProfileId = state.settings.defaultMerchandiseProfileId;
+    }
+    select.replaceChildren(...state.settings.merchandiseProfiles.map((profile) => {
+      const option = el("option", { value: profile.id, text: profile.name });
+      if (profile.id === state.selectedMerchandiseProfileId) option.selected = true;
+      return option;
+    }));
+    const profile = activeMerchandiseProfile();
+    document.querySelector("#inventory-profile-summary").textContent = profile
+      ? profile.language + " · min " + money(profile.minimumPrice) + " · shipping " + money(profile.estimatedShippingPrice) + " · " + (profile.priceBasis === "delivered" ? "delivered price" : "item price") + " · " + (profile.conditionPolicy === "same-or-better" ? "same or better condition" : "same condition")
+      : "";
+  }
+
+  function selectMerchandiseProfile(id) {
+    state.selectedMerchandiseProfileId = id;
+    try {
+      window.localStorage.setItem(merchandiseProfileStorageKey, id);
+    } catch {
+      // The saved default remains available when browser storage is unavailable.
+    }
+    renderMerchandiseProfileSelector();
+    if (state.inventoryProduct) {
+      state.inventorySelection.language = defaultInventoryLanguage();
+      renderCatalogSearch();
+      scheduleInventoryPreview(0);
+    }
+  }
+
+  function restoreMerchandiseProfilePreference() {
+    if (!state.settings) return;
+    let selected = state.settings.defaultMerchandiseProfileId;
+    try {
+      const stored = window.localStorage.getItem(merchandiseProfileStorageKey);
+      if (state.settings.merchandiseProfiles.some((profile) => profile.id === stored)) {
+        selected = stored;
+      }
+    } catch {
+      // The configured default remains selected when browser storage is unavailable.
+    }
+    state.selectedMerchandiseProfileId = selected;
+  }
+
   function defaultInventoryLanguage() {
-    return document.querySelector("#inventory-language-default").value.trim() || "English";
+    return activeMerchandiseProfile()?.language || "English";
   }
 
   function refreshInventoryLanguages(preferred = state.inventorySelection?.language || defaultInventoryLanguage()) {
     const product = state.inventoryProduct;
     if (!product) return;
     const condition = document.querySelector("#inventory-card-condition").value;
-    const printing = document.querySelector("#inventory-printing").value;
+    const printing = state.inventorySelection?.printing || "Normal";
     const languages = sortedInventoryValues(
       product.skus
         .filter((sku) => sku.condition === condition && sku.printing === printing)
@@ -1395,47 +1647,28 @@ export const CONFIG_UI_JS = String.raw`(() => {
     state.inventorySelection.language = select.value;
   }
 
-  function refreshInventoryPrintings(preferred = state.inventorySelection?.printing || "Normal") {
-    const product = state.inventoryProduct;
-    if (!product) return;
-    const condition = document.querySelector("#inventory-card-condition").value;
-    const printings = sortedInventoryValues(
-      product.skus.filter((sku) => sku.condition === condition).map((sku) => sku.printing),
-      preferred,
-    );
-    const select = document.querySelector("#inventory-printing");
-    replaceInventoryOptions(select, printings, preferred);
-    state.inventorySelection.printing = select.value;
-    refreshInventoryLanguages(state.inventorySelection.language || defaultInventoryLanguage());
-  }
-
   function initializeInventorySkuSelectors() {
     const product = state.inventoryProduct;
     if (!product) return;
     state.inventorySelection ??= { quantity: "1" };
+    state.inventorySelection.printing = state.inventoryFoilProductIds.has(product.productId) ? "Foil" : "Normal";
     const preferredCondition = state.inventorySelection.condition || "Near Mint";
     const conditions = sortedInventoryValues(
-      product.skus.map((sku) => sku.condition),
+      product.skus
+        .filter((sku) => sku.printing === state.inventorySelection.printing)
+        .map((sku) => sku.condition),
       preferredCondition,
       inventoryConditionOrder,
     );
     const select = document.querySelector("#inventory-card-condition");
     replaceInventoryOptions(select, conditions, preferredCondition);
     state.inventorySelection.condition = select.value;
-    refreshInventoryPrintings(state.inventorySelection.printing || "Normal");
-    document.querySelector("#inventory-quantity").value = state.inventorySelection.quantity || "1";
+    refreshInventoryLanguages(state.inventorySelection.language || defaultInventoryLanguage());
   }
 
   function bindInventoryRowControls() {
     document.querySelector("#inventory-card-condition").addEventListener("change", (event) => {
       state.inventorySelection.condition = event.target.value;
-      state.inventorySelection.printing = "";
-      state.inventorySelection.language = "";
-      refreshInventoryPrintings("Normal");
-      scheduleInventoryPreview();
-    });
-    document.querySelector("#inventory-printing").addEventListener("change", (event) => {
-      state.inventorySelection.printing = event.target.value;
       state.inventorySelection.language = "";
       refreshInventoryLanguages(defaultInventoryLanguage());
       scheduleInventoryPreview();
@@ -1444,17 +1677,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
       state.inventorySelection.language = event.target.value;
       scheduleInventoryPreview();
     });
-    document.querySelector("#inventory-quantity").addEventListener("input", (event) => {
-      state.inventorySelection.quantity = event.target.value;
-      scheduleInventoryPreview();
-    });
   }
 
   function selectedInventorySku() {
     const product = state.inventoryProduct;
     if (!product) return undefined;
     const condition = document.querySelector("#inventory-card-condition").value;
-    const printing = document.querySelector("#inventory-printing").value;
+    const printing = state.inventorySelection?.printing || "Normal";
     const language = document.querySelector("#inventory-language").value;
     return product.skus.find(
       (sku) => sku.condition === condition && sku.printing === printing && sku.language === language,
@@ -1499,12 +1728,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function inventoryPreviewInputsAreValid() {
-    const selectors = ["#inventory-quantity", "#inventory-minimum", "#inventory-shipping", "#inventory-adjustment"];
-    if (document.querySelector("#inventory-fallback").value === "manual") selectors.push("#inventory-manual-price");
-    return selectors.every((selector) => {
-      const input = document.querySelector(selector);
-      return input.value !== "" && input.checkValidity();
-    });
+    const profile = activeMerchandiseProfile();
+    const quantity = Number(state.inventorySelection?.quantity);
+    return profile !== null
+      && Number.isSafeInteger(quantity)
+      && quantity >= 1
+      && quantity <= 10000000
+      && (profile.noComparisonFallback !== "manual"
+        || (Number.isFinite(profile.manualPrice) && profile.manualPrice >= 0.01));
   }
 
   function scheduleInventoryPreview(delay = 350) {
@@ -1531,46 +1762,42 @@ export const CONFIG_UI_JS = String.raw`(() => {
     if (state.catalogSearch) renderCatalogSearch();
   }
 
-  function restoreInventoryShippingPreference() {
-    try {
-      const shipping = window.localStorage.getItem(inventoryShippingStorageKey);
-      if (shipping !== null && shipping !== "") {
-        const value = Number(shipping);
-        if (Number.isFinite(value) && value >= 0 && value <= 1000000 && Math.abs(value * 100 - Math.round(value * 100)) <= 1e-9) {
-          document.querySelector("#inventory-shipping").value = shipping;
-        }
-      }
-      const language = window.localStorage.getItem(inventoryLanguageStorageKey);
-      if (language !== null && language.trim() !== "" && language.length <= 64) {
-        document.querySelector("#inventory-language-default").value = language;
-      }
-    } catch {
-      // Browser storage can be unavailable; the fields remain usable for this session.
+  function chooseInventoryQuantity(productId, quantity) {
+    if (state.inventoryProduct?.productId === productId) {
+      state.inventorySelection.quantity = String(quantity);
+      renderCatalogSearch();
+      scheduleInventoryPreview(0);
+      return;
     }
+    void selectCatalogProduct(productId, quantity);
   }
 
-  function persistInventoryShippingPreference() {
-    const input = document.querySelector("#inventory-shipping");
-    if (input.value === "" || !input.checkValidity()) return;
-    try {
-      window.localStorage.setItem(inventoryShippingStorageKey, input.value);
-    } catch {
-      // Browser storage can be unavailable; pricing still uses the current field value.
+  function toggleInventoryFoil(productId) {
+    if (state.inventoryFoilProductIds.has(productId)) {
+      state.inventoryFoilProductIds.delete(productId);
+    } else {
+      state.inventoryFoilProductIds.add(productId);
     }
+    if (state.inventoryProduct?.productId === productId) {
+      state.inventorySelection.printing = state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal";
+      state.inventorySelection.condition = "";
+      state.inventorySelection.language = defaultInventoryLanguage();
+    }
+    if (state.catalogSearch) renderCatalogSearch();
+    if (state.inventoryProduct?.productId === productId) scheduleInventoryPreview(0);
   }
 
-  function persistInventoryLanguagePreference() {
-    const input = document.querySelector("#inventory-language-default");
-    const value = input.value.trim();
-    if (value === "" || value.length > 64) return;
-    try {
-      window.localStorage.setItem(inventoryLanguageStorageKey, value);
-    } catch {
-      // Browser storage can be unavailable; the preference still works for this session.
-    }
+  function openInventoryQuantityDialog(productId) {
+    state.inventoryQuantityProductId = productId;
+    const input = document.querySelector("#inventory-custom-quantity");
+    input.value = state.inventoryProduct?.productId === productId
+      ? String(state.inventorySelection?.quantity ?? 5)
+      : "5";
+    document.querySelector("#inventory-quantity-dialog").showModal();
+    input.select();
   }
 
-  async function selectCatalogProduct(productId) {
+  async function selectCatalogProduct(productId, quantity) {
     const message = document.querySelector("#inventory-message");
     const selectionToken = state.inventoryProductToken + 1;
     state.inventoryProductToken = selectionToken;
@@ -1588,7 +1815,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (!response.ok) throw new Error(product.message || "Product details could not be loaded.");
       state.inventoryProduct = product;
       state.inventoryProductLoadingId = null;
-      state.inventorySelection = { language: defaultInventoryLanguage(), quantity: "1" };
+      state.inventorySelection = {
+        language: defaultInventoryLanguage(),
+        printing: state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal",
+        quantity: String(quantity),
+      };
       state.inventoryPreview = null;
       renderCatalogSearch();
       message.className = "repricing-message";
@@ -1605,15 +1836,16 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function inventoryPricingRules() {
-    const fallback = document.querySelector("#inventory-fallback").value;
+    const profile = activeMerchandiseProfile();
+    if (!profile) return null;
     return {
-      minimumPrice: Number(document.querySelector("#inventory-minimum").value),
-      conditionPolicy: document.querySelector("#inventory-condition").value,
-      priceBasis: document.querySelector("#inventory-basis").value,
-      adjustmentCents: Number(document.querySelector("#inventory-adjustment").value),
-      estimatedShippingPrice: Number(document.querySelector("#inventory-shipping").value),
-      noComparisonFallback: fallback,
-      ...(fallback === "manual" ? { manualPrice: Number(document.querySelector("#inventory-manual-price").value) } : {}),
+      minimumPrice: profile.minimumPrice,
+      conditionPolicy: profile.conditionPolicy,
+      priceBasis: profile.priceBasis,
+      adjustmentCents: profile.adjustmentCents,
+      estimatedShippingPrice: profile.estimatedShippingPrice,
+      noComparisonFallback: profile.noComparisonFallback,
+      ...(profile.noComparisonFallback === "manual" ? { manualPrice: profile.manualPrice } : {}),
     };
   }
 
@@ -1670,7 +1902,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return;
     }
     const productId = state.inventoryProduct.productId;
-    const addQuantity = Number(document.querySelector("#inventory-quantity").value);
+    const addQuantity = Number(state.inventorySelection.quantity);
     const rules = inventoryPricingRules();
     state.inventoryPreviewInFlight = true;
     state.inventoryPreviewQueued = false;
@@ -1943,6 +2175,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "The settings file could not be read.");
       state.settings = data;
+      restoreMerchandiseProfilePreference();
       render();
     } catch (error) {
       form.hidden = true;
@@ -1969,7 +2202,25 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return value;
   }
 
+  function collectMerchandiseProfile(card) {
+    const fallback = card.querySelector('[name="noComparisonFallback"]').value;
+    return {
+      id: card.dataset.profileId,
+      name: card.querySelector('[name="profileName"]').value.trim(),
+      language: card.querySelector('[name="language"]').value.trim(),
+      minimumPrice: Number(card.querySelector('[name="minimumPrice"]').value),
+      estimatedShippingPrice: Number(card.querySelector('[name="estimatedShippingPrice"]').value),
+      conditionPolicy: card.querySelector('[name="conditionPolicy"]').value,
+      priceBasis: card.querySelector('[name="priceBasis"]').value,
+      adjustmentCents: Number(card.querySelector('[name="adjustmentCents"]').value),
+      noComparisonFallback: fallback,
+      ...(fallback === "manual" ? { manualPrice: Number(card.querySelector('[name="manualPrice"]').value) } : {}),
+    };
+  }
+
   function collectSettingsUpdate() {
+    const profileCards = [...document.querySelectorAll("#merchandise-profile-list [data-profile-id]")];
+    const defaultProfile = document.querySelector('#merchandise-profile-list [name="defaultMerchandiseProfileId"]:checked');
     return {
       revision: state.settings.revision,
       pollIntervalMinutes: Number(document.querySelector("#poll-interval").value),
@@ -1982,6 +2233,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
         enabled: document.querySelector("#inventory-queue-enabled").checked,
         delaySeconds: Number(document.querySelector("#inventory-delay").value),
       },
+      merchandiseProfiles: profileCards.map(collectMerchandiseProfile),
+      defaultMerchandiseProfileId: defaultProfile?.value ?? "",
       outputs: state.settings.outputs.map((output) => {
         const card = outputs.querySelector('[data-action-id="' + CSS.escape(output.actionId) + '"]');
         return collectOutput(card, output);
@@ -2057,24 +2310,30 @@ export const CONFIG_UI_JS = String.raw`(() => {
       }
     });
   }
-  for (const selector of ["#inventory-minimum", "#inventory-condition", "#inventory-basis", "#inventory-adjustment", "#inventory-manual-price"]) {
-    document.querySelector(selector).addEventListener("input", () => scheduleInventoryPreview());
-  }
-  document.querySelector("#inventory-language-default").addEventListener("input", () => {
-    persistInventoryLanguagePreference();
-    if (state.inventoryProduct) {
-      state.inventorySelection.language = defaultInventoryLanguage();
-      refreshInventoryLanguages(defaultInventoryLanguage());
-      scheduleInventoryPreview();
-    }
+  document.querySelector("#inventory-profile-select").addEventListener("change", (event) => {
+    selectMerchandiseProfile(event.target.value);
   });
-  document.querySelector("#inventory-shipping").addEventListener("input", () => {
-    persistInventoryShippingPreference();
-    scheduleInventoryPreview();
+  document.querySelector("#edit-merchandise-profiles").addEventListener("click", () => {
+    activateTab("settings", true, true);
+    document.querySelector("#merchandise-profiles-title").scrollIntoView({ behavior: "smooth", block: "start" });
   });
-  document.querySelector("#inventory-fallback").addEventListener("change", (event) => {
-    document.querySelector("#inventory-manual-field").hidden = event.target.value !== "manual";
-    scheduleInventoryPreview();
+  document.querySelector("#add-merchandise-profile").addEventListener("click", addMerchandiseProfile);
+  const quantityDialog = document.querySelector("#inventory-quantity-dialog");
+  document.querySelector("#inventory-quantity-cancel").addEventListener("click", () => quantityDialog.close());
+  document.querySelector("#inventory-quantity-apply").addEventListener("click", () => {
+    const input = document.querySelector("#inventory-custom-quantity");
+    if (!input.reportValidity() || state.inventoryQuantityProductId === null) return;
+    const productId = state.inventoryQuantityProductId;
+    quantityDialog.close();
+    chooseInventoryQuantity(productId, Number(input.value));
+  });
+  document.querySelector("#inventory-custom-quantity").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    document.querySelector("#inventory-quantity-apply").click();
+  });
+  quantityDialog.addEventListener("close", () => {
+    state.inventoryQuantityProductId = null;
   });
   document.querySelector("#repricing-preview").addEventListener("click", previewRepricing);
   document.querySelector("#repricing-queue").addEventListener("click", queueRepricingSelection);
@@ -2101,7 +2360,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   window.addEventListener("popstate", selectLocationTab);
   window.addEventListener("hashchange", selectLocationTab);
   document.querySelector("#retry").addEventListener("click", load);
-  restoreInventoryShippingPreference();
   activateTab(initialTab());
   load();
   setInterval(loadQueue, 5000);

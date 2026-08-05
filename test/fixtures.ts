@@ -64,6 +64,20 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       rateLimitDelaySeconds: 300,
       historyLimit: 500,
     },
+    merchandiseProfiles: [
+      {
+        id: "english-singles",
+        name: "English singles",
+        language: "English",
+        minimumPrice: 0.35,
+        estimatedShippingPrice: 0,
+        conditionPolicy: "same-or-better",
+        priceBasis: "delivered",
+        adjustmentCents: 0,
+        noComparisonFallback: "market",
+      },
+    ],
+    defaultMerchandiseProfileId: "english-singles",
     provider: {
       type: "tcgplayer",
       authCookieEnv: "TCGPLAYER_AUTH_COOKIE",

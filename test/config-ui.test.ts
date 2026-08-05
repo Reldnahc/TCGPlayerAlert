@@ -80,6 +80,14 @@ describe("configuration UI service", () => {
         enabled: true,
         delaySeconds: 0,
       },
+      merchandiseProfiles: [
+        {
+          ...initial.merchandiseProfiles[0],
+          minimumPrice: 0.5,
+          estimatedShippingPrice: 0.99,
+        },
+      ],
+      defaultMerchandiseProfileId: "english-singles",
       outputs: [
         {
           actionId: address.actionId,
@@ -107,6 +115,14 @@ describe("configuration UI service", () => {
       dryRun: false,
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
       inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
+      merchandiseProfiles: [
+        {
+          id: "english-singles",
+          minimumPrice: 0.5,
+          estimatedShippingPrice: 0.99,
+        },
+      ],
+      defaultMerchandiseProfileId: "english-singles",
     });
     expect(config.actions[address.actionId]?.enabled).toBe(false);
     expect(config.actions[packingSlip.actionId]?.enabled).toBe(true);
@@ -142,19 +158,17 @@ describe("configuration UI service", () => {
     );
     expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
     expect(CONFIG_UI_JS).toContain("defaultInventoryLanguage()");
-    expect(CONFIG_UI_HTML).toContain(
-      '<select id="inventory-basis"><option value="delivered">Item + shipping</option>',
-    );
-    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-shipping");
-    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.inventory-language");
+    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.merchandise-profile");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
-    expect(CONFIG_UI_HTML).toContain('id="inventory-language-default"');
+    expect(CONFIG_UI_HTML).toContain('id="inventory-profile-select"');
+    expect(CONFIG_UI_HTML).toContain('id="inventory-quantity-dialog"');
+    expect(CONFIG_UI_HTML).toContain('id="merchandise-profile-list"');
     expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
-    expect(CONFIG_UI_HTML.indexOf('class="inventory-defaults"')).toBeLessThan(
-      CONFIG_UI_HTML.indexOf('class="catalog-search-row"'),
-    );
+    expect(
+      CONFIG_UI_HTML.indexOf('class="inventory-profile-bar"'),
+    ).toBeLessThan(CONFIG_UI_HTML.indexOf('class="catalog-search-row"'));
     expect(CONFIG_UI_JS).toContain('text: "Load more"');
     expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
     expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
@@ -168,7 +182,10 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain(
       "new URLSearchParams({ q: query, offset: String(offset) })",
     );
-    expect(CONFIG_UI_JS).toContain('text: active ? "Close"');
+    expect(CONFIG_UI_JS).toContain('text: "Foil"');
+    expect(CONFIG_UI_JS).toContain('text: "+" + String(quantity)');
+    expect(CONFIG_UI_JS).toContain('text: "+X"');
+    expect(CONFIG_UI_JS).toContain("showModal()");
     expect(CONFIG_UI_JS).toContain('className: "catalog-inline-editor"');
     expect(CONFIG_UI_JS).toContain("bindInventoryRowControls()");
     expect(CONFIG_UI_JS).toContain('text: "Add to queue"');
@@ -782,10 +799,10 @@ describe("configuration UI service", () => {
     expect(pageText).not.toContain("Seller workspace");
     expect(pageText).toContain('role="tablist"');
     expect(pageText).toContain("Add cards");
-    expect(pageText).toContain('id="inventory-language-default"');
+    expect(pageText).toContain('id="inventory-profile-select"');
     expect(pageText).not.toContain('id="inventory-card-condition"');
     expect(CONFIG_UI_JS).toContain('id: "inventory-card-condition"');
-    expect(CONFIG_UI_JS).toContain('id: "inventory-printing"');
+    expect(CONFIG_UI_JS).not.toContain('id: "inventory-printing"');
     expect(CONFIG_UI_JS).toContain('id: "inventory-language"');
     expect(repricingPreview.status).toBe(200);
     expect(await repricingPreview.json()).toMatchObject({

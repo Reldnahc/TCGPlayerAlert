@@ -98,6 +98,19 @@ export interface InventoryAdditionQueueConfig {
   readonly historyLimit: number;
 }
 
+export interface MerchandiseProfileConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly language: string;
+  readonly minimumPrice: number;
+  readonly estimatedShippingPrice: number;
+  readonly conditionPolicy: "same" | "same-or-better";
+  readonly priceBasis: "item" | "delivered";
+  readonly adjustmentCents: number;
+  readonly noComparisonFallback: "market" | "manual" | "stop";
+  readonly manualPrice?: number;
+}
+
 export interface AppConfig {
   readonly version: 1;
   readonly pollIntervalMinutes: number;
@@ -108,6 +121,8 @@ export interface AppConfig {
   readonly timezoneOffsetMinutes: number | "local";
   readonly priceUpdateQueue: PriceUpdateQueueConfig;
   readonly inventoryAdditionQueue: InventoryAdditionQueueConfig;
+  readonly merchandiseProfiles: readonly MerchandiseProfileConfig[];
+  readonly defaultMerchandiseProfileId: string;
   readonly provider: {
     readonly type: "tcgplayer";
     readonly authCookieEnv: string;
@@ -263,6 +278,80 @@ const ADDRESS_TEMPLATE_FIELDS = new Set([
   "country",
 ]);
 
+const DEFAULT_MERCHANDISE_PROFILE: MerchandiseProfileConfig = {
+  id: "english-singles",
+  name: "English singles",
+  language: "English",
+  minimumPrice: 0.35,
+  estimatedShippingPrice: 0,
+  conditionPolicy: "same-or-better",
+  priceBasis: "delivered",
+  adjustmentCents: 0,
+  noComparisonFallback: "market",
+};
+
+function parseMerchandiseProfile(
+  value: unknown,
+  index: number,
+  issues: string[],
+): MerchandiseProfileConfig {
+  const source = record(value);
+  const path = `config.merchandiseProfiles[${String(index)}]`;
+  const conditionPolicy = source?.conditionPolicy;
+  const priceBasis = source?.priceBasis;
+  const fallback = source?.noComparisonFallback;
+  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
+    issues.push(`${path}.conditionPolicy must be same or same-or-better.`);
+  }
+  if (priceBasis !== "item" && priceBasis !== "delivered") {
+    issues.push(`${path}.priceBasis must be item or delivered.`);
+  }
+  if (fallback !== "market" && fallback !== "manual" && fallback !== "stop") {
+    issues.push(
+      `${path}.noComparisonFallback must be market, manual, or stop.`,
+    );
+  }
+  const manualPrice =
+    fallback === "manual"
+      ? numberValue(source, "manualPrice", path, 0.01, 1_000_000, issues)
+      : undefined;
+  return {
+    id: identifier(source?.id, `${path}.id`, issues),
+    name: text(source, "name", path, issues),
+    language: text(source, "language", path, issues),
+    minimumPrice: numberValue(
+      source,
+      "minimumPrice",
+      path,
+      0.01,
+      1_000_000,
+      issues,
+    ),
+    estimatedShippingPrice: numberValue(
+      source,
+      "estimatedShippingPrice",
+      path,
+      0,
+      1_000_000,
+      issues,
+    ),
+    conditionPolicy:
+      conditionPolicy as MerchandiseProfileConfig["conditionPolicy"],
+    priceBasis: priceBasis as MerchandiseProfileConfig["priceBasis"],
+    adjustmentCents: integer(
+      source,
+      "adjustmentCents",
+      path,
+      0,
+      100_000,
+      issues,
+    ),
+    noComparisonFallback:
+      fallback as MerchandiseProfileConfig["noComparisonFallback"],
+    ...(manualPrice === undefined ? {} : { manualPrice }),
+  };
+}
+
 function parsePredicate(
   value: unknown,
   path: string,
@@ -343,6 +432,50 @@ export function parseConfig(value: unknown): AppConfig {
     issues.push("config.priceUpdateQueue must be an object.");
   }
   const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
+  const merchandiseProfileValues = root?.merchandiseProfiles;
+  if (
+    merchandiseProfileValues !== undefined &&
+    !Array.isArray(merchandiseProfileValues)
+  ) {
+    issues.push("config.merchandiseProfiles must be an array.");
+  }
+  const merchandiseProfiles =
+    merchandiseProfileValues === undefined
+      ? [DEFAULT_MERCHANDISE_PROFILE]
+      : (Array.isArray(merchandiseProfileValues)
+          ? merchandiseProfileValues
+          : []
+        ).map((profile, index) =>
+          parseMerchandiseProfile(profile, index, issues),
+        );
+  if (merchandiseProfiles.length < 1 || merchandiseProfiles.length > 20) {
+    issues.push(
+      "config.merchandiseProfiles must contain between 1 and 20 profiles.",
+    );
+  }
+  if (
+    new Set(merchandiseProfiles.map((profile) => profile.id)).size !==
+    merchandiseProfiles.length
+  ) {
+    issues.push("config.merchandiseProfiles ids must be unique.");
+  }
+  const defaultMerchandiseProfileId =
+    root?.defaultMerchandiseProfileId === undefined
+      ? (merchandiseProfiles[0]?.id ?? DEFAULT_MERCHANDISE_PROFILE.id)
+      : identifier(
+          root.defaultMerchandiseProfileId,
+          "config.defaultMerchandiseProfileId",
+          issues,
+        );
+  if (
+    !merchandiseProfiles.some(
+      (profile) => profile.id === defaultMerchandiseProfileId,
+    )
+  ) {
+    issues.push(
+      "config.defaultMerchandiseProfileId must reference a merchandise profile.",
+    );
+  }
 
   const printersSource = record(root?.printers);
   if (printersSource === undefined)
@@ -738,6 +871,8 @@ export function parseConfig(value: unknown): AppConfig {
     timezoneOffsetMinutes,
     priceUpdateQueue: priceUpdateQueueConfig,
     inventoryAdditionQueue: inventoryAdditionQueueConfig,
+    merchandiseProfiles,
+    defaultMerchandiseProfileId,
     provider: {
       type: "tcgplayer",
       authCookieEnv,
