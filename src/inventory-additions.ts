@@ -476,6 +476,7 @@ export class InventoryAdditionService {
             : { productLineName }),
           offset: nextOffset,
           limit: CATALOG_SEARCH_PAGE_SIZE,
+          includeFoilMarketPrices: true,
         },
         signal === undefined ? undefined : { signal },
       );

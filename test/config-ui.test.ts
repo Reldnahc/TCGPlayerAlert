@@ -183,6 +183,9 @@ describe("configuration UI service", () => {
       "new URLSearchParams({ q: query, offset: String(offset) })",
     );
     expect(CONFIG_UI_JS).toContain('text: "Foil"');
+    expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
+    expect(CONFIG_UI_JS).toContain("product.foilMarketPrice");
+    expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
     expect(CONFIG_UI_JS).toContain('text: "+" + String(quantity)');
     expect(CONFIG_UI_JS).toContain('text: "+X"');
     expect(CONFIG_UI_JS).toContain("showModal()");
@@ -635,6 +638,7 @@ describe("configuration UI service", () => {
       rarityName: "Rare",
       cardNumber: "42",
       marketPrice: 3.5,
+      foilMarketPrice: 8.25,
       sellerListable: false,
     } as const;
     const catalogProduct = {
@@ -659,7 +663,7 @@ describe("configuration UI service", () => {
           productConditionId: 457,
           conditionId: 1,
           condition: "Near Mint",
-          printing: "Holofoil",
+          printing: "Foil",
           language: "English",
         },
         {
@@ -801,7 +805,8 @@ describe("configuration UI service", () => {
     expect(pageText).toContain("Add cards");
     expect(pageText).toContain('id="inventory-profile-select"');
     expect(pageText).not.toContain('id="inventory-card-condition"');
-    expect(CONFIG_UI_JS).toContain('id: "inventory-card-condition"');
+    expect(CONFIG_UI_JS).not.toContain('id: "inventory-card-condition"');
+    expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
     expect(CONFIG_UI_JS).not.toContain('id: "inventory-printing"');
     expect(CONFIG_UI_JS).toContain('id: "inventory-language"');
     expect(repricingPreview.status).toBe(200);
@@ -815,7 +820,9 @@ describe("configuration UI service", () => {
       totalProducts: 1,
       nextOffset: 1,
       hasMore: false,
-      products: [{ productId: 123, matchKind: "variant" }],
+      products: [
+        { productId: 123, foilMarketPrice: 8.25, matchKind: "variant" },
+      ],
     });
     expect(invalidCatalogOffset.status).toBe(400);
     expect(invalidExactSearch.status).toBe(400);

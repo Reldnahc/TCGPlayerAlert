@@ -155,18 +155,21 @@ describe("inventory additions", () => {
         productLineName: "Synthetic Game",
         offset: 0,
         limit: 24,
+        includeFoilMarketPrices: true,
       },
       {
         query: "Synthetic Card",
         productLineName: "Synthetic Game",
         offset: 24,
         limit: 24,
+        includeFoilMarketPrices: true,
       },
       {
         query: "Synthetic Card",
         productLineName: "Synthetic Game",
         offset: 48,
         limit: 24,
+        includeFoilMarketPrices: true,
       },
     ]);
     expect(result).toMatchObject({

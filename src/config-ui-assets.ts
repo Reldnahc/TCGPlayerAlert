@@ -391,6 +391,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-result.foil { border: 2px solid transparent; padding: 9px 14px 9px 9px; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(125deg, #4dc8c0, #8a79df, #f29bc1, #e8c65a, #69c58a) border-box; }
 .catalog-result-actions { display: flex; align-items: center; gap: 6px; }
 .catalog-result-actions button { min-width: 38px; padding: 8px 9px; }
+.catalog-condition-select { width: 154px; padding: 8px 30px 8px 10px; font-size: .78rem; }
 .foil-toggle[aria-pressed="true"] { background: linear-gradient(125deg, #dff8f3, #e9e3ff, #ffe3ef, #fff2bd); color: #4c356f; }
 .quantity-choice.selected { background: var(--green); color: white; }
 .product-image { display: grid; place-items: center; width: 64px; aspect-ratio: 200 / 279; overflow: hidden; border-radius: 7px; background: #eef0e8; color: var(--muted); font-size: .62rem; text-align: center; }
@@ -402,7 +403,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
 .catalog-inline-loading, .catalog-inline-editor { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 14px 4px 4px; }
 .catalog-inline-loading { color: var(--muted); font-size: .82rem; }
-.inventory-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 14px; padding-bottom: 14px; }
+.inventory-fields { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; align-items: end; gap: 14px; padding-bottom: 14px; }
 .inventory-selection-note { align-self: center; color: var(--muted); font-size: .8rem; font-weight: 700; }
 .quantity-dialog { width: min(420px, calc(100% - 32px)); border: 0; border-radius: 17px; padding: 0; box-shadow: 0 24px 70px rgba(12,26,18,.28); }
 .quantity-dialog::backdrop { background: rgba(12, 26, 18, .45); }
@@ -509,6 +510,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     selectedMerchandiseProfileId: null,
     inventoryQuantityProductId: null,
     inventoryFoilProductIds: new Set(),
+    inventoryConditionByProductId: new Map(),
     catalogSearch: null,
     catalogSearchToken: 0,
     catalogSearchController: null,
@@ -1308,6 +1310,19 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const active = state.inventoryProduct?.productId === product.productId;
     const loading = state.inventoryProductLoadingId === product.productId;
     const foilSelected = state.inventoryFoilProductIds.has(product.productId);
+    const selectedCondition = state.inventoryConditionByProductId.get(product.productId) || "Near Mint";
+    const condition = el("select", {
+      className: "catalog-condition-select",
+      "aria-label": "Condition for " + product.productName + " from " + product.setName,
+      title: "Condition",
+    });
+    condition.replaceChildren(...inventoryConditionOrder.map((value) => {
+      const option = el("option", { value, text: value });
+      if (value === selectedCondition) option.selected = true;
+      return option;
+    }));
+    condition.disabled = loading;
+    condition.addEventListener("change", () => selectInventoryCondition(product.productId, condition.value));
     const foil = el("button", {
       className: "quiet-button foil-toggle",
       type: "button",
@@ -1338,6 +1353,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     custom.disabled = loading;
     custom.addEventListener("click", () => openInventoryQuantityDialog(product.productId));
     const actions = el("div", { className: "catalog-result-actions" }, [
+      condition,
       foil,
       ...quantityButtons,
       custom,
@@ -1347,7 +1363,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       el("div", { className: "catalog-result-copy" }, [
         el("strong", { text: product.productName }),
         el("small", { text: product.productLineName + " / " + product.setName }),
-        el("small", { text: (product.cardNumber ? "#" + product.cardNumber + " / " : "") + (product.rarityName || "No rarity") + " / market " + money(product.marketPrice) }),
+        el("small", { text: (product.cardNumber ? "#" + product.cardNumber + " / " : "") + (product.rarityName || "No rarity") + " / market " + money(product.marketPrice) + " / foil " + (product.foilMarketPrice === undefined ? "—" : money(product.foilMarketPrice)) }),
       ]),
       actions,
     ];
@@ -1362,7 +1378,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function inventoryInlineEditor() {
-    const condition = el("select", { id: "inventory-card-condition" });
     const language = el("select", { id: "inventory-language" });
     const close = el("button", {
       className: "quiet-button",
@@ -1372,9 +1387,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
     close.addEventListener("click", closeInventoryRow);
     return el("div", { className: "catalog-inline-editor" }, [
       el("div", { className: "inventory-fields" }, [
-        field("Condition", condition),
         field("Language", language),
-        el("div", { className: "inventory-selection-note", text: "Previewing +" + String(state.inventorySelection?.quantity ?? 1) + (state.inventorySelection?.printing === "Foil" ? " foil" : " normal") }),
+        el("div", { className: "inventory-selection-note", text: (state.inventorySelection?.condition || "Near Mint") + " · previewing +" + String(state.inventorySelection?.quantity ?? 1) + (state.inventorySelection?.printing === "Foil" ? " foil" : " normal") }),
         close,
       ]),
       el("div", { id: "inventory-preview-result", className: "inventory-preview-result", hidden: "" }),
@@ -1634,7 +1648,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function refreshInventoryLanguages(preferred = state.inventorySelection?.language || defaultInventoryLanguage()) {
     const product = state.inventoryProduct;
     if (!product) return;
-    const condition = document.querySelector("#inventory-card-condition").value;
+    const condition = state.inventorySelection?.condition || "Near Mint";
     const printing = state.inventorySelection?.printing || "Normal";
     const languages = sortedInventoryValues(
       product.skus
@@ -1652,27 +1666,22 @@ export const CONFIG_UI_JS = String.raw`(() => {
     if (!product) return;
     state.inventorySelection ??= { quantity: "1" };
     state.inventorySelection.printing = state.inventoryFoilProductIds.has(product.productId) ? "Foil" : "Normal";
-    const preferredCondition = state.inventorySelection.condition || "Near Mint";
-    const conditions = sortedInventoryValues(
+    state.inventorySelection.condition = state.inventoryConditionByProductId.get(product.productId) || "Near Mint";
+    const availableConditions = new Set(
       product.skus
         .filter((sku) => sku.printing === state.inventorySelection.printing)
         .map((sku) => sku.condition),
-      preferredCondition,
-      inventoryConditionOrder,
     );
-    const select = document.querySelector("#inventory-card-condition");
-    replaceInventoryOptions(select, conditions, preferredCondition);
-    state.inventorySelection.condition = select.value;
+    const conditionSelect = document.querySelector(".catalog-result.active .catalog-condition-select");
+    if (conditionSelect) {
+      for (const option of conditionSelect.options) {
+        option.disabled = !availableConditions.has(option.value);
+      }
+    }
     refreshInventoryLanguages(state.inventorySelection.language || defaultInventoryLanguage());
   }
 
   function bindInventoryRowControls() {
-    document.querySelector("#inventory-card-condition").addEventListener("change", (event) => {
-      state.inventorySelection.condition = event.target.value;
-      state.inventorySelection.language = "";
-      refreshInventoryLanguages(defaultInventoryLanguage());
-      scheduleInventoryPreview();
-    });
     document.querySelector("#inventory-language").addEventListener("change", (event) => {
       state.inventorySelection.language = event.target.value;
       scheduleInventoryPreview();
@@ -1682,7 +1691,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function selectedInventorySku() {
     const product = state.inventoryProduct;
     if (!product) return undefined;
-    const condition = document.querySelector("#inventory-card-condition").value;
+    const condition = state.inventorySelection?.condition || "Near Mint";
     const printing = state.inventorySelection?.printing || "Normal";
     const language = document.querySelector("#inventory-language").value;
     return product.skus.find(
@@ -1772,6 +1781,19 @@ export const CONFIG_UI_JS = String.raw`(() => {
     void selectCatalogProduct(productId, quantity);
   }
 
+  function selectInventoryCondition(productId, condition) {
+    state.inventoryConditionByProductId.set(productId, condition);
+    if (state.inventoryProduct?.productId !== productId) return;
+    state.inventorySelection.condition = condition;
+    state.inventorySelection.language = defaultInventoryLanguage();
+    refreshInventoryLanguages(defaultInventoryLanguage());
+    const note = document.querySelector(".inventory-selection-note");
+    if (note) {
+      note.textContent = condition + " · previewing +" + String(state.inventorySelection.quantity ?? 1) + (state.inventorySelection.printing === "Foil" ? " foil" : " normal");
+    }
+    scheduleInventoryPreview(0);
+  }
+
   function toggleInventoryFoil(productId) {
     if (state.inventoryFoilProductIds.has(productId)) {
       state.inventoryFoilProductIds.delete(productId);
@@ -1780,7 +1802,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     if (state.inventoryProduct?.productId === productId) {
       state.inventorySelection.printing = state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal";
-      state.inventorySelection.condition = "";
       state.inventorySelection.language = defaultInventoryLanguage();
     }
     if (state.catalogSearch) renderCatalogSearch();
@@ -1816,6 +1837,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       state.inventoryProduct = product;
       state.inventoryProductLoadingId = null;
       state.inventorySelection = {
+        condition: state.inventoryConditionByProductId.get(productId) || "Near Mint",
         language: defaultInventoryLanguage(),
         printing: state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal",
         quantity: String(quantity),
