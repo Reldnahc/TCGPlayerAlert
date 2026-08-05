@@ -416,6 +416,12 @@ describe("smart repricing", () => {
     if (row === undefined) throw new Error("Missing preview row");
     const updates = service.takeUpdates(preview.id, { rowIds: [row.id] });
 
+    expect(preview.totals).toEqual({
+      listingCount: 1,
+      totalQuantity: 2,
+      currentListingValue: 6,
+    });
+
     expect(searchMarketplaceProducts).toHaveBeenCalledWith({
       productIds: [100],
       conditions: ["Near Mint", "Lightly Played", "Moderately Played"],

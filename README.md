@@ -126,6 +126,8 @@ Create repricing profiles in **Settings**, then use **Inventory**:
 
 Ranges are chosen by the lowest qualifying listing, falling back to market price only when no comparable exists. This prevents a product-level market figure from placing a particular condition or printing in the wrong risk tier. Gap percentages compare the cheapest and second-cheapest qualifying listings. These calculations reuse the preview's marketplace response and do not make a request per card.
 
+Each refreshed preview also shows **Listed inventory value**, calculated from the current item price times quantity for every live marketplace listing in the preview. Shipping is excluded from this inventory-value total.
+
 The built-in **Smart conservative** profile uses delivered price and 100% of the lowest qualifying comparable in every tier:
 
 - Up to $1: one comparable; use the next listing when the low is at least 20% below it.

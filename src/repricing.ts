@@ -83,6 +83,11 @@ export interface RepricingPreview {
   readonly rules: RepricingRules;
   readonly rows: readonly RepricingPreviewRow[];
   readonly counts: Readonly<Record<RepricingRowStatus, number>>;
+  readonly totals: {
+    readonly listingCount: number;
+    readonly totalQuantity: number;
+    readonly currentListingValue: number;
+  };
 }
 
 interface SellerListingContext {
@@ -701,6 +706,16 @@ export class RepricingService {
         ready: rows.filter((row) => row.status === "ready").length,
         unchanged: rows.filter((row) => row.status === "unchanged").length,
         skipped: rows.filter((row) => row.status === "skipped").length,
+      },
+      totals: {
+        listingCount: rows.length,
+        totalQuantity: rows.reduce((total, row) => total + row.quantity, 0),
+        currentListingValue: roundCurrency(
+          rows.reduce(
+            (total, row) => total + row.currentPrice * row.quantity,
+            0,
+          ),
+        ),
       },
     };
   }

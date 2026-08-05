@@ -193,7 +193,14 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <p id="repricing-message" class="repricing-message"></p>
             <div id="repricing-results" hidden>
               <div class="repricing-summary">
-                <div id="repricing-counts"></div>
+                <div class="repricing-summary-copy">
+                  <div class="inventory-value">
+                    <span>Listed inventory value</span>
+                    <strong id="repricing-inventory-value">$0.00</strong>
+                    <small id="repricing-inventory-units"></small>
+                  </div>
+                  <div id="repricing-counts"></div>
+                </div>
                 <div class="repricing-actions">
                   <button id="repricing-select-all" class="quiet-button" type="button">Select all changes</button>
                   <button id="repricing-queue" class="primary-button dark-button" type="button">Queue selected</button>
@@ -356,6 +363,11 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .repricing-message.error { color: #93401c; background: #fff5f1; }
 .repricing-message.success { color: var(--green-dark); background: var(--green-soft); }
 .repricing-summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 25px; border-top: 1px solid var(--line); }
+.repricing-summary-copy { display: flex; align-items: center; gap: 22px; min-width: 0; }
+.inventory-value { display: grid; gap: 2px; }
+.inventory-value span { color: var(--muted); font-size: .72rem; font-weight: 750; letter-spacing: .03em; text-transform: uppercase; }
+.inventory-value strong { color: var(--green-dark); font-size: 1.35rem; line-height: 1.1; }
+.inventory-value small { color: var(--muted); font-size: .72rem; }
 #repricing-counts { color: var(--muted); font-size: .86rem; font-weight: 700; }
 .repricing-actions { display: flex; gap: 9px; }
 .repricing-table-wrap { overflow: auto; border-top: 1px solid var(--line); }
@@ -2028,6 +2040,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function renderRepricingPreview(preview) {
     state.repricingPreview = preview;
+    document.querySelector("#repricing-inventory-value").textContent = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(preview.totals.currentListingValue);
+    document.querySelector("#repricing-inventory-units").textContent =
+      preview.totals.totalQuantity + " card" + (preview.totals.totalQuantity === 1 ? "" : "s") + " across " + preview.totals.listingCount + " listing" + (preview.totals.listingCount === 1 ? "" : "s");
     document.querySelector("#repricing-counts").textContent =
       preview.counts.ready + " changes · " + preview.counts.unchanged + " unchanged · " + preview.counts.skipped + " skipped";
     document.querySelector("#repricing-rows").replaceChildren(...preview.rows.map(renderRepricingRow));

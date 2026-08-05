@@ -858,6 +858,7 @@ describe("configuration UI service", () => {
     expect(repricingPreview.status).toBe(200);
     expect(await repricingPreview.json()).toMatchObject({
       counts: { ready: 0, unchanged: 0, skipped: 0 },
+      totals: { listingCount: 0, totalQuantity: 0, currentListingValue: 0 },
       rows: [],
     });
     expect(settings.status).toBe(200);
