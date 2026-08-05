@@ -157,7 +157,7 @@ describe("configuration UI service", () => {
       ".filter((product) => product.sellerListable)",
     );
     expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
-    expect(CONFIG_UI_JS).toContain("defaultInventoryLanguage()");
+    expect(CONFIG_UI_JS).not.toContain("defaultInventoryLanguage()");
     expect(CONFIG_UI_JS).toContain("tcgplayer-alert.merchandise-profile");
     expect(CONFIG_UI_JS).toContain("localStorage.setItem");
     expect(CONFIG_UI_HTML).toContain('id="inventory-profile-select"');
@@ -189,12 +189,16 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('text: "+" + String(quantity)');
     expect(CONFIG_UI_JS).toContain('text: "+X"');
     expect(CONFIG_UI_JS).toContain("showModal()");
-    expect(CONFIG_UI_JS).toContain('className: "catalog-inline-editor"');
-    expect(CONFIG_UI_JS).toContain("bindInventoryRowControls()");
-    expect(CONFIG_UI_JS).toContain('text: "Add to queue"');
-    expect(CONFIG_UI_JS).toContain("scheduleInventoryPreview(0)");
-    expect(CONFIG_UI_JS).toContain("if (state.inventoryPreviewInFlight)");
-    expect(CONFIG_UI_JS).toContain("scheduleInventoryPreview(delay = 350)");
+    expect(CONFIG_UI_JS).not.toContain('className: "catalog-inline-editor"');
+    expect(CONFIG_UI_JS).not.toContain('text: "Add to queue"');
+    expect(CONFIG_UI_JS).toContain(
+      "void queueCatalogProduct(product, quantity)",
+    );
+    expect(CONFIG_UI_JS).toContain("candidate.language === profile.language");
+    expect(CONFIG_UI_JS).toContain("if (!preview.queueable)");
+    expect(CONFIG_UI_JS).toContain('kind: "success"');
+    expect(CONFIG_UI_JS).not.toContain("scheduleInventoryPreview");
+    expect(CONFIG_UI_JS).not.toContain("inventoryPreviewInFlight");
     expect(CONFIG_UI_JS).not.toContain(
       'document.querySelector("#catalog-results").hidden = true',
     );
@@ -808,7 +812,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain('id: "inventory-card-condition"');
     expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
     expect(CONFIG_UI_JS).not.toContain('id: "inventory-printing"');
-    expect(CONFIG_UI_JS).toContain('id: "inventory-language"');
+    expect(CONFIG_UI_JS).not.toContain('id: "inventory-language"');
     expect(repricingPreview.status).toBe(200);
     expect(await repricingPreview.json()).toMatchObject({
       counts: { ready: 0, unchanged: 0, skipped: 0 },

@@ -157,7 +157,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <label class="field"><span>Quantity to add</span><input id="inventory-custom-quantity" type="number" min="1" max="10000000" step="1" value="5" /></label>
               <div class="quantity-dialog-actions">
                 <button id="inventory-quantity-cancel" class="quiet-button" type="button">Cancel</button>
-                <button id="inventory-quantity-apply" class="primary-button dark-button" type="button">Preview quantity</button>
+                <button id="inventory-quantity-apply" class="primary-button dark-button" type="button">Add quantity</button>
               </div>
             </div>
           </dialog>
@@ -401,25 +401,14 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-result-copy small { color: var(--muted); }
 .catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
-.catalog-inline-loading, .catalog-inline-editor { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 14px 4px 4px; }
-.catalog-inline-loading { color: var(--muted); font-size: .82rem; }
-.inventory-fields { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; align-items: end; gap: 14px; padding-bottom: 14px; }
-.inventory-selection-note { align-self: center; color: var(--muted); font-size: .8rem; font-weight: 700; }
+.catalog-inline-status { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 10px 4px 2px; color: var(--muted); font-size: .82rem; font-weight: 700; }
+.catalog-inline-status.success { color: #22613d; }
+.catalog-inline-status.error { color: var(--danger); }
 .quantity-dialog { width: min(420px, calc(100% - 32px)); border: 0; border-radius: 17px; padding: 0; box-shadow: 0 24px 70px rgba(12,26,18,.28); }
 .quantity-dialog::backdrop { background: rgba(12, 26, 18, .45); }
 .quantity-dialog-content { display: grid; gap: 18px; padding: 24px; }
 .quantity-dialog-content h3 { margin: 0; }
 .quantity-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
-.inventory-preview-result { padding: 14px; border: 1px solid #badcc8; border-radius: 13px; background: var(--green-soft); }
-.inventory-preview-result.error { border-color: #efc7b6; background: #fff5f1; }
-.inventory-preview-result.loading { border-color: var(--line); background: var(--paper); color: var(--muted); }
-.preview-loading { display: grid; gap: 4px; }
-.preview-loading small { line-height: 1.4; }
-.preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin-bottom: 12px; }
-.preview-stat { display: grid; gap: 3px; }
-.preview-stat small { color: var(--muted); }
-.preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.preview-footer p { margin: 0; color: var(--muted); font-size: .82rem; }
 .inventory-queue-settings { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .worker-settings-panel { overflow: hidden; margin-bottom: 22px; }
 .worker-settings-panel .inventory-queue-settings { border-top: 0; }
@@ -474,8 +463,6 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .inventory-profile-summary { grid-column: 1 / -1; grid-row: 2; }
   .catalog-search-row { grid-template-columns: 1fr 1fr; }
   .catalog-search-row button { grid-column: 1 / -1; }
-  .inventory-fields { grid-template-columns: 1fr 1fr; }
-  .preview-grid { grid-template-columns: 1fr 1fr; }
   .inventory-queue-settings { grid-template-columns: 1fr; gap: 20px; }
   .repricing-options { grid-template-columns: 1fr; }
   .repricing-summary { align-items: stretch; flex-direction: column; }
@@ -498,15 +485,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     settings: null,
     savedSettingsFingerprint: null,
     repricingPreview: null,
-    inventoryProduct: null,
-    inventoryProductLoadingId: null,
-    inventorySelection: null,
-    inventoryProductToken: 0,
-    inventoryPreview: null,
-    inventoryPreviewGeneration: 0,
-    inventoryPreviewInFlight: false,
-    inventoryPreviewQueued: false,
-    inventoryPreviewTimer: null,
+    inventoryAddingProductIds: new Set(),
+    inventoryProductDetailsById: new Map(),
+    inventoryResultByProductId: new Map(),
     selectedMerchandiseProfileId: null,
     inventoryQuantityProductId: null,
     inventoryFoilProductIds: new Set(),
@@ -1307,8 +1288,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function catalogResult(product) {
-    const active = state.inventoryProduct?.productId === product.productId;
-    const loading = state.inventoryProductLoadingId === product.productId;
+    const loading = state.inventoryAddingProductIds.has(product.productId);
+    const result = state.inventoryResultByProductId.get(product.productId);
     const foilSelected = state.inventoryFoilProductIds.has(product.productId);
     const selectedCondition = state.inventoryConditionByProductId.get(product.productId) || "Near Mint";
     const condition = el("select", {
@@ -1333,15 +1314,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
     foil.disabled = loading;
     foil.addEventListener("click", () => toggleInventoryFoil(product.productId));
     const quantityButtons = [1, 2, 3, 4].map((quantity) => {
-      const selected = active && Number(state.inventorySelection?.quantity) === quantity;
       const button = el("button", {
-        className: "quiet-button quantity-choice" + (selected ? " selected" : ""),
+        className: "quiet-button quantity-choice",
         type: "button",
         text: "+" + String(quantity),
-        "aria-pressed": String(selected),
+        title: "Add " + String(quantity) + " using the selected profile",
       });
       button.disabled = loading;
-      button.addEventListener("click", () => chooseInventoryQuantity(product.productId, quantity));
+      button.addEventListener("click", () => void queueCatalogProduct(product, quantity));
       return button;
     });
     const custom = el("button", {
@@ -1367,32 +1347,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
       ]),
       actions,
     ];
-    if (loading) {
-      children.push(el("div", { className: "catalog-inline-loading", text: "Loading card options..." }));
-    } else if (active) {
-      children.push(inventoryInlineEditor());
+    if (loading || result) {
+      children.push(el("div", {
+        className: "catalog-inline-status" + (result ? " " + result.kind : ""),
+        text: result?.text || "Pricing and adding card...",
+      }));
     }
     return el("div", {
-      className: "catalog-result" + (active ? " active" : "") + (foilSelected ? " foil" : ""),
+      className: "catalog-result" + (foilSelected ? " foil" : ""),
     }, children);
-  }
-
-  function inventoryInlineEditor() {
-    const language = el("select", { id: "inventory-language" });
-    const close = el("button", {
-      className: "quiet-button",
-      type: "button",
-      text: "Close preview",
-    });
-    close.addEventListener("click", closeInventoryRow);
-    return el("div", { className: "catalog-inline-editor" }, [
-      el("div", { className: "inventory-fields" }, [
-        field("Language", language),
-        el("div", { className: "inventory-selection-note", text: (state.inventorySelection?.condition || "Near Mint") + " · previewing +" + String(state.inventorySelection?.quantity ?? 1) + (state.inventorySelection?.printing === "Foil" ? " foil" : " normal") }),
-        close,
-      ]),
-      el("div", { id: "inventory-preview-result", className: "inventory-preview-result", hidden: "" }),
-    ]);
   }
 
   const catalogMatchOrder = { exact: 0, variant: 1, related: 2 };
@@ -1472,11 +1435,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     results.replaceChildren(...sections);
     results.hidden = false;
-    if (state.inventoryProduct) {
-      initializeInventorySkuSelectors();
-      bindInventoryRowControls();
-      if (state.inventoryPreview) renderInventoryPreview(state.inventoryPreview);
-    }
     updateCatalogProductLineSuggestions(search.products, search.productLine);
     message.className = "repricing-message success";
     message.textContent = search.products.length + " results · " + exact.length + " exact";
@@ -1508,11 +1466,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     message.textContent = "";
     if (!append) {
       state.catalogSearch = null;
-      state.inventoryProductToken += 1;
-      clearInventoryPreview();
-      state.inventoryProduct = null;
-      state.inventoryProductLoadingId = null;
-      state.inventorySelection = null;
       results.hidden = true;
     }
     try {
@@ -1564,28 +1517,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   const distinct = (values) => [...new Set(values)];
 
-  function sortedInventoryValues(values, preferred, orderedValues = []) {
-    return distinct(values).sort((left, right) => {
-      if (left === preferred) return -1;
-      if (right === preferred) return 1;
-      const leftOrder = orderedValues.indexOf(left);
-      const rightOrder = orderedValues.indexOf(right);
-      if (leftOrder >= 0 || rightOrder >= 0) {
-        if (leftOrder < 0) return 1;
-        if (rightOrder < 0) return -1;
-        return leftOrder - rightOrder;
-      }
-      return left.localeCompare(right);
-    });
-  }
-
-  function replaceInventoryOptions(select, values, preferred) {
-    const previous = select.value;
-    select.replaceChildren(...values.map((value) => el("option", { value, text: value })));
-    if (values.includes(preferred)) select.value = preferred;
-    else if (values.includes(previous)) select.value = previous;
-  }
-
   function activeMerchandiseProfile() {
     if (!state.settings) return null;
     return state.settings.merchandiseProfiles.find(
@@ -1620,11 +1551,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       // The saved default remains available when browser storage is unavailable.
     }
     renderMerchandiseProfileSelector();
-    if (state.inventoryProduct) {
-      state.inventorySelection.language = defaultInventoryLanguage();
-      renderCatalogSearch();
-      scheduleInventoryPreview(0);
-    }
+    state.inventoryResultByProductId.clear();
+    if (state.catalogSearch) renderCatalogSearch();
   }
 
   function restoreMerchandiseProfilePreference() {
@@ -1641,157 +1569,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
     state.selectedMerchandiseProfileId = selected;
   }
 
-  function defaultInventoryLanguage() {
-    return activeMerchandiseProfile()?.language || "English";
-  }
-
-  function refreshInventoryLanguages(preferred = state.inventorySelection?.language || defaultInventoryLanguage()) {
-    const product = state.inventoryProduct;
-    if (!product) return;
-    const condition = state.inventorySelection?.condition || "Near Mint";
-    const printing = state.inventorySelection?.printing || "Normal";
-    const languages = sortedInventoryValues(
-      product.skus
-        .filter((sku) => sku.condition === condition && sku.printing === printing)
-        .map((sku) => sku.language),
-      preferred,
-    );
-    const select = document.querySelector("#inventory-language");
-    replaceInventoryOptions(select, languages, preferred);
-    state.inventorySelection.language = select.value;
-  }
-
-  function initializeInventorySkuSelectors() {
-    const product = state.inventoryProduct;
-    if (!product) return;
-    state.inventorySelection ??= { quantity: "1" };
-    state.inventorySelection.printing = state.inventoryFoilProductIds.has(product.productId) ? "Foil" : "Normal";
-    state.inventorySelection.condition = state.inventoryConditionByProductId.get(product.productId) || "Near Mint";
-    const availableConditions = new Set(
-      product.skus
-        .filter((sku) => sku.printing === state.inventorySelection.printing)
-        .map((sku) => sku.condition),
-    );
-    const conditionSelect = document.querySelector(".catalog-result.active .catalog-condition-select");
-    if (conditionSelect) {
-      for (const option of conditionSelect.options) {
-        option.disabled = !availableConditions.has(option.value);
-      }
-    }
-    refreshInventoryLanguages(state.inventorySelection.language || defaultInventoryLanguage());
-  }
-
-  function bindInventoryRowControls() {
-    document.querySelector("#inventory-language").addEventListener("change", (event) => {
-      state.inventorySelection.language = event.target.value;
-      scheduleInventoryPreview();
-    });
-  }
-
-  function selectedInventorySku() {
-    const product = state.inventoryProduct;
-    if (!product) return undefined;
-    const condition = state.inventorySelection?.condition || "Near Mint";
-    const printing = state.inventorySelection?.printing || "Normal";
-    const language = document.querySelector("#inventory-language").value;
-    return product.skus.find(
-      (sku) => sku.condition === condition && sku.printing === printing && sku.language === language,
-    );
-  }
-
-  function clearInventoryPreview() {
-    if (state.inventoryPreviewTimer !== null) {
-      window.clearTimeout(state.inventoryPreviewTimer);
-      state.inventoryPreviewTimer = null;
-    }
-    state.inventoryPreviewGeneration += 1;
-    state.inventoryPreviewQueued = false;
-    state.inventoryPreview = null;
-    const container = document.querySelector("#inventory-preview-result");
-    if (container) container.hidden = true;
-  }
-
-  function showInventoryPreviewLoading() {
-    const container = document.querySelector("#inventory-preview-result");
-    if (!container) return;
-    container.className = "inventory-preview-result loading";
-    container.replaceChildren(
-      el("div", { className: "preview-loading" }, [
-        el("strong", { text: "Updating preview..." }),
-      ]),
-    );
-    container.hidden = false;
-  }
-
-  function showInventoryPreviewIssue(title, detail) {
-    const container = document.querySelector("#inventory-preview-result");
-    if (!container) return;
-    container.className = "inventory-preview-result error";
-    container.replaceChildren(
-      el("div", { className: "preview-loading" }, [
-        el("strong", { text: title }),
-        el("small", { text: detail }),
-      ]),
-    );
-    container.hidden = false;
-  }
-
-  function inventoryPreviewInputsAreValid() {
-    const profile = activeMerchandiseProfile();
-    const quantity = Number(state.inventorySelection?.quantity);
-    return profile !== null
-      && Number.isSafeInteger(quantity)
-      && quantity >= 1
-      && quantity <= 10000000
-      && (profile.noComparisonFallback !== "manual"
-        || (Number.isFinite(profile.manualPrice) && profile.manualPrice >= 0.01));
-  }
-
-  function scheduleInventoryPreview(delay = 350) {
-    if (!state.inventoryProduct) return;
-    if (state.inventoryPreviewTimer !== null) {
-      window.clearTimeout(state.inventoryPreviewTimer);
-    }
-    state.inventoryPreviewGeneration += 1;
-    state.inventoryPreview = null;
-    const generation = state.inventoryPreviewGeneration;
-    showInventoryPreviewLoading();
-    state.inventoryPreviewTimer = window.setTimeout(() => {
-      state.inventoryPreviewTimer = null;
-      void previewInventoryAddition(generation);
-    }, delay);
-  }
-
-  function closeInventoryRow() {
-    state.inventoryProductToken += 1;
-    clearInventoryPreview();
-    state.inventoryProduct = null;
-    state.inventoryProductLoadingId = null;
-    state.inventorySelection = null;
-    if (state.catalogSearch) renderCatalogSearch();
-  }
-
-  function chooseInventoryQuantity(productId, quantity) {
-    if (state.inventoryProduct?.productId === productId) {
-      state.inventorySelection.quantity = String(quantity);
-      renderCatalogSearch();
-      scheduleInventoryPreview(0);
-      return;
-    }
-    void selectCatalogProduct(productId, quantity);
-  }
-
   function selectInventoryCondition(productId, condition) {
     state.inventoryConditionByProductId.set(productId, condition);
-    if (state.inventoryProduct?.productId !== productId) return;
-    state.inventorySelection.condition = condition;
-    state.inventorySelection.language = defaultInventoryLanguage();
-    refreshInventoryLanguages(defaultInventoryLanguage());
-    const note = document.querySelector(".inventory-selection-note");
-    if (note) {
-      note.textContent = condition + " · previewing +" + String(state.inventorySelection.quantity ?? 1) + (state.inventorySelection.printing === "Foil" ? " foil" : " normal");
-    }
-    scheduleInventoryPreview(0);
+    state.inventoryResultByProductId.delete(productId);
+    if (state.catalogSearch) renderCatalogSearch();
   }
 
   function toggleInventoryFoil(productId) {
@@ -1800,66 +1581,19 @@ export const CONFIG_UI_JS = String.raw`(() => {
     } else {
       state.inventoryFoilProductIds.add(productId);
     }
-    if (state.inventoryProduct?.productId === productId) {
-      state.inventorySelection.printing = state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal";
-      state.inventorySelection.language = defaultInventoryLanguage();
-    }
+    state.inventoryResultByProductId.delete(productId);
     if (state.catalogSearch) renderCatalogSearch();
-    if (state.inventoryProduct?.productId === productId) scheduleInventoryPreview(0);
   }
 
   function openInventoryQuantityDialog(productId) {
     state.inventoryQuantityProductId = productId;
     const input = document.querySelector("#inventory-custom-quantity");
-    input.value = state.inventoryProduct?.productId === productId
-      ? String(state.inventorySelection?.quantity ?? 5)
-      : "5";
+    input.value = "5";
     document.querySelector("#inventory-quantity-dialog").showModal();
     input.select();
   }
 
-  async function selectCatalogProduct(productId, quantity) {
-    const message = document.querySelector("#inventory-message");
-    const selectionToken = state.inventoryProductToken + 1;
-    state.inventoryProductToken = selectionToken;
-    clearInventoryPreview();
-    state.inventoryProduct = null;
-    state.inventoryProductLoadingId = productId;
-    state.inventorySelection = null;
-    renderCatalogSearch();
-    message.className = "repricing-message";
-    message.textContent = "Loading card...";
-    try {
-      const response = await fetch("/api/catalog/products/" + encodeURIComponent(productId), { headers: { Accept: "application/json" } });
-      const product = await response.json();
-      if (selectionToken !== state.inventoryProductToken) return;
-      if (!response.ok) throw new Error(product.message || "Product details could not be loaded.");
-      state.inventoryProduct = product;
-      state.inventoryProductLoadingId = null;
-      state.inventorySelection = {
-        condition: state.inventoryConditionByProductId.get(productId) || "Near Mint",
-        language: defaultInventoryLanguage(),
-        printing: state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal",
-        quantity: String(quantity),
-      };
-      state.inventoryPreview = null;
-      renderCatalogSearch();
-      message.className = "repricing-message";
-      message.textContent = "";
-      scheduleInventoryPreview(0);
-    } catch (error) {
-      if (selectionToken !== state.inventoryProductToken) return;
-      state.inventoryProductLoadingId = null;
-      state.inventorySelection = null;
-      renderCatalogSearch();
-      message.className = "repricing-message error";
-      message.textContent = error instanceof Error ? error.message : "Product details could not be loaded.";
-    }
-  }
-
-  function inventoryPricingRules() {
-    const profile = activeMerchandiseProfile();
-    if (!profile) return null;
+  function inventoryPricingRules(profile) {
     return {
       minimumPrice: profile.minimumPrice,
       conditionPolicy: profile.conditionPolicy,
@@ -1871,125 +1605,80 @@ export const CONFIG_UI_JS = String.raw`(() => {
     };
   }
 
-  function renderInventoryPreview(preview) {
-    state.inventoryPreview = preview;
-    const container = document.querySelector("#inventory-preview-result");
-    const competitor = preview.competitorPrice === undefined
-      ? "Fallback"
-      : money(preview.competitorPrice) + (preview.competitorShipping > 0 ? " + " + money(preview.competitorShipping) + " competitor shipping" : "") + " / " + preview.competitorCondition;
-    const effectiveShipping = preview.effectiveShippingPrice === undefined
-      ? "-"
-      : money(preview.effectiveShippingPrice) + (preview.effectiveShippingPrice !== preview.rules.estimatedShippingPrice ? " (from " + money(preview.rules.estimatedShippingPrice) + " setting)" : "");
-    const queue = el("button", {
-      id: "queue-inventory-addition",
-      className: "primary-button dark-button",
-      type: "button",
-      text: "Add to queue",
-    });
-    queue.disabled = !preview.queueable;
-    queue.addEventListener("click", queueInventoryAddition);
-    container.className = "inventory-preview-result" + (preview.queueable ? "" : " error");
-    container.replaceChildren(
-      el("div", { className: "preview-grid" }, [
-        el("div", { className: "preview-stat" }, [el("small", { text: "Add quantity" }), el("strong", { text: String(preview.addQuantity) })]),
-        el("div", { className: "preview-stat" }, [el("small", { text: "Current quantity" }), el("strong", { text: String(preview.currentQuantity) })]),
-        el("div", { className: "preview-stat" }, [el("small", { text: "Qualifying match" }), el("strong", { text: competitor })]),
-        el("div", { className: "preview-stat" }, [el("small", { text: "Initial item price" }), el("strong", { text: preview.proposedPrice === undefined ? "-" : money(preview.proposedPrice) })]),
-        el("div", { className: "preview-stat" }, [el("small", { text: "Your effective shipping" }), el("strong", { text: effectiveShipping })]),
-        el("div", { className: "preview-stat" }, [el("small", { text: "Your delivered price" }), el("strong", { text: preview.proposedDeliveredPrice === undefined ? "-" : money(preview.proposedDeliveredPrice) })]),
-      ]),
-      el("div", { className: "preview-footer" }, [el("p", { text: preview.reason }), queue]),
-    );
-    container.hidden = false;
-  }
-
-  async function previewInventoryAddition(generation) {
-    if (!state.inventoryProduct || generation !== state.inventoryPreviewGeneration) return;
-    if (state.inventoryPreviewInFlight) {
-      state.inventoryPreviewQueued = true;
+  async function queueCatalogProduct(product, addQuantity) {
+    const productId = product.productId;
+    if (state.inventoryAddingProductIds.has(productId)) return;
+    const profile = activeMerchandiseProfile();
+    const condition = state.inventoryConditionByProductId.get(productId) || "Near Mint";
+    const printing = state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal";
+    if (!profile) {
+      state.inventoryResultByProductId.set(productId, {
+        kind: "error",
+        text: "Choose a merchandise profile before adding this card.",
+      });
+      renderCatalogSearch();
       return;
     }
-    const message = document.querySelector("#inventory-message");
-    if (!inventoryPreviewInputsAreValid()) {
-      const detail = "Enter valid quantity and pricing values.";
-      message.textContent = "";
-      showInventoryPreviewIssue("Preview needs valid values", detail);
-      return;
-    }
-    const sku = selectedInventorySku();
-    if (!sku) {
-      const detail = "Choose a valid condition, printing, and language combination.";
-      message.textContent = "";
-      showInventoryPreviewIssue("Preview needs a valid SKU", detail);
-      return;
-    }
-    const productId = state.inventoryProduct.productId;
-    const addQuantity = Number(state.inventorySelection.quantity);
-    const rules = inventoryPricingRules();
-    state.inventoryPreviewInFlight = true;
-    state.inventoryPreviewQueued = false;
-    message.className = "repricing-message";
-    message.textContent = "";
+    state.inventoryAddingProductIds.add(productId);
+    state.inventoryResultByProductId.delete(productId);
+    renderCatalogSearch();
     try {
-      const response = await fetch("/api/inventory-additions/preview", {
+      let details = state.inventoryProductDetailsById.get(productId);
+      if (!details) {
+        const detailsResponse = await fetch("/api/catalog/products/" + encodeURIComponent(productId), {
+          headers: { Accept: "application/json" },
+        });
+        details = await detailsResponse.json();
+        if (!detailsResponse.ok) {
+          throw new Error(details.message || "Product details could not be loaded.");
+        }
+        state.inventoryProductDetailsById.set(productId, details);
+      }
+      const sku = details.skus.find(
+        (candidate) => candidate.condition === condition
+          && candidate.printing === printing
+          && candidate.language === profile.language,
+      );
+      if (!sku) {
+        throw new Error("No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase() + " SKU exists for this product.");
+      }
+      const previewResponse = await fetch("/api/inventory-additions/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           productId,
           productConditionId: sku.productConditionId,
           addQuantity,
-          rules,
+          rules: inventoryPricingRules(profile),
         }),
       });
-      const data = await response.json();
-      if (generation !== state.inventoryPreviewGeneration) return;
-      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The inventory preview failed.");
-      renderInventoryPreview(data);
-      message.className = "repricing-message";
-      message.textContent = "";
-    } catch (error) {
-      if (generation !== state.inventoryPreviewGeneration) return;
-      const detail = error instanceof Error ? error.message : "The inventory preview failed.";
-      message.textContent = "";
-      showInventoryPreviewIssue("Preview unavailable", detail);
-    } finally {
-      state.inventoryPreviewInFlight = false;
-      if (state.inventoryPreviewQueued && state.inventoryProduct) {
-        state.inventoryPreviewQueued = false;
-        scheduleInventoryPreview(0);
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok) {
+        throw new Error((preview.issues || []).join(" ") || preview.message || "The card could not be priced.");
       }
-    }
-  }
-
-  async function queueInventoryAddition() {
-    const preview = state.inventoryPreview;
-    if (!preview) return;
-    const message = document.querySelector("#inventory-message");
-    const button = document.querySelector("#queue-inventory-addition");
-    button.disabled = true;
-    button.textContent = "Adding...";
-    try {
-      const response = await fetch("/api/inventory-additions/previews/" + encodeURIComponent(preview.id) + "/queue", {
+      if (!preview.queueable) throw new Error(preview.reason || "The card cannot be queued with this profile.");
+      const queueResponse = await fetch("/api/inventory-additions/previews/" + encodeURIComponent(preview.id) + "/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: "{}",
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The card was not queued.");
-      if (state.inventoryPreview?.id === preview.id) {
-        state.inventoryPreview = null;
-        button.textContent = "Added to queue";
-        message.className = "repricing-message";
-        message.textContent = "";
+      const queued = await queueResponse.json();
+      if (!queueResponse.ok) {
+        throw new Error((queued.issues || []).join(" ") || queued.message || "The card was not queued.");
       }
+      state.inventoryResultByProductId.set(productId, {
+        kind: "success",
+        text: "Queued +" + String(addQuantity) + " at " + money(preview.proposedPrice) + " using " + profile.name + ".",
+      });
       await loadInventoryQueue();
     } catch (error) {
-      if (state.inventoryPreview?.id === preview.id) {
-        button.disabled = false;
-        button.textContent = "Add to queue";
-        message.className = "repricing-message error";
-        message.textContent = error instanceof Error ? error.message : "The card was not queued.";
-      }
+      state.inventoryResultByProductId.set(productId, {
+        kind: "error",
+        text: error instanceof Error ? error.message : "The card was not queued.",
+      });
+    } finally {
+      state.inventoryAddingProductIds.delete(productId);
+      if (state.catalogSearch) renderCatalogSearch();
     }
   }
 
@@ -2346,8 +2035,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const input = document.querySelector("#inventory-custom-quantity");
     if (!input.reportValidity() || state.inventoryQuantityProductId === null) return;
     const productId = state.inventoryQuantityProductId;
+    const product = state.catalogSearch?.products.find((candidate) => candidate.productId === productId);
+    if (!product) return;
     quantityDialog.close();
-    chooseInventoryQuantity(productId, Number(input.value));
+    void queueCatalogProduct(product, Number(input.value));
   });
   document.querySelector("#inventory-custom-quantity").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;

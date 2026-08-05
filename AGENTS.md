@@ -15,7 +15,7 @@ The product must remain useful beyond one seller, scheduling cadence, operating 
 
 ## Current Phase
 
-Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are separately authorized through the durable, paced queue in ADR 0005. Exact-SKU inventory additions with an initial price are authorized through the preview-first queue in ADR 0007. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review.
+Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are separately authorized through the durable, paced queue in ADR 0005. Exact-SKU inventory additions with an initial price are authorized through the profile-driven, internally previewed queue in ADR 0007. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review.
 
 The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
 
