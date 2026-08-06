@@ -7,7 +7,6 @@ import type {
   TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ConfigurationError } from "./errors.js";
-import { MAX_PRICE_UPDATE_BATCH_SIZE } from "./price-update-queue.js";
 
 export const TCGPLAYER_CONDITION_ORDER = [
   "Near Mint",
@@ -1420,12 +1419,11 @@ export class RepricingService {
     if (
       !Array.isArray(rowIds) ||
       rowIds.length === 0 ||
-      rowIds.length > MAX_PRICE_UPDATE_BATCH_SIZE ||
       rowIds.some((rowId) => typeof rowId !== "string") ||
       new Set(rowIds).size !== rowIds.length
     ) {
       throw new ConfigurationError([
-        `Choose 1-${String(MAX_PRICE_UPDATE_BATCH_SIZE)} distinct repricing rows to queue.`,
+        "Choose one or more distinct repricing rows to queue.",
       ]);
     }
     const updates = rowIds.map((rowId) => preview.updates.get(String(rowId)));

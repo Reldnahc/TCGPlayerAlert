@@ -91,9 +91,9 @@ describe("price-update queue", () => {
     expect((await queue.snapshot()).jobs).toHaveLength(0);
   });
 
-  it("atomically queues a 200-listing repricing batch", async () => {
+  it("atomically queues a repricing batch larger than 1,000 listings", async () => {
     const { queue } = await queueFixture();
-    const updates = Array.from({ length: 200 }, (_, index) => ({
+    const updates = Array.from({ length: 1200 }, (_, index) => ({
       ...syntheticUpdate,
       productId: 1000 + index,
       productConditionId: 10_000 + index,
@@ -103,9 +103,9 @@ describe("price-update queue", () => {
     const jobs = await queue.enqueue({ updates });
     const snapshot = await queue.snapshot();
 
-    expect(jobs).toHaveLength(200);
-    expect(snapshot.counts.pending).toBe(200);
-    expect(snapshot.jobs).toHaveLength(200);
+    expect(jobs).toHaveLength(1200);
+    expect(snapshot.counts.pending).toBe(1200);
+    expect(snapshot.jobs).toHaveLength(1200);
   });
 
   it("resubmits a failed update once as a new auditable job", async () => {

@@ -813,8 +813,8 @@ describe("smart repricing", () => {
     );
   });
 
-  it("converts 200 selected preview rows into one queueable batch", async () => {
-    const ownProducts = Array.from({ length: 200 }, (_, index) => {
+  it("converts more than 1,000 selected preview rows into one queueable batch", async () => {
+    const ownProducts = Array.from({ length: 1200 }, (_, index) => {
       const ownListing = listing({
         listingId: 1000 + index,
         productId: 2000 + index,
@@ -866,9 +866,9 @@ describe("smart repricing", () => {
       rowIds: preview.rows.map((row) => row.id),
     });
 
-    expect(preview.rows).toHaveLength(200);
-    expect(preview.counts.ready).toBe(200);
-    expect(updates).toHaveLength(200);
+    expect(preview.rows).toHaveLength(1200);
+    expect(preview.counts.ready).toBe(1200);
+    expect(updates).toHaveLength(1200);
   });
 
   it("does not offer automatic removal when the SKU has secondary inventory", async () => {
