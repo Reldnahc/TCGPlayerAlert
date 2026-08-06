@@ -246,4 +246,34 @@ describe("order management", () => {
 
     expect(fakeClient.searchOrders).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps a successfully shipped order out of stale ready-to-ship results", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    const orders = service(fakeClient);
+
+    await expect(orders.listOrders("ready-to-ship")).resolves.toMatchObject({
+      orders: [
+        expect.objectContaining({ orderNumber: firstOrder.orderNumber }),
+      ],
+    });
+    await orders.markShipped(firstOrder.orderNumber);
+
+    await expect(
+      orders.listOrders("ready-to-ship", { force: true }),
+    ).resolves.toMatchObject({ orders: [] });
+    await expect(
+      orders.listOrders("all", { force: true }),
+    ).resolves.toMatchObject({
+      orders: [
+        expect.objectContaining({
+          orderNumber: firstOrder.orderNumber,
+          status: "Shipped",
+        }),
+      ],
+    });
+  });
 });

@@ -567,6 +567,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     catalogSearchController: null,
     orderLists: { all: null, "ready-to-ship": null },
     orderLoading: { all: false, "ready-to-ship": false },
+    shippedOrderNumbers: new Set(),
     pirateShipPreparations: new Map(),
     jobQueues: {
       inventory: { jobs: [], page: 0 },
@@ -1313,7 +1314,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function markShippedButton(order, scope) {
-    return orderButton("Mark shipped", async (button) => {
+    const alreadyShipped = order.status.toLocaleLowerCase() === "shipped";
+    const button = orderButton(alreadyShipped ? "Shipped" : "Mark shipped", async (button) => {
       if (!window.confirm("Mark order " + order.orderNumber + " as shipped?")) return;
       await runOrderMutation(
         order,
@@ -1325,6 +1327,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
         (result) => result.outcome === "already-applied" ? "Order was already shipped." : "Order marked shipped.",
       );
     }, "ship-action");
+    button.disabled = alreadyShipped;
+    return button;
   }
 
   function dashboardOrderRows(order) {
@@ -1408,11 +1412,30 @@ export const CONFIG_UI_JS = String.raw`(() => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Orders could not be loaded.");
-      state.orderLists[scope] = data;
+      state.orderLists[scope] = applyKnownShipmentState(scope, data);
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "Orders could not be loaded.", "error");
     } finally {
       state.orderLoading[scope] = false;
+      renderOrderList(scope);
+    }
+  }
+
+  function applyKnownShipmentState(scope, list) {
+    const orders = scope === "ready-to-ship"
+      ? list.orders.filter((order) => !state.shippedOrderNumbers.has(order.orderNumber))
+      : list.orders.map((order) => state.shippedOrderNumbers.has(order.orderNumber)
+        ? { ...order, status: "Shipped" }
+        : order);
+    return { ...list, orders };
+  }
+
+  function rememberShippedOrder(orderNumber) {
+    state.shippedOrderNumbers.add(orderNumber);
+    for (const scope of ["all", "ready-to-ship"]) {
+      const list = state.orderLists[scope];
+      if (list === null) continue;
+      state.orderLists[scope] = applyKnownShipmentState(scope, list);
       renderOrderList(scope);
     }
   }
@@ -1505,8 +1528,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     try {
       const result = await orderMutationRequest(order, path, body);
       const success = successText(result);
-      state.orderLists[scope] = null;
-      await loadOrders(scope, true);
+      if (path === "mark-shipped") {
+        rememberShippedOrder(result.orderNumber);
+      } else {
+        state.orderLists[scope] = null;
+        await loadOrders(scope, true);
+      }
       showOrderMessage(scope, success, "success");
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "The order action failed.", "error");

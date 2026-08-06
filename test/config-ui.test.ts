@@ -680,6 +680,11 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('pirateShipButton(order, "ready-to-ship")');
     expect(CONFIG_UI_JS).toContain('"Add tracking"');
     expect(CONFIG_UI_JS).toContain('"Mark shipped"');
+    expect(CONFIG_UI_JS).toContain("rememberShippedOrder(result.orderNumber)");
+    expect(CONFIG_UI_JS).toContain('status: "Shipped"');
+    expect(CONFIG_UI_JS).toContain(
+      "list.orders.filter((order) => !state.shippedOrderNumbers.has(order.orderNumber))",
+    );
     expect(CONFIG_UI_JS).toContain('text: "Manage order"');
     expect(CONFIG_UI_JS).toContain(
       '"https://sellerportal.tcgplayer.com/orders/"',
