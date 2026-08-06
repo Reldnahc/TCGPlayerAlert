@@ -441,6 +441,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
 .catalog-inline-status { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 10px 4px 2px; color: var(--muted); font-size: .82rem; font-weight: 700; }
 .catalog-inline-status.success { color: #22613d; }
+.catalog-inline-status.warning { color: #845311; }
 .catalog-inline-status.error { color: var(--danger); }
 .quantity-dialog { width: min(420px, calc(100% - 32px)); border: 0; border-radius: 17px; padding: 0; box-shadow: 0 24px 70px rgba(12,26,18,.28); }
 .quantity-dialog::backdrop { background: rgba(12, 26, 18, .45); }
@@ -865,6 +866,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     name.value = profile.name;
     const allowIncreases = el("input", { type: "checkbox", name: "allowPriceIncreases" });
     allowIncreases.checked = profile.allowPriceIncreases;
+    const sparseMarketFallback = selectInput("sparseMarketFallback", profile.sparseMarketFallback, [
+      ["skip", "Wait for stronger evidence"],
+      ["higher-of-market-and-lowest", "Higher of market or lowest"],
+      ["market-then-lowest", "Market, then lowest listing"],
+      ["lowest-then-market", "Lowest listing, then market"],
+    ]);
     const addRange = el("button", {
       className: "quiet-button",
       type: "button",
@@ -886,6 +893,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         field("Compare using", selectInput("priceBasis", profile.priceBasis, [["delivered", "Item + shipping"], ["item", "Item price only"]])),
         field("Compare against", selectInput("conditionPolicy", profile.conditionPolicy, [["same-or-better", "Same or better condition"], ["same", "Same condition only"]])),
         field("Adjustment (cents)", numberInput("adjustmentCents", profile.adjustmentCents, 0, 100000)),
+        field("Sparse market fallback", sparseMarketFallback),
         el("label", { className: "switch-row" }, [
           el("span", {}, [el("strong", { text: "Allow price increases" })]),
           allowIncreases,
@@ -1969,6 +1977,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       priceBasis: pricingProfile.priceBasis,
       adjustmentCents: pricingProfile.adjustmentCents,
       allowPriceIncreases: pricingProfile.allowPriceIncreases,
+      sparseMarketFallback: pricingProfile.sparseMarketFallback,
       ranges: pricingProfile.ranges,
       estimatedShippingPrice: profile.estimatedShippingPrice,
     };
@@ -2034,7 +2043,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (!previewResponse.ok) {
         throw new Error((preview.issues || []).join(" ") || preview.message || "The card could not be priced.");
       }
-      if (!preview.queueable) throw new Error(preview.reason || "The card cannot be queued with this profile.");
+      if (!preview.queueable) {
+        state.inventoryResultByProductId.set(productId, {
+          kind: "warning",
+          text: "Not queued: " + (preview.reason || "this profile did not select a price."),
+        });
+        return;
+      }
       const queueResponse = await fetch("/api/inventory-additions/previews/" + encodeURIComponent(preview.id) + "/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -2213,6 +2228,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       priceBasis: profile.priceBasis,
       adjustmentCents: profile.adjustmentCents,
       allowPriceIncreases: profile.allowPriceIncreases,
+      sparseMarketFallback: profile.sparseMarketFallback,
       ranges: profile.ranges,
     };
   }
@@ -2387,6 +2403,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       priceBasis: card.querySelector('[name="priceBasis"]').value,
       adjustmentCents: Number(card.querySelector('[name="adjustmentCents"]').value),
       allowPriceIncreases: card.querySelector('[name="allowPriceIncreases"]').checked,
+      sparseMarketFallback: card.querySelector('[name="sparseMarketFallback"]').value,
       ranges: rangeCards.map((rangeCard, index) => ({
         ...(index === rangeCards.length - 1
           ? {}

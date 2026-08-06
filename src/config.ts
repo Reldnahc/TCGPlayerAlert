@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { ConfigurationError } from "./errors.js";
+import type { SparseMarketFallback } from "./repricing.js";
 
 export type RuleField =
   | "order.status"
@@ -134,11 +135,13 @@ export interface RepricingProfileConfig {
   readonly priceBasis: "item" | "delivered";
   readonly adjustmentCents: number;
   readonly allowPriceIncreases: boolean;
+  readonly sparseMarketFallback: SparseMarketFallback;
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
 export interface AppConfig {
   readonly version: 1;
+  readonly pricingProfileDefaultsVersion: 1;
   readonly pollIntervalMinutes: number;
   readonly actionMaximumAttempts: number;
   readonly dryRun: boolean;
@@ -324,6 +327,7 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
   priceBasis: "delivered",
   adjustmentCents: 0,
   allowPriceIncreases: false,
+  sparseMarketFallback: "higher-of-market-and-lowest",
   ranges: [
     {
       maximumPrice: 1,
@@ -377,6 +381,29 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
       gapAction: "skip",
       supportMode: "cluster",
       minimumSellerSupport: 2,
+      supportWindowPercent: 5,
+    },
+  ],
+};
+
+const SELL_NOW_REPRICING_PROFILE: RepricingProfileConfig = {
+  id: "sell-now",
+  name: "Sell now",
+  minimumPrice: 0.35,
+  conditionPolicy: "same-or-better",
+  priceBasis: "delivered",
+  adjustmentCents: 1,
+  allowPriceIncreases: true,
+  sparseMarketFallback: "lowest-then-market",
+  ranges: [
+    {
+      minimumListings: 0,
+      priceSource: "lowest",
+      percentage: 100,
+      gapThresholdPercent: 0,
+      gapAction: "follow-lowest",
+      supportMode: "cluster",
+      minimumSellerSupport: 1,
       supportWindowPercent: 5,
     },
   ],
@@ -444,6 +471,19 @@ function parseRepricingProfile(
   if (priceBasis !== "item" && priceBasis !== "delivered") {
     issues.push(`${path}.priceBasis must be item or delivered.`);
   }
+  const sparseMarketFallback =
+    source?.sparseMarketFallback ??
+    (source?.id === DEFAULT_REPRICING_PROFILE.id
+      ? DEFAULT_REPRICING_PROFILE.sparseMarketFallback
+      : "skip");
+  if (
+    sparseMarketFallback !== "skip" &&
+    sparseMarketFallback !== "higher-of-market-and-lowest" &&
+    sparseMarketFallback !== "market-then-lowest" &&
+    sparseMarketFallback !== "lowest-then-market"
+  ) {
+    issues.push(`${path}.sparseMarketFallback is invalid.`);
+  }
   const rangeValues = source?.ranges;
   if (!Array.isArray(rangeValues)) {
     issues.push(`${path}.ranges must be an array.`);
@@ -500,6 +540,7 @@ function parseRepricingProfile(
       path,
       issues,
     ),
+    sparseMarketFallback: sparseMarketFallback as SparseMarketFallback,
     ranges,
   };
 }
@@ -642,6 +683,12 @@ export function parseConfig(value: unknown): AppConfig {
   const root = record(value);
   if (root === undefined) issues.push("config must be an object.");
   if (root?.version !== 1) issues.push("config.version must be 1.");
+  if (
+    root?.pricingProfileDefaultsVersion !== undefined &&
+    root.pricingProfileDefaultsVersion !== 1
+  ) {
+    issues.push("config.pricingProfileDefaultsVersion must be 1.");
+  }
 
   const provider = record(root?.provider);
   if (provider?.type !== "tcgplayer") {
@@ -720,15 +767,25 @@ export function parseConfig(value: unknown): AppConfig {
   ) {
     issues.push("config.repricingProfiles must be an array.");
   }
-  const repricingProfiles =
+  const parsedRepricingProfiles =
     repricingProfileValues === undefined
-      ? [DEFAULT_REPRICING_PROFILE]
+      ? [DEFAULT_REPRICING_PROFILE, SELL_NOW_REPRICING_PROFILE]
       : (Array.isArray(repricingProfileValues)
           ? repricingProfileValues
           : []
         ).map((profile, index) =>
           parseRepricingProfile(profile, index, issues),
         );
+  const seedSellNowProfile =
+    root?.pricingProfileDefaultsVersion === undefined &&
+    repricingProfileValues !== undefined &&
+    parsedRepricingProfiles.length < 20 &&
+    !parsedRepricingProfiles.some(
+      (profile) => profile.id === SELL_NOW_REPRICING_PROFILE.id,
+    );
+  const repricingProfiles = seedSellNowProfile
+    ? [...parsedRepricingProfiles, SELL_NOW_REPRICING_PROFILE]
+    : parsedRepricingProfiles;
   if (repricingProfiles.length < 1 || repricingProfiles.length > 20) {
     issues.push(
       "config.repricingProfiles must contain between 1 and 20 profiles.",
@@ -1155,6 +1212,7 @@ export function parseConfig(value: unknown): AppConfig {
   if (issues.length > 0) throw new ConfigurationError(issues);
   return {
     version: 1,
+    pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
     actionMaximumAttempts,
     dryRun,

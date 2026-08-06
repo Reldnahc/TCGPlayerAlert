@@ -67,6 +67,11 @@ describe("configuration UI service", () => {
     if (address === undefined || packingSlip === undefined) {
       throw new Error("The fixture is missing print actions.");
     }
+    expect(initial.repricingProfiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "sell-now", name: "Sell now" }),
+      ]),
+    );
 
     const saved = await fixture.service.save({
       revision: initial.revision,
@@ -132,6 +137,9 @@ describe("configuration UI service", () => {
     const config = await loadConfig(fixture.path);
 
     expect(saved.revision).not.toBe(initial.revision);
+    expect(saved.repricingProfiles.map((profile) => profile.id)).not.toContain(
+      "sell-now",
+    );
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
       dryRun: false,
@@ -265,6 +273,12 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("!/^\\d+$/u.test(query)");
     expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
     expect(CONFIG_UI_JS).toContain("inventoryPrintingByProductId");
+    expect(CONFIG_UI_JS).toContain('selectInput("sparseMarketFallback"');
+    expect(CONFIG_UI_JS).toContain("Higher of market or lowest");
+    expect(CONFIG_UI_JS).toContain("Lowest listing, then market");
+    expect(CONFIG_UI_JS).toContain('kind: "warning"');
+    expect(CONFIG_UI_JS).toContain('text: "Not queued: "');
+    expect(CONFIG_UI_CSS).toContain(".catalog-inline-status.warning");
     expect(CONFIG_UI_HTML).toContain('id="inventory-queue-pagination"');
     expect(CONFIG_UI_HTML).toContain('id="queue-pagination"');
     expect(CONFIG_UI_JS).toContain("const jobsPerPage = 10");

@@ -11,6 +11,7 @@ describe("application configuration", () => {
     const config = parseConfig(value);
 
     expect(config.version).toBe(1);
+    expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.dryRun).toBe(true);
     expect(config.priceUpdateQueue.delaySeconds).toBe(1);
     expect(config.inventoryAdditionQueue).toMatchObject({
@@ -30,6 +31,7 @@ describe("application configuration", () => {
     expect(config.defaultRepricingProfileId).toBe("match-lowest");
     expect(config.repricingProfiles[0]).toMatchObject({
       name: "Smart conservative",
+      sparseMarketFallback: "higher-of-market-and-lowest",
       ranges: [
         {
           maximumPrice: 1,
@@ -71,6 +73,21 @@ describe("application configuration", () => {
         },
       ],
     });
+    expect(config.repricingProfiles[1]).toMatchObject({
+      id: "sell-now",
+      name: "Sell now",
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+      sparseMarketFallback: "lowest-then-market",
+      ranges: [
+        {
+          minimumListings: 0,
+          priceSource: "lowest",
+          gapAction: "follow-lowest",
+          minimumSellerSupport: 1,
+        },
+      ],
+    });
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
       enabled: true,
@@ -107,73 +124,31 @@ describe("application configuration", () => {
         pricingProfileId: "match-lowest",
       },
     ]);
-    expect(parseConfig(value).repricingProfiles).toEqual([
-      {
-        id: "match-lowest",
-        name: "Smart conservative",
-        minimumPrice: 0.35,
-        conditionPolicy: "same-or-better",
-        priceBasis: "delivered",
-        adjustmentCents: 0,
-        allowPriceIncreases: false,
-        ranges: [
-          {
-            maximumPrice: 1,
-            minimumListings: 2,
-            priceSource: "lowest",
-            percentage: 100,
-            gapThresholdPercent: 20,
-            gapAction: "use-next",
-            supportMode: "cluster",
-            minimumSellerSupport: 2,
-            supportWindowPercent: 5,
-          },
-          {
-            maximumPrice: 5,
-            minimumListings: 2,
-            priceSource: "lowest",
-            percentage: 100,
-            gapThresholdPercent: 3,
-            gapAction: "use-next",
-            supportMode: "cluster",
-            minimumSellerSupport: 2,
-            supportWindowPercent: 5,
-          },
-          {
-            maximumPrice: 25,
-            minimumListings: 2,
-            priceSource: "lowest",
-            percentage: 100,
-            gapThresholdPercent: 3,
-            gapAction: "use-next",
-            supportMode: "cluster",
-            minimumSellerSupport: 2,
-            supportWindowPercent: 5,
-          },
-          {
-            maximumPrice: 100,
-            minimumListings: 3,
-            priceSource: "lowest",
-            percentage: 100,
-            gapThresholdPercent: 3,
-            gapAction: "skip",
-            supportMode: "cluster",
-            minimumSellerSupport: 2,
-            supportWindowPercent: 5,
-          },
-          {
-            minimumListings: 3,
-            priceSource: "lowest",
-            percentage: 100,
-            gapThresholdPercent: 3,
-            gapAction: "skip",
-            supportMode: "cluster",
-            minimumSellerSupport: 2,
-            supportWindowPercent: 5,
-          },
-        ],
-      },
-    ]);
+    expect(parseConfig(value)).toMatchObject({
+      pricingProfileDefaultsVersion: 1,
+      repricingProfiles: [
+        {
+          id: "match-lowest",
+          name: "Smart conservative",
+          sparseMarketFallback: "higher-of-market-and-lowest",
+        },
+        {
+          id: "sell-now",
+          name: "Sell now",
+          adjustmentCents: 1,
+          allowPriceIncreases: true,
+          sparseMarketFallback: "lowest-then-market",
+          ranges: [
+            {
+              minimumListings: 0,
+              priceSource: "lowest",
+              gapAction: "follow-lowest",
+              minimumSellerSupport: 1,
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("preserves adjacent gap behavior for repricing profiles saved before seller bands", async () => {
@@ -199,6 +174,35 @@ describe("application configuration", () => {
     expect(ranges?.every((range) => range.supportWindowPercent === 5)).toBe(
       true,
     );
+  });
+
+  it("seeds Sell now once and preserves its later deletion", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      pricingProfileDefaultsVersion?: number;
+      repricingProfiles: { id: string }[];
+    };
+    value.repricingProfiles = value.repricingProfiles.filter(
+      (profile) => profile.id !== "sell-now",
+    );
+    delete value.pricingProfileDefaultsVersion;
+
+    const migrated = parseConfig(value);
+    const deleted = parseConfig({
+      ...migrated,
+      repricingProfiles: migrated.repricingProfiles.filter(
+        (profile) => profile.id !== "sell-now",
+      ),
+    });
+
+    expect(migrated.repricingProfiles.map((profile) => profile.id)).toContain(
+      "sell-now",
+    );
+    expect(deleted.pricingProfileDefaultsVersion).toBe(1);
+    expect(
+      deleted.repricingProfiles.map((profile) => profile.id),
+    ).not.toContain("sell-now");
   });
 
   it("migrates legacy merchandise pricing fields to a pricing-profile reference", async () => {
@@ -274,6 +278,19 @@ describe("application configuration", () => {
       { ...source },
     ];
     value.defaultRepricingProfileId = "missing-profile";
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
+  });
+
+  it("rejects an unsupported sparse-market fallback", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      repricingProfiles: { sparseMarketFallback: string }[];
+    };
+    const profile = value.repricingProfiles[0];
+    if (profile === undefined) throw new Error("Missing pricing profile");
+    profile.sparseMarketFallback = "guess";
 
     expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });

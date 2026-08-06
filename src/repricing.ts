@@ -20,6 +20,11 @@ export type RepricingPriceBasis = "item" | "delivered";
 export type RepricingPriceSource = "lowest" | "market";
 export type RepricingGapAction = "follow-lowest" | "use-next" | "skip";
 export type RepricingSupportMode = "adjacent" | "cluster";
+export type SparseMarketFallback =
+  | "skip"
+  | "higher-of-market-and-lowest"
+  | "market-then-lowest"
+  | "lowest-then-market";
 
 export interface RepricingRange {
   readonly maximumPrice?: number;
@@ -41,6 +46,8 @@ export interface RepricingRules {
   /** Zero matches the competitor; one undercuts by one cent. */
   readonly adjustmentCents: number;
   readonly allowPriceIncreases: boolean;
+  /** Missing preserves the pre-fallback behavior for programmatic consumers. */
+  readonly sparseMarketFallback?: SparseMarketFallback;
   readonly ranges: readonly RepricingRange[];
 }
 
@@ -83,6 +90,7 @@ export interface RepricingPreviewRow {
   readonly pricingSource?:
     RepricingPriceSource | "next-lowest" | "supported-cluster";
   readonly pricingPercentage?: number;
+  readonly sparseMarketFallbackApplied?: Exclude<SparseMarketFallback, "skip">;
   readonly rangeMaximumPrice?: number;
   readonly minimumApplied: boolean;
   readonly status: RepricingRowStatus;
@@ -184,6 +192,15 @@ export function parseRepricingRules(value: unknown): RepricingRules {
   if (typeof source?.allowPriceIncreases !== "boolean") {
     issues.push("Allow-price-increases must be true or false.");
   }
+  const sparseMarketFallback = source?.sparseMarketFallback ?? "skip";
+  if (
+    sparseMarketFallback !== "skip" &&
+    sparseMarketFallback !== "higher-of-market-and-lowest" &&
+    sparseMarketFallback !== "market-then-lowest" &&
+    sparseMarketFallback !== "lowest-then-market"
+  ) {
+    issues.push("Sparse-market fallback is invalid.");
+  }
   const ranges = parseRepricingRanges(source?.ranges, issues);
   if (issues.length > 0) throw new ConfigurationError(issues);
   return {
@@ -192,6 +209,7 @@ export function parseRepricingRules(value: unknown): RepricingRules {
     priceBasis: priceBasis as RepricingPriceBasis,
     adjustmentCents: Number(adjustmentCents),
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
+    sparseMarketFallback: sparseMarketFallback as SparseMarketFallback,
     ranges,
   };
 }
@@ -347,6 +365,42 @@ function listingBasis(
 interface SupportedSellerCluster {
   readonly listing: MarketplaceListing;
   readonly sellerCount: number;
+}
+
+interface SparseMarketReference {
+  readonly listing?: MarketplaceListing;
+  readonly marketPrice?: number;
+  readonly source: "lowest" | "market";
+}
+
+function sparseMarketReference(
+  fallback: Exclude<SparseMarketFallback, "skip">,
+  lowest: MarketplaceListing | undefined,
+  lowestBasis: number | undefined,
+  marketPrice: number | undefined,
+): SparseMarketReference | undefined {
+  if (fallback === "lowest-then-market") {
+    if (lowest !== undefined) return { listing: lowest, source: "lowest" };
+    return marketPrice === undefined
+      ? undefined
+      : { marketPrice, source: "market" };
+  }
+  if (fallback === "market-then-lowest") {
+    if (marketPrice !== undefined) return { marketPrice, source: "market" };
+    return lowest === undefined
+      ? undefined
+      : { listing: lowest, source: "lowest" };
+  }
+  if (
+    lowest !== undefined &&
+    lowestBasis !== undefined &&
+    (marketPrice === undefined || lowestBasis >= marketPrice)
+  ) {
+    return { listing: lowest, source: "lowest" };
+  }
+  return marketPrice === undefined
+    ? undefined
+    : { marketPrice, source: "market" };
 }
 
 function cheapestListingsBySeller(
@@ -507,7 +561,32 @@ export function calculateRepricingRow(
     lowestBasis <= 0
       ? undefined
       : ((gapReferenceBasis - lowestBasis) / lowestBasis) * 100;
+  const sparseMarketFallback = rules.sparseMarketFallback ?? "skip";
+  const insufficientListings = candidates.length < minimumListings;
+  const unsupportedSellerBand =
+    supportMode === "cluster" &&
+    range.gapAction !== "follow-lowest" &&
+    supportedCluster === undefined;
+  const selectedSourceUnavailable =
+    (range.priceSource === "lowest" && lowest === undefined) ||
+    (range.priceSource === "market" && marketPrice === undefined);
+  const sparseMarketFallbackRequired =
+    insufficientListings || unsupportedSellerBand || selectedSourceUnavailable;
+  const fallbackReference =
+    sparseMarketFallbackRequired && sparseMarketFallback !== "skip"
+      ? sparseMarketReference(
+          sparseMarketFallback,
+          lowest,
+          lowestBasis,
+          marketPrice,
+        )
+      : undefined;
+  const sparseMarketFallbackApplied = fallbackReference !== undefined;
+  const appliedSparseMarketFallback = sparseMarketFallbackApplied
+    ? (sparseMarketFallback as Exclude<SparseMarketFallback, "skip">)
+    : undefined;
   const gapDetected =
+    !sparseMarketFallbackApplied &&
     range.gapAction !== "follow-lowest" &&
     gapPercent !== undefined &&
     (supportMode === "adjacent" || gapPercent > 0) &&
@@ -556,7 +635,7 @@ export function calculateRepricingRow(
       ? {}
       : { rangeMaximumPrice: range.maximumPrice }),
   };
-  if (candidates.length < minimumListings) {
+  if (insufficientListings && !sparseMarketFallbackApplied) {
     return {
       ...base,
       ...rangeDetails,
@@ -567,11 +646,7 @@ export function calculateRepricingRow(
       queueable: false,
     };
   }
-  if (
-    supportMode === "cluster" &&
-    range.gapAction !== "follow-lowest" &&
-    supportedCluster === undefined
-  ) {
+  if (unsupportedSellerBand && !sparseMarketFallbackApplied) {
     return {
       ...base,
       ...rangeDetails,
@@ -579,6 +654,22 @@ export function calculateRepricingRow(
       minimumApplied: false,
       status: "skipped",
       reason: `No price band within ${String(supportWindowPercent)}% has support from ${String(minimumSellerSupport)} distinct sellers.`,
+      queueable: false,
+    };
+  }
+  if (
+    sparseMarketFallbackRequired &&
+    sparseMarketFallback !== "skip" &&
+    fallbackReference === undefined
+  ) {
+    return {
+      ...base,
+      ...rangeDetails,
+      proposedPrice: own.listing.price,
+      minimumApplied: false,
+      status: "skipped",
+      reason:
+        "The configured sparse-market fallback found neither a market price nor a qualifying listing.",
       queueable: false,
     };
   }
@@ -598,11 +689,13 @@ export function calculateRepricingRow(
     };
   }
   const useNext = gapDetected && range.gapAction === "use-next";
-  const referenceListing = useNext
-    ? gapReferenceListing
-    : range.priceSource === "lowest"
-      ? lowest
-      : undefined;
+  const referenceListing = sparseMarketFallbackApplied
+    ? fallbackReference.listing
+    : useNext
+      ? gapReferenceListing
+      : range.priceSource === "lowest"
+        ? lowest
+        : undefined;
   if (useNext && referenceListing === undefined) {
     return skippedRow(
       base,
@@ -611,13 +704,20 @@ export function calculateRepricingRow(
         : "No second qualifying listing was found for the configured gap rule.",
     );
   }
-  if (range.priceSource === "lowest" && referenceListing === undefined) {
+  if (
+    !sparseMarketFallbackApplied &&
+    range.priceSource === "lowest" &&
+    referenceListing === undefined
+  ) {
     return skippedRow(
       base,
       "No qualifying competing listing was found for this range.",
     );
   }
-  if (referenceListing === undefined && marketPrice === undefined) {
+  const selectedMarketPrice = sparseMarketFallbackApplied
+    ? fallbackReference.marketPrice
+    : marketPrice;
+  if (referenceListing === undefined && selectedMarketPrice === undefined) {
     return skippedRow(
       base,
       "No market price was available for the selected pricing range.",
@@ -628,12 +728,14 @@ export function calculateRepricingRow(
     ? supportMode === "cluster"
       ? "supported-cluster"
       : "next-lowest"
-    : range.priceSource;
+    : sparseMarketFallbackApplied
+      ? fallbackReference.source
+      : range.priceSource;
   let sourcePrice: number;
   if (referenceListing !== undefined) {
     sourcePrice = listingBasis(referenceListing, rules.priceBasis);
-  } else if (marketPrice !== undefined) {
-    sourcePrice = marketPrice;
+  } else if (selectedMarketPrice !== undefined) {
+    sourcePrice = selectedMarketPrice;
   } else {
     return skippedRow(
       base,
@@ -658,16 +760,21 @@ export function calculateRepricingRow(
           competitorCondition: referenceListing.condition,
         }),
     ...(useNext ? { gapActionApplied: "use-next" as const } : {}),
+    ...(appliedSparseMarketFallback === undefined
+      ? {}
+      : { sparseMarketFallbackApplied: appliedSparseMarketFallback }),
     pricingSource,
     minimumApplied,
   };
-  const strategyReason = useNext
-    ? supportMode === "cluster"
-      ? `The lowest seller is ${gapPercent.toFixed(1)}% below a price band supported by ${String(supportedCluster?.sellerCount ?? 0)} sellers, so this range uses ${String(range.percentage)}% of that band.`
-      : `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range uses ${String(range.percentage)}% of the next listing.`
-    : range.priceSource === "market"
-      ? `Uses ${String(range.percentage)}% of market price.`
-      : `Uses ${String(range.percentage)}% of the lowest qualifying listing.`;
+  const strategyReason = sparseMarketFallbackApplied
+    ? `Seller support was insufficient, so this profile uses its ${sparseMarketFallback.replaceAll("-", " ")} fallback and prices from the ${fallbackReference.source === "market" ? "market price" : "lowest qualifying listing"}.`
+    : useNext
+      ? supportMode === "cluster"
+        ? `The lowest seller is ${gapPercent.toFixed(1)}% below a price band supported by ${String(supportedCluster?.sellerCount ?? 0)} sellers, so this range uses ${String(range.percentage)}% of that band.`
+        : `The lowest listing is ${gapPercent.toFixed(1)}% below the next listing, so this range uses ${String(range.percentage)}% of the next listing.`
+      : range.priceSource === "market"
+        ? `Uses ${String(range.percentage)}% of market price.`
+        : `Uses ${String(range.percentage)}% of the lowest qualifying listing.`;
   if (target === own.listing.price) {
     return {
       ...base,

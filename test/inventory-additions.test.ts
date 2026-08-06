@@ -688,6 +688,58 @@ describe("inventory additions", () => {
     expect(preview.reason).toContain("uses 100% of the next listing");
   });
 
+  it("lists with the profile's conservative fallback when no seller band exists", async () => {
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: (input) =>
+          Promise.resolve(
+            input.sellerKey === "synthetic-seller"
+              ? searchResult([])
+              : searchResult([
+                  listing({ sellerKey: "seller-a", price: 1 }),
+                  listing({ sellerKey: "seller-b", price: 2 }),
+                ]),
+          ),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules: additionPricingRules({
+        sparseMarketFallback: "higher-of-market-and-lowest",
+        ranges: [
+          {
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      }),
+    });
+
+    expect(preview).toMatchObject({
+      proposedPrice: 3.5,
+      queueable: true,
+    });
+    expect(preview.reason).toContain("higher of market and lowest fallback");
+  });
+
   it("combines pending additions for the same SKU without losing quantity", async () => {
     const { path, queue } = await queueFixture();
     await queue.enqueue(addition);

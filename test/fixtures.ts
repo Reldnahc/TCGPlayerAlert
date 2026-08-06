@@ -44,6 +44,7 @@ export const syntheticPackingSlip: FulfillmentDocument = {
 export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     version: 1,
+    pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     actionMaximumAttempts: 3,
     dryRun: true,
@@ -85,6 +86,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         priceBasis: "delivered",
         adjustmentCents: 0,
         allowPriceIncreases: false,
+        sparseMarketFallback: "higher-of-market-and-lowest",
         ranges: [
           {
             maximumPrice: 1,
@@ -138,6 +140,28 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
             gapAction: "skip",
             supportMode: "cluster",
             minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      {
+        id: "sell-now",
+        name: "Sell now",
+        minimumPrice: 0.35,
+        conditionPolicy: "same-or-better",
+        priceBasis: "delivered",
+        adjustmentCents: 1,
+        allowPriceIncreases: true,
+        sparseMarketFallback: "lowest-then-market",
+        ranges: [
+          {
+            minimumListings: 0,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 0,
+            gapAction: "follow-lowest",
+            supportMode: "cluster",
+            minimumSellerSupport: 1,
             supportWindowPercent: 5,
           },
         ],

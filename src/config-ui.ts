@@ -591,6 +591,15 @@ function parseRepricingProfileUpdate(
   if (typeof source?.allowPriceIncreases !== "boolean") {
     issues.push(`${path} requires a price-increase setting.`);
   }
+  const sparseMarketFallback = source?.sparseMarketFallback;
+  if (
+    sparseMarketFallback !== "skip" &&
+    sparseMarketFallback !== "higher-of-market-and-lowest" &&
+    sparseMarketFallback !== "market-then-lowest" &&
+    sparseMarketFallback !== "lowest-then-market"
+  ) {
+    issues.push(`${path} has an invalid sparse-market fallback.`);
+  }
   const rangeValues = source?.ranges;
   if (
     !Array.isArray(rangeValues) ||
@@ -715,6 +724,8 @@ function parseRepricingProfileUpdate(
       issues,
     ),
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
+    sparseMarketFallback:
+      sparseMarketFallback as RepricingProfileConfig["sparseMarketFallback"],
     ranges,
   };
 }

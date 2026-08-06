@@ -491,6 +491,93 @@ describe("smart repricing", () => {
     expect(row.reason).toContain("No price band within 5%");
   });
 
+  it("uses the conservative higher-of-market-and-lowest fallback without a seller band", () => {
+    const ownListing = listing({ price: 8 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [
+        listing({ listingId: 2, sellerKey: "seller-a", price: 2 }),
+        listing({ listingId: 3, sellerKey: "seller-b", price: 4 }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        sparseMarketFallback: "higher-of-market-and-lowest",
+        ranges: [
+          {
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-conservative-fallback",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 2.5,
+      pricingSource: "market",
+      sparseMarketFallbackApplied: "higher-of-market-and-lowest",
+      queueable: true,
+    });
+    expect(row.reason).toContain("higher of market and lowest fallback");
+  });
+
+  it("uses the Sell now lowest-first fallback and then market when needed", () => {
+    const sellNowRules: RepricingRules = {
+      ...rules,
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+      sparseMarketFallback: "lowest-then-market",
+      ranges: [
+        {
+          minimumListings: 0,
+          priceSource: "lowest",
+          percentage: 100,
+          gapThresholdPercent: 0,
+          gapAction: "follow-lowest",
+          supportMode: "cluster",
+          minimumSellerSupport: 1,
+          supportWindowPercent: 5,
+        },
+      ],
+    };
+    const ownListing = listing({ price: 8 });
+    const fromLowest = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [listing({ sellerKey: "seller-a", price: 3, shippingPrice: 0 })],
+      sellerKey,
+      sellNowRules,
+      "row-sell-now-lowest",
+    );
+    const fromMarket = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [],
+      sellerKey,
+      sellNowRules,
+      "row-sell-now-market",
+    );
+
+    expect(fromLowest).toMatchObject({
+      proposedPrice: 2.99,
+      pricingSource: "lowest",
+      queueable: true,
+    });
+    expect(fromLowest.sparseMarketFallbackApplied).toBeUndefined();
+    expect(fromMarket).toMatchObject({
+      proposedPrice: 2.49,
+      pricingSource: "market",
+      sparseMarketFallbackApplied: "lowest-then-market",
+      queueable: true,
+    });
+  });
+
   it("holds a high-value isolated low when the cluster rule says to skip", () => {
     const ownListing = listing({ price: 40 });
     const row = calculateRepricingRow(
