@@ -156,7 +156,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
             <div class="catalog-search-row">
               <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
-              <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" list="catalog-product-lines" maxlength="100" placeholder="All product lines" /><datalist id="catalog-product-lines"></datalist></label>
+              <label class="field"><span>Product line (optional)</span><select id="catalog-product-line" disabled><option value="">All product lines</option></select></label>
               <label class="field"><span>Set (optional)</span><select id="catalog-set" disabled><option value="">All sets</option></select></label>
               <button id="catalog-search" class="primary-button dark-button" type="button">Search catalog</button>
             </div>
@@ -1635,12 +1635,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
     ]);
   }
 
-  function updateCatalogProductLineSuggestions(products, selectedProductLine) {
-    const names = distinct(products.map((product) => product.productLineName)).sort((left, right) => left.localeCompare(right));
-    if (selectedProductLine && !names.includes(selectedProductLine)) names.unshift(selectedProductLine);
-    document.querySelector("#catalog-product-lines").replaceChildren(
-      ...names.map((name) => el("option", { value: name })),
+  function updateCatalogProductLineOptions(productLines, selectedProductLine) {
+    const select = document.querySelector("#catalog-product-line");
+    const options = [...productLines].sort((left, right) => left.name.localeCompare(right.name)).map((productLine) =>
+      el("option", { value: productLine.name, text: productLine.name + " (" + productLine.count + ")" }),
     );
+    select.replaceChildren(el("option", { value: "", text: "All product lines" }), ...options);
+    select.value = selectedProductLine || "";
+    select.disabled = productLines.length === 0;
   }
 
   function renderCatalogSearch() {
@@ -1668,7 +1670,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     results.replaceChildren(...sections);
     results.hidden = false;
-    updateCatalogProductLineSuggestions(search.products, search.productLine);
+    updateCatalogProductLineOptions(search.productLines, search.productLine);
     updateCatalogSetOptions(search.sets, search.setName);
     message.className = "repricing-message success";
     message.textContent = search.products.length + " of " + search.totalProducts + " loaded · " + exact.length + " exact" + (!search.setName && search.hasMore && search.sets.length > 1 ? " · choose a set to narrow results" : "");
@@ -1686,6 +1688,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function resetCatalogSetFilter() {
     updateCatalogSetOptions([], "");
+  }
+
+  function resetCatalogFilters() {
+    updateCatalogProductLineOptions([], "");
+    resetCatalogSetFilter();
   }
 
   async function searchCatalog(append = false, triggerButton) {
@@ -1728,10 +1735,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Catalog search failed.");
       if (requestToken !== state.catalogSearchToken) return;
-      const sameSearchFamily = current && current.query === query && current.productLine === productLine;
+      const sameQuery = current && current.query === query;
+      const sameSearchFamily = sameQuery && current.productLine === productLine;
       const existing = append && current ? current.products : [];
       const loadedOrderStart = existing.reduce((maximum, product) => Math.max(maximum, product.loadedOrder), -1) + 1;
       const received = data.products.map((product, index) => ({ ...product, loadedOrder: loadedOrderStart + index }));
+      const productLines = sameQuery
+        ? [...new Map([...current.productLines, ...data.productLines].map((productLine) => [productLine.name, productLine])).values()]
+        : data.productLines;
       const sets = sameSearchFamily
         ? [...new Map([...current.sets, ...data.sets].map((set) => [set.name, set])).values()]
         : data.sets;
@@ -1739,6 +1750,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         query,
         productLine,
         setName,
+        productLines,
         sets,
         totalProducts: data.totalProducts,
         nextOffset: data.nextOffset,
@@ -1769,8 +1781,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     "Damaged",
     "Unopened",
   ];
-
-  const distinct = (values) => [...new Set(values)];
 
   function activeMerchandiseProfile() {
     if (!state.settings) return null;
@@ -2373,15 +2383,17 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#refresh-queue").addEventListener("click", loadQueue);
   document.querySelector("#refresh-inventory-queue").addEventListener("click", loadInventoryQueue);
   document.querySelector("#catalog-search").addEventListener("click", () => void searchCatalog());
-  for (const selector of ["#catalog-query", "#catalog-product-line"]) {
-    document.querySelector(selector).addEventListener("input", resetCatalogSetFilter);
-    document.querySelector(selector).addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void searchCatalog();
-      }
-    });
-  }
+  document.querySelector("#catalog-query").addEventListener("input", resetCatalogFilters);
+  document.querySelector("#catalog-query").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void searchCatalog();
+    }
+  });
+  document.querySelector("#catalog-product-line").addEventListener("change", () => {
+    resetCatalogSetFilter();
+    void searchCatalog();
+  });
   document.querySelector("#catalog-set").addEventListener("change", () => void searchCatalog());
   document.querySelector("#inventory-profile-select").addEventListener("change", (event) => {
     selectMerchandiseProfile(event.target.value);

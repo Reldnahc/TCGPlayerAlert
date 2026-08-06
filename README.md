@@ -34,7 +34,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.4.6 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.4.7 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -100,7 +100,7 @@ The scheduler and separately invoked manual syncs share a filesystem lease, so t
 Open the settings screen and use **Add cards**:
 
 1. In **Settings**, create one or more merchandise profiles. A profile stores the usual language, minimum item price, Seller Portal shipping rate, comparison basis, condition policy, undercut, and no-listing fallback. Choose one default profile and save.
-2. In **Add cards**, select the profile for this batch, then search for the card name and optionally narrow by product line. Each search retrieves one page of up to 24 products and returns the matching set choices in the same request. Choose a set to narrow large families such as basic lands without paging through the entire fuzzy result set; `Load more` requests exactly one additional page. A normalized likeness score keeps exact names, artwork/name variants, partial names, and typo-tolerant fuzzy matches ordered across loaded pages. Identical search batches are cached briefly, and replaced searches are canceled.
+2. In **Add cards**, select the profile for this batch, then search for the card name. Each search retrieves one page of up to 24 products and returns matching product-line and set choices in the same request. Choose a product line to refresh its available sets, then optionally choose a set to narrow large families such as basic lands without paging through the entire fuzzy result set; each selection makes one bounded search. `Load more` requests exactly one additional page. A normalized likeness score keeps exact names, artwork/name variants, partial names, and typo-tolerant fuzzy matches ordered across loaded pages. Identical search batches are cached briefly, and replaced searches are canceled.
 3. On the exact set row, select condition, toggle **Foil** when needed, and choose `+1`, `+2`, `+3`, or `+4`. Use `+X` for any other quantity. Regular and English Near Mint Foil market prices appear beside the set metadata; a dash means no matching live Foil SKU was available for price enrichment.
 4. The quantity action immediately selects the exact condition, printing, and profile-language SKU, calculates its price from the selected profile, and adds a durable queue job. The row reports the queued price or a specific validation error. Product details and comparison data are cached in memory, while the worker still rechecks live inventory before submission. For a standalone item under $5, delivered-price comparison applies TCGplayer's current $1.49 minimum shipping charge.
 

@@ -119,7 +119,7 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
-  it("loads and ranks one catalog page with set facets", async () => {
+  it("loads and ranks one catalog page with product-line and set facets", async () => {
     const related = { ...product, productId: 1, productName: "Synthetic Box" };
     const variant = {
       ...product,
@@ -132,6 +132,7 @@ describe("inventory additions", () => {
         void input;
         return Promise.resolve({
           totalProducts: 100,
+          productLines: [{ name: "Synthetic Game", count: 3 }],
           sets: [{ name: "Synthetic Set", count: 3 }],
           products: [related, variant, exact],
         });
@@ -160,6 +161,7 @@ describe("inventory additions", () => {
     ]);
     expect(result).toMatchObject({
       totalProducts: 100,
+      productLines: [{ name: "Synthetic Game", count: 3 }],
       sets: [{ name: "Synthetic Set", count: 3 }],
       nextOffset: 24,
       hasMore: true,
@@ -239,6 +241,7 @@ describe("inventory additions", () => {
         expect(options?.signal).toBe(signal);
         return Promise.resolve({
           totalProducts: 100,
+          productLines: [],
           sets: [],
           products: exactProducts,
         });
@@ -270,6 +273,7 @@ describe("inventory additions", () => {
     const searchCatalogProducts = vi.fn((input: { offset?: number }) =>
       Promise.resolve({
         totalProducts: 200,
+        productLines: [],
         sets: [],
         products: [
           {
@@ -303,6 +307,7 @@ describe("inventory additions", () => {
     const searchCatalogProducts = vi.fn((input: { setName?: string }) =>
       Promise.resolve({
         totalProducts: 1,
+        productLines: [{ name: "Synthetic Game", count: 1 }],
         sets: [{ name: "Synthetic Set", count: 1 }],
         products: [
           {
@@ -373,7 +378,12 @@ describe("inventory additions", () => {
       now: () => new Date("2026-08-04T12:00:00.000Z"),
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
         getCatalogProduct: () => Promise.resolve(product),
         searchMarketplaceProducts,
       },
@@ -417,7 +427,12 @@ describe("inventory additions", () => {
       now: () => now,
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
         getCatalogProduct,
         searchMarketplaceProducts,
       },
@@ -483,7 +498,12 @@ describe("inventory additions", () => {
       sellerKey: "synthetic-seller",
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
         getCatalogProduct: () =>
           Promise.resolve({ ...product, marketPrice: 0.2 }),
         searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
@@ -516,7 +536,12 @@ describe("inventory additions", () => {
       sellerKey: "synthetic-seller",
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
         getCatalogProduct: () => Promise.resolve(product),
         searchMarketplaceProducts: (input) =>
           Promise.resolve(

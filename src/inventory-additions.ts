@@ -72,6 +72,10 @@ export interface CatalogSearchProduct extends CatalogProductSummary {
 
 export interface CatalogSearchResult {
   readonly totalProducts: number;
+  readonly productLines: readonly {
+    readonly name: string;
+    readonly count: number;
+  }[];
   readonly sets: readonly { readonly name: string; readonly count: number }[];
   readonly products: readonly CatalogSearchProduct[];
   readonly nextOffset: number;
@@ -477,6 +481,7 @@ export class InventoryAdditionService {
     );
     const searchResult = {
       totalProducts: result.totalProducts,
+      productLines: result.productLines,
       sets: result.sets,
       products: rankCatalogSearchProducts(result.products, query),
       nextOffset,

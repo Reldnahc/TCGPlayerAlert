@@ -209,7 +209,8 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain('id="repricing-profile-select"');
     expect(CONFIG_UI_HTML).toContain('id="repricing-profile-list"');
     expect(CONFIG_UI_HTML).not.toContain('id="repricing-minimum"');
-    expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
+    expect(CONFIG_UI_HTML).toContain('id="catalog-product-line" disabled');
+    expect(CONFIG_UI_HTML).not.toContain("catalog-product-lines");
     expect(CONFIG_UI_HTML).toContain('id="catalog-set"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
@@ -223,6 +224,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain('text: "Find exact name"');
     expect(CONFIG_UI_JS).toContain('parameters.set("setName", setName)');
     expect(CONFIG_UI_JS).toContain("function updateCatalogSetOptions(");
+    expect(CONFIG_UI_JS).toContain("function updateCatalogProductLineOptions(");
     expect(CONFIG_UI_JS).toContain(
       "compareCatalogRanks(left.matchRank, right.matchRank)",
     );
@@ -756,6 +758,7 @@ describe("configuration UI service", () => {
         searchCatalogProducts: () =>
           Promise.resolve({
             totalProducts: 1,
+            productLines: [{ name: "Synthetic Game", count: 1 }],
             sets: [{ name: "Synthetic Set", count: 1 }],
             products: [catalogSummary],
           }),
@@ -898,6 +901,7 @@ describe("configuration UI service", () => {
     expect(catalogSearch.status).toBe(200);
     expect(await catalogSearch.json()).toMatchObject({
       totalProducts: 1,
+      productLines: [{ name: "Synthetic Game", count: 1 }],
       sets: [{ name: "Synthetic Set", count: 1 }],
       nextOffset: 1,
       hasMore: false,
