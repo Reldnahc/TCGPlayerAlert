@@ -297,6 +297,13 @@ describe("configuration UI service", () => {
       "void queueCatalogProduct(product, quantity)",
     );
     expect(CONFIG_UI_JS).toContain("candidate.language === profile.language");
+    expect(CONFIG_UI_JS).toContain("const availableLanguages = [...new Set(");
+    expect(CONFIG_UI_JS).toContain("availableLanguages.length !== 1");
+    expect(CONFIG_UI_JS).toContain(
+      '". List it as " + alternateLanguage + " instead?"',
+    );
+    expect(CONFIG_UI_JS).toContain("candidate.language === alternateLanguage");
+    expect(CONFIG_UI_JS).toContain('" as " + sku.language');
     expect(CONFIG_UI_JS).toContain("if (!preview.queueable)");
     expect(CONFIG_UI_JS).toContain('kind: "success"');
     expect(CONFIG_UI_JS).not.toContain("scheduleInventoryPreview");

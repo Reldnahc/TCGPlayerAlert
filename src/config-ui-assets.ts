@@ -2021,13 +2021,42 @@ export const CONFIG_UI_JS = String.raw`(() => {
         }
         state.inventoryProductDetailsById.set(productId, details);
       }
-      const sku = details.skus.find(
+      const matchingSkus = details.skus.filter(
         (candidate) => candidate.condition === condition
-          && candidate.printing === printing
-          && candidate.language === profile.language,
+          && candidate.printing === printing,
+      );
+      let sku = matchingSkus.find(
+        (candidate) => candidate.language === profile.language,
       );
       if (!sku) {
-        throw new Error("No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase() + " SKU exists for this product.");
+        const availableLanguages = [...new Set(
+          matchingSkus.map((candidate) => candidate.language),
+        )].sort((left, right) => left.localeCompare(right));
+        if (availableLanguages.length !== 1) {
+          const availability = availableLanguages.length === 0
+            ? ""
+            : " Available languages: " + availableLanguages.join(", ") + ".";
+          throw new Error("No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase() + " SKU exists for this product." + availability);
+        }
+        const alternateLanguage = availableLanguages[0];
+        const approved = window.confirm(
+          "No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase()
+            + " SKU exists for this product. The only matching language is " + alternateLanguage
+            + ". List it as " + alternateLanguage + " instead?",
+        );
+        if (!approved) {
+          state.inventoryResultByProductId.set(productId, {
+            kind: "warning",
+            text: "Not queued: listing as " + alternateLanguage + " was not approved.",
+          });
+          return;
+        }
+        sku = matchingSkus.find(
+          (candidate) => candidate.language === alternateLanguage,
+        );
+      }
+      if (!sku) {
+        throw new Error("The matching language SKU could not be selected.");
       }
       const previewResponse = await fetch("/api/inventory-additions/preview", {
         method: "POST",
@@ -2061,7 +2090,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       }
       state.inventoryResultByProductId.set(productId, {
         kind: "success",
-        text: "Queued +" + String(addQuantity) + " at " + money(preview.proposedPrice) + " using " + profile.name + ".",
+        text: "Queued +" + String(addQuantity)
+          + (sku.language === profile.language ? "" : " as " + sku.language)
+          + " at " + money(preview.proposedPrice) + " using " + profile.name + ".",
       });
       state.jobQueues.inventory.page = 0;
       await loadInventoryQueue();
