@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   MarketplaceListing,
   MarketplaceProduct,
+  SellerInventoryRemoval,
   SellerPriceUpdate,
   TcgplayerSellerClient,
 } from "tcgplayer-private-api";
@@ -97,6 +98,8 @@ export interface RepricingPreviewRow {
   readonly status: RepricingRowStatus;
   readonly reason: string;
   readonly queueable: boolean;
+  readonly removable?: boolean;
+  readonly removalReason?: string;
 }
 
 export interface RepricingPreview {
@@ -126,6 +129,7 @@ interface SellerListingContext {
 interface StoredPreview {
   readonly expiresAt: number;
   readonly updates: ReadonlyMap<string, SellerPriceUpdate>;
+  readonly removals: ReadonlyMap<string, SellerInventoryRemoval>;
 }
 
 interface MarketplaceSnapshot {
@@ -1052,8 +1056,12 @@ export class RepricingService {
     );
 
     const updates = new Map<string, SellerPriceUpdate>();
+    const removals = new Map<string, SellerInventoryRemoval>();
     const rows = sellerListings.map((context) => {
-      const row = secondarySkus.has(context.listing.productConditionId)
+      const hasSecondaryInventory = secondarySkus.has(
+        context.listing.productConditionId,
+      );
+      const row = hasSecondaryInventory
         ? skippedRow(
             {
               id: this.id(),
@@ -1119,6 +1127,22 @@ export class RepricingService {
                   },
             );
           })();
+      const removable =
+        !hasSecondaryInventory &&
+        context.listing.quantity > 0 &&
+        context.listing.customData.customListingId === undefined;
+      const removalReason = hasSecondaryInventory
+        ? "This SKU also has secondary-channel inventory."
+        : context.listing.quantity <= 0
+          ? "This listing has no available inventory."
+          : context.listing.customData.customListingId !== undefined
+            ? "Custom listings cannot be removed automatically."
+            : undefined;
+      const inventoryRow = {
+        ...row,
+        removable,
+        ...(removalReason === undefined ? {} : { removalReason }),
+      };
       if (row.queueable) {
         updates.set(row.id, {
           productId: context.product.productId,
@@ -1133,7 +1157,21 @@ export class RepricingService {
           reserveQuantity: 0,
         });
       }
-      return row;
+      if (removable) {
+        removals.set(row.id, {
+          productId: context.product.productId,
+          productName: context.product.productName,
+          productConditionId: context.listing.productConditionId,
+          conditionId: context.listing.conditionId,
+          channelId: context.listing.channelId,
+          categoryName: context.product.productLineName,
+          currentQuantity: context.listing.quantity,
+          price: context.listing.price,
+          storePriceCustomId: null,
+          reserveQuantity: 0,
+        });
+      }
+      return inventoryRow;
     });
     rows.sort(
       (left, right) =>
@@ -1148,6 +1186,7 @@ export class RepricingService {
     this.previews.set(previewId, {
       expiresAt: expiresAt.getTime(),
       updates,
+      removals,
     });
     return {
       id: previewId,
@@ -1398,6 +1437,26 @@ export class RepricingService {
     // A queued mutation can make the seller-inventory portion stale immediately.
     this.marketplaceCache = undefined;
     return updates as SellerPriceUpdate[];
+  }
+
+  takeRemoval(previewId: string, rowId: unknown): SellerInventoryRemoval {
+    this.removeExpiredPreviews();
+    const preview = this.previews.get(previewId);
+    if (preview === undefined) {
+      throw new ConfigurationError([
+        "The inventory preview expired or does not exist. Update the preview again.",
+      ]);
+    }
+    if (typeof rowId !== "string") {
+      throw new ConfigurationError(["The inventory row id is invalid."]);
+    }
+    const removal = preview.removals.get(rowId);
+    if (removal === undefined) {
+      throw new ConfigurationError([
+        "This inventory row is not eligible for automatic removal.",
+      ]);
+    }
+    return removal;
   }
 
   private removeExpiredPreviews(): void {

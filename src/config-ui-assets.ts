@@ -109,11 +109,11 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <section class="panel worker-settings-panel" aria-labelledby="worker-settings-title">
             <div class="inventory-queue-settings">
               <label class="switch-row">
-                <span><strong>Process added cards</strong></span>
+                <span><strong>Process inventory changes</strong></span>
                 <input id="inventory-queue-enabled" type="checkbox" />
                 <span class="switch" aria-hidden="true"></span>
               </label>
-              <label class="field compact-field"><span>Cooldown after each addition</span><span class="input-with-unit"><input id="inventory-delay" type="number" min="0" max="3600" required /><span>seconds</span></span></label>
+              <label class="field compact-field"><span>Cooldown after each inventory change</span><span class="input-with-unit"><input id="inventory-delay" type="number" min="0" max="3600" required /><span>seconds</span></span></label>
             </div>
             <div class="queue-settings">
               <label class="switch-row">
@@ -170,7 +170,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="panel-inventory" class="tab-panel" role="tabpanel" aria-labelledby="tab-inventory" tabindex="0" data-panel="inventory" hidden>
           <div class="section-heading repricing-heading">
             <div>
-              <h2 id="repricing-title">Smart repricing</h2>
+              <h2 id="repricing-title">Inventory</h2>
             </div>
           </div>
           <section class="panel repricing-panel" aria-labelledby="repricing-title">
@@ -180,6 +180,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <button id="edit-repricing-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
             <div class="repricing-options">
+              <label class="field inventory-search"><span>Search your inventory</span><input id="inventory-search" type="search" placeholder="Card, set, condition, language, or product number" autocomplete="off" /></label>
               <span id="repricing-snapshot-status">Marketplace data is cached for ten minutes.</span>
               <div class="repricing-refresh-actions">
                 <button id="repricing-preview" class="primary-button dark-button" type="button">Update preview</button>
@@ -195,7 +196,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                     <strong id="repricing-inventory-value">$0.00</strong>
                     <small id="repricing-inventory-units"></small>
                   </div>
-                  <div id="repricing-counts"></div>
+                  <div><div id="repricing-counts"></div><small id="repricing-filter-count" class="repricing-filter-count"></small></div>
                 </div>
                 <div class="repricing-actions">
                   <button id="repricing-select-all" class="quiet-button" type="button">Select all changes</button>
@@ -204,7 +205,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               </div>
               <div class="repricing-table-wrap">
                 <table class="repricing-table">
-                  <thead><tr><th><span class="sr-only">Select</span></th><th>Card</th><th>Condition</th><th>Current</th><th>Market</th><th>Lowest match</th><th>Proposed</th><th>Result</th></tr></thead>
+                  <thead><tr><th><span class="sr-only">Select</span></th><th>Card</th><th>Condition</th><th>Current</th><th>Market</th><th>Lowest match</th><th>Proposed</th><th>Result</th><th>Actions</th></tr></thead>
                   <tbody id="repricing-rows"></tbody>
                 </table>
               </div>
@@ -215,7 +216,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <div id="panel-jobs" class="tab-panel" role="tabpanel" aria-labelledby="tab-jobs" tabindex="0" data-panel="jobs" hidden>
           <div class="section-heading queue-heading first-heading">
             <div>
-              <h2 id="inventory-queue-title">Card additions</h2>
+              <h2 id="inventory-queue-title">Inventory changes</h2>
             </div>
           </div>
           <section class="panel queue-panel" aria-labelledby="inventory-queue-title">
@@ -225,7 +226,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             </div>
             <p id="inventory-queue-message" class="queue-action-message" role="status" hidden></p>
             <div id="inventory-queue-jobs" class="queue-jobs" aria-live="polite"></div>
-            <nav id="inventory-queue-pagination" class="queue-pagination" aria-label="Card addition job pages" hidden></nav>
+            <nav id="inventory-queue-pagination" class="queue-pagination" aria-label="Inventory change job pages" hidden></nav>
           </section>
 
           <div class="section-heading queue-heading">
@@ -363,8 +364,9 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .repricing-heading { margin-top: 40px; }
 .repricing-panel { overflow: hidden; margin-bottom: 22px; }
 .repricing-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
-.repricing-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 20px 25px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
+.repricing-options { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(180px, .7fr) auto; align-items: end; gap: 20px; padding: 16px 25px 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .repricing-options > span { color: var(--muted); font-size: .8rem; }
+.inventory-search input { min-width: 0; }
 .repricing-refresh-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
 .repricing-message { margin: 0; padding: 15px 25px; color: var(--muted); font-size: .86rem; }
 .repricing-message:empty { display: none; }
@@ -377,9 +379,10 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .inventory-value strong { color: var(--green-dark); font-size: 1.35rem; line-height: 1.1; }
 .inventory-value small { color: var(--muted); font-size: .72rem; }
 #repricing-counts { color: var(--muted); font-size: .86rem; font-weight: 700; }
+.repricing-filter-count { display: block; margin-top: 3px; color: var(--muted); font-size: .72rem; }
 .repricing-actions { display: flex; gap: 9px; }
 .repricing-table-wrap { overflow: auto; border-top: 1px solid var(--line); }
-.repricing-table { width: 100%; min-width: 920px; border-collapse: collapse; font-size: .83rem; }
+.repricing-table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: .83rem; }
 .repricing-table th { padding: 11px 12px; background: #f1f3ed; color: var(--muted); text-align: left; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
 .repricing-table td { padding: 12px; border-top: 1px solid var(--line); vertical-align: top; }
 .repricing-table td:first-child, .repricing-table th:first-child { width: 42px; text-align: center; }
@@ -389,6 +392,13 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .price-old { color: var(--muted); }
 .price-new { color: var(--green-dark); font-weight: 850; }
 .minimum-note { display: block; color: var(--amber); font-size: .72rem; font-weight: 700; }
+.inventory-row-actions { min-width: 132px; }
+.inventory-remove-confirm { display: grid; gap: 7px; }
+.inventory-remove-confirm strong { color: #8c4630; font-size: .76rem; line-height: 1.25; }
+.inventory-remove-buttons { display: flex; gap: 6px; }
+.inventory-remove-button { border-color: #dab5a7; color: #8c4630; }
+.inventory-remove-button:hover { background: #fff5f1; }
+.inventory-remove-button:disabled { opacity: .55; cursor: not-allowed; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .inventory-heading { margin-top: 40px; }
 .inventory-panel { overflow: hidden; margin-bottom: 22px; }
@@ -539,6 +549,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
     settings: null,
     savedSettingsFingerprint: null,
     repricingPreview: null,
+    repricingSelectedRowIds: new Set(),
+    inventorySearchText: "",
+    inventoryRemovalConfirmRowId: null,
+    inventoryRemovingRowIds: new Set(),
+    inventoryRemovalQueuedRowIds: new Set(),
     inventoryAddingProductIds: new Set(),
     inventoryProductDetailsById: new Map(),
     inventoryResultByProductId: new Map(),
@@ -2113,10 +2128,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function inventoryQueueJob(job) {
-    const detail = "+" + job.addition.addQuantity + " · " + money(job.addition.price)
+    const operation = job.operation === "remove" ? "remove" : "add";
+    const change = operation === "remove" ? job.removal : job.addition;
+    const detail = (operation === "remove" ? "Remove qty " + change.currentQuantity : "+" + change.addQuantity)
+      + " · " + money(change.price)
       + (job.errorCode ? " · " + job.errorCode.replaceAll("_", " ").toLocaleLowerCase() : "");
     const copy = el("div", { className: "queue-job-copy" }, [
-      el("strong", { text: job.addition.productName }),
+      el("strong", { text: change.productName }),
       el("small", { text: detail }),
     ]);
     const status = el("span", { className: "status-pill " + job.status, text: job.status.replace("-", " ") });
@@ -2152,7 +2170,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const list = document.querySelector(inventory ? "#inventory-queue-jobs" : "#queue-jobs");
     const summary = document.querySelector(inventory ? "#inventory-queue-summary" : "#queue-summary");
     const pagination = document.querySelector(inventory ? "#inventory-queue-pagination" : "#queue-pagination");
-    const emptyText = inventory ? "No card additions." : "No price updates.";
+    const emptyText = inventory ? "No inventory changes." : "No price updates.";
     list.replaceChildren(
       ...(jobs.length === 0
         ? [el("div", { className: "queue-empty", text: emptyText })]
@@ -2204,8 +2222,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
       "data-row-id": row.id,
       "aria-label": "Select " + row.productName,
     });
-    checkbox.checked = row.queueable;
-    checkbox.disabled = !row.queueable;
+    checkbox.checked = state.repricingSelectedRowIds.has(row.id);
+    checkbox.disabled = !row.queueable || state.inventoryRemovalQueuedRowIds.has(row.id);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.repricingSelectedRowIds.add(row.id);
+      else state.repricingSelectedRowIds.delete(row.id);
+    });
     const comparableCount = row.qualifyingListings === undefined
       ? ""
       : " · " + row.qualifyingListings + " comparable" + (row.qualifyingListings === 1 ? "" : "s");
@@ -2222,6 +2244,37 @@ export const CONFIG_UI_JS = String.raw`(() => {
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);
     if (row.minimumApplied) proposed.append(el("span", { className: "minimum-note", text: "minimum applied" }));
+    const removalActions = el("td", { className: "inventory-row-actions" });
+    if (state.inventoryRemovalQueuedRowIds.has(row.id)) {
+      removalActions.append(el("span", { className: "status-pill pending", text: "removal queued" }));
+    } else if (state.inventoryRemovalConfirmRowId === row.id) {
+      const cancel = el("button", { className: "quiet-button", type: "button", text: "Cancel" });
+      const confirm = el("button", { className: "quiet-button inventory-remove-button", type: "button", text: "Confirm" });
+      const busy = state.inventoryRemovingRowIds.has(row.id);
+      cancel.disabled = busy;
+      confirm.disabled = busy;
+      if (busy) confirm.textContent = "Queueing...";
+      cancel.addEventListener("click", () => {
+        state.inventoryRemovalConfirmRowId = null;
+        renderRepricingRows();
+      });
+      confirm.addEventListener("click", () => void queueInventoryRemoval(row));
+      removalActions.append(el("div", { className: "inventory-remove-confirm" }, [
+        el("strong", { text: "Remove all qty " + String(row.quantity) + "?" }),
+        el("div", { className: "inventory-remove-buttons" }, [cancel, confirm]),
+      ]));
+    } else if (row.removable) {
+      const remove = el("button", { className: "quiet-button inventory-remove-button", type: "button", text: "Remove" });
+      remove.addEventListener("click", () => {
+        state.inventoryRemovalConfirmRowId = row.id;
+        renderRepricingRows();
+      });
+      removalActions.append(remove);
+    } else {
+      const unavailable = el("span", { className: "price-old", text: "Unavailable" });
+      if (row.removalReason) unavailable.title = row.removalReason;
+      removalActions.append(unavailable);
+    }
     return el("tr", {}, [
       el("td", {}, [checkbox]),
       el("td", {}, [el("div", { className: "card-cell" }, [
@@ -2238,21 +2291,88 @@ export const CONFIG_UI_JS = String.raw`(() => {
         el("span", { className: "status-pill " + row.status, text: row.status }),
         el("div", { className: "result-copy", text: row.reason }),
       ]),
+      removalActions,
     ]);
+  }
+
+  function inventoryRowMatches(row, query) {
+    const tokens = query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean);
+    if (tokens.length === 0) return true;
+    const text = [
+      row.productName,
+      row.productLineName,
+      row.setName,
+      row.condition,
+      row.printing,
+      row.language,
+      row.productId,
+      row.productConditionId,
+    ].join(" ").toLocaleLowerCase();
+    return tokens.every((token) => text.includes(token));
+  }
+
+  function renderRepricingRows() {
+    const preview = state.repricingPreview;
+    if (!preview) return;
+    const rows = preview.rows.filter((row) => inventoryRowMatches(row, state.inventorySearchText));
+    document.querySelector("#repricing-rows").replaceChildren(
+      ...(rows.length === 0
+        ? [el("tr", {}, [el("td", { colspan: "9", className: "queue-empty", text: "No inventory matches this search." })])]
+        : rows.map(renderRepricingRow)),
+    );
+    document.querySelector("#repricing-filter-count").textContent = state.inventorySearchText.trim() === ""
+      ? ""
+      : "Showing " + String(rows.length) + " of " + String(preview.rows.length) + " listings";
   }
 
   function renderRepricingPreview(preview) {
     state.repricingPreview = preview;
+    state.repricingSelectedRowIds = new Set(preview.rows.filter((row) => row.queueable).map((row) => row.id));
+    state.inventoryRemovalConfirmRowId = null;
+    state.inventoryRemovingRowIds.clear();
+    state.inventoryRemovalQueuedRowIds.clear();
     document.querySelector("#repricing-inventory-value").textContent = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(preview.totals.currentListingValue);
     document.querySelector("#repricing-inventory-units").textContent =
       preview.totals.totalQuantity + " card" + (preview.totals.totalQuantity === 1 ? "" : "s") + " across " + preview.totals.listingCount + " listing" + (preview.totals.listingCount === 1 ? "" : "s");
     document.querySelector("#repricing-counts").textContent =
       preview.counts.ready + " changes · " + preview.counts.unchanged + " unchanged · " + preview.counts.skipped + " skipped";
-    document.querySelector("#repricing-rows").replaceChildren(...preview.rows.map(renderRepricingRow));
+    renderRepricingRows();
     document.querySelector("#repricing-results").hidden = false;
     const queueButton = document.querySelector("#repricing-queue");
     queueButton.disabled = preview.counts.ready === 0;
     queueButton.textContent = "Queue selected";
+  }
+
+  async function queueInventoryRemoval(row) {
+    const preview = state.repricingPreview;
+    if (!preview || state.inventoryRemovingRowIds.has(row.id)) return;
+    const message = document.querySelector("#repricing-message");
+    state.inventoryRemovingRowIds.add(row.id);
+    state.repricingSelectedRowIds.delete(row.id);
+    renderRepricingRows();
+    message.className = "repricing-message";
+    message.textContent = "";
+    try {
+      const response = await fetch("/api/repricing/previews/" + encodeURIComponent(preview.id) + "/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ rowId: row.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The removal was not queued.");
+      state.inventoryRemovalQueuedRowIds.add(row.id);
+      state.inventoryRemovalConfirmRowId = null;
+      state.jobQueues.inventory.page = 0;
+      message.className = "repricing-message success";
+      message.textContent = row.productName + " was queued for removal. The job will recheck the live quantity before submitting.";
+      await loadInventoryQueue();
+    } catch (error) {
+      message.className = "repricing-message error";
+      message.textContent = error instanceof Error ? error.message : "The removal was not queued.";
+    } finally {
+      state.inventoryRemovingRowIds.delete(row.id);
+      renderRepricingRows();
+    }
   }
 
   function repricingRules() {
@@ -2307,7 +2427,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
     if (!preview) return;
     const button = document.querySelector("#repricing-queue");
     const message = document.querySelector("#repricing-message");
-    const rowIds = [...document.querySelectorAll('#repricing-rows input[type="checkbox"]:checked')].map((checkbox) => checkbox.dataset.rowId);
+    const rowIds = preview.rows
+      .filter((row) => inventoryRowMatches(row, state.inventorySearchText))
+      .filter((row) => state.repricingSelectedRowIds.has(row.id))
+      .map((row) => row.id);
     if (rowIds.length === 0) {
       message.className = "repricing-message error";
       message.textContent = "Select at least one proposed change.";
@@ -2593,8 +2716,23 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#repricing-preview").addEventListener("click", () => previewRepricing(false));
   document.querySelector("#repricing-force-refresh").addEventListener("click", () => previewRepricing(true));
   document.querySelector("#repricing-queue").addEventListener("click", queueRepricingSelection);
+  document.querySelector("#inventory-search").addEventListener("input", (event) => {
+    state.inventorySearchText = event.target.value;
+    renderRepricingRows();
+  });
   document.querySelector("#repricing-select-all").addEventListener("click", () => {
-    for (const checkbox of document.querySelectorAll('#repricing-rows input[type="checkbox"]:not(:disabled)')) checkbox.checked = true;
+    const preview = state.repricingPreview;
+    if (!preview) return;
+    for (const row of preview.rows) {
+      if (
+        row.queueable &&
+        inventoryRowMatches(row, state.inventorySearchText) &&
+        !state.inventoryRemovalQueuedRowIds.has(row.id)
+      ) {
+        state.repricingSelectedRowIds.add(row.id);
+      }
+    }
+    renderRepricingRows();
   });
   const tabList = document.querySelector('[role="tablist"]');
   for (const button of tabList.querySelectorAll('[role="tab"][data-tab]')) {

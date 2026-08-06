@@ -7,6 +7,7 @@ import {
   type CatalogProductDetails,
   type MarketplaceListing,
   type SellerInventoryAddition,
+  type SellerInventoryRemoval,
 } from "tcgplayer-private-api";
 import {
   createTcgplayerInventoryAdditionExecutor,
@@ -121,6 +122,19 @@ const addition: SellerInventoryAddition = {
   categoryName: "Synthetic Game",
   currentQuantity: 2,
   addQuantity: 1,
+  price: 2,
+  storePriceCustomId: null,
+  reserveQuantity: 0,
+};
+
+const removal: SellerInventoryRemoval = {
+  productId: 123,
+  productName: "Synthetic Card",
+  productConditionId: 456,
+  conditionId: 3,
+  channelId: 0,
+  categoryName: "Synthetic Game",
+  currentQuantity: 2,
   price: 2,
   storePriceCustomId: null,
   reserveQuantity: 0,
@@ -807,12 +821,48 @@ describe("inventory additions", () => {
     const snapshot = await reloaded.snapshot();
 
     expect(snapshot.counts).toMatchObject({ pending: 1, superseded: 1 });
-    expect(
-      snapshot.jobs.find((job) => job.status === "pending")?.addition,
-    ).toMatchObject({
+    const pending = snapshot.jobs.find((job) => job.status === "pending");
+    if (pending?.operation !== "add")
+      throw new Error("Missing pending addition");
+    expect(pending.addition).toMatchObject({
       addQuantity: 3,
       price: 2.25,
     });
+  });
+
+  it("queues an exact-SKU removal and supersedes a pending addition", async () => {
+    const { path, queue } = await queueFixture();
+    const pendingAddition = (await queue.enqueue(addition))[0];
+    const queuedRemoval = await queue.enqueueRemoval(removal);
+    const reloaded = new InventoryAdditionQueueStore({
+      stateFile: path,
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
+
+    const snapshot = await reloaded.snapshot();
+
+    expect(pendingAddition).toBeDefined();
+    expect(queuedRemoval).toMatchObject({
+      operation: "remove",
+      removal,
+      status: "pending",
+    });
+    expect(snapshot.counts).toMatchObject({ pending: 1, superseded: 1 });
+    expect(snapshot.jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: pendingAddition?.id,
+          operation: "add",
+          status: "superseded",
+        }),
+        expect.objectContaining({
+          id: queuedRemoval.id,
+          operation: "remove",
+          status: "pending",
+        }),
+      ]),
+    );
   });
 
   it("resubmits a failed addition once without duplicating its quantity", async () => {
@@ -833,6 +883,9 @@ describe("inventory additions", () => {
       resubmittedFromJobId: original.id,
     });
     expect(resubmitted.id).not.toBe(original.id);
+    if (resubmitted.operation !== "add") {
+      throw new Error("Expected an addition job");
+    }
     expect(resubmitted.addition.addQuantity).toBe(addition.addQuantity);
     expect(snapshot.jobs).toEqual(
       expect.arrayContaining([
@@ -848,7 +901,7 @@ describe("inventory additions", () => {
       "already been resubmitted",
     );
     await expect(queue.resubmit(resubmitted.id)).rejects.toThrow(
-      "Only a failed inventory-addition job",
+      "Only a failed inventory-change job",
     );
   });
 
@@ -949,7 +1002,7 @@ describe("inventory additions", () => {
     });
 
     try {
-      await executor.apply(addition);
+      await executor.apply(addition, "add");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -962,6 +1015,88 @@ describe("inventory additions", () => {
         "productQuantityPrices[0][ConditionQuantityPrices][0][Quantity]",
       ),
     ).toBe("3");
+    expect(
+      form.get("productQuantityPrices[0][ConditionQuantityPrices][0][Price]"),
+    ).toBe("2.00");
+  });
+
+  it("refreshes live quantity before submitting an exact removal", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const requestText = (input: URL | RequestInfo): string =>
+      input instanceof Request
+        ? input.url
+        : input instanceof URL
+          ? input.href
+          : input;
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      await Promise.resolve();
+      const url = requestText(input);
+      requests.push({ url, ...(init === undefined ? {} : { init }) });
+      if (url.includes("mp-search-api")) {
+        if (typeof init?.body !== "string") {
+          throw new Error("Expected a string marketplace-search body.");
+        }
+        const body = JSON.parse(init.body) as {
+          listingSearch: { filters: { term: { channelId: number } } };
+        };
+        const listings =
+          body.listingSearch.filters.term.channelId === 0
+            ? [
+                listing({
+                  productConditionId: 456,
+                  conditionId: 3,
+                  condition: "Moderately Played",
+                  sellerKey: "seller_test",
+                  sellerName: "Synthetic Seller",
+                  quantity: 2,
+                  price: 2,
+                }),
+              ]
+            : [];
+        return new Response(
+          JSON.stringify({
+            errors: [],
+            results: [
+              {
+                totalResults: listings.length === 0 ? 0 : 1,
+                results: searchResult(listings).products,
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 204 });
+    };
+    vi.stubGlobal("fetch", fetchImplementation);
+    const config = parseConfig(
+      JSON.parse(
+        await readFile("config/local.example.json", "utf8"),
+      ) as unknown,
+    );
+    const executor = createTcgplayerInventoryAdditionExecutor(config, {
+      TCGPLAYER_AUTH_COOKIE: "synthetic-cookie",
+      TCGPLAYER_SELLER_KEY: "seller_test",
+    });
+
+    try {
+      await executor.apply(removal, "remove");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(requests).toHaveLength(3);
+    const mutationBody = requests[2]?.init?.body;
+    if (typeof mutationBody !== "string") {
+      throw new Error("Expected a string inventory-removal body.");
+    }
+    const form = new URLSearchParams(mutationBody);
+    expect(form.get("productQuantityPrices[0][AddToQuantity]")).toBe("0");
+    expect(
+      form.get(
+        "productQuantityPrices[0][ConditionQuantityPrices][0][Quantity]",
+      ),
+    ).toBe("0");
     expect(
       form.get("productQuantityPrices[0][ConditionQuantityPrices][0][Price]"),
     ).toBe("2.00");
@@ -1027,7 +1162,7 @@ describe("inventory additions", () => {
     });
 
     try {
-      await expect(executor.apply(addition)).rejects.toMatchObject({
+      await expect(executor.apply(addition, "add")).rejects.toMatchObject({
         code: "REVIEW_REQUIRED",
       });
     } finally {

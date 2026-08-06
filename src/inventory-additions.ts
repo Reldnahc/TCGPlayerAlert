@@ -11,6 +11,7 @@ import {
   type MarketplaceProduct,
   type SearchMarketplaceProductsResult,
   type SellerInventoryAddition,
+  type SellerInventoryRemoval,
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import type { AppConfig, InventoryAdditionQueueConfig } from "./config.js";
@@ -895,9 +896,8 @@ export type InventoryAdditionJobStatus =
   | "superseded"
   | "canceled";
 
-export interface InventoryAdditionJob {
+interface InventoryAdditionJobBase {
   readonly id: string;
-  readonly addition: SellerInventoryAddition;
   readonly status: InventoryAdditionJobStatus;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -906,6 +906,16 @@ export interface InventoryAdditionJob {
   readonly errorCode?: string;
   readonly resubmittedFromJobId?: string;
 }
+
+export type InventoryAdditionJob =
+  | (InventoryAdditionJobBase & {
+      readonly operation: "add";
+      readonly addition: SellerInventoryAddition;
+    })
+  | (InventoryAdditionJobBase & {
+      readonly operation: "remove";
+      readonly removal: SellerInventoryRemoval;
+    });
 
 interface InventoryAdditionQueueState {
   readonly version: 1;
@@ -918,7 +928,10 @@ export interface InventoryAdditionQueueSnapshot {
 }
 
 export interface InventoryAdditionExecutor {
-  apply(addition: SellerInventoryAddition): Promise<void>;
+  apply(
+    change: SellerInventoryAddition | SellerInventoryRemoval,
+    operation: InventoryAdditionJob["operation"],
+  ): Promise<void>;
 }
 
 const TERMINAL_STATUSES = new Set<InventoryAdditionJobStatus>([
@@ -930,6 +943,22 @@ const TERMINAL_STATUSES = new Set<InventoryAdditionJobStatus>([
 
 function additionKey(addition: SellerInventoryAddition): string {
   return `${String(addition.productConditionId)}:${String(addition.channelId)}`;
+}
+
+function removalKey(removal: SellerInventoryRemoval): string {
+  return `${String(removal.productConditionId)}:${String(removal.channelId)}`;
+}
+
+function jobKey(job: InventoryAdditionJob): string {
+  return job.operation === "add"
+    ? additionKey(job.addition)
+    : removalKey(job.removal);
+}
+
+function jobChange(
+  job: InventoryAdditionJob,
+): SellerInventoryAddition | SellerInventoryRemoval {
+  return job.operation === "add" ? job.addition : job.removal;
 }
 
 function parseAddition(value: unknown): SellerInventoryAddition {
@@ -977,7 +1006,7 @@ function parseAddition(value: unknown): SellerInventoryAddition {
       source?.conditionId,
       "addition.conditionId",
       1,
-      6,
+      Number.MAX_SAFE_INTEGER,
       issues,
     ),
     channelId: whole(
@@ -1020,12 +1049,85 @@ function parseAddition(value: unknown): SellerInventoryAddition {
   return addition;
 }
 
+function parseRemoval(value: unknown): SellerInventoryRemoval {
+  const source = objectValue(value);
+  const issues: string[] = [];
+  if (source === undefined)
+    issues.push("The inventory removal must be an object.");
+  const reserveQuantity = money(
+    source?.reserveQuantity,
+    "removal.reserveQuantity",
+    0,
+    issues,
+  );
+  if (reserveQuantity !== 0) {
+    issues.push("removal.reserveQuantity must be zero.");
+  }
+  const removal: SellerInventoryRemoval = {
+    productId: whole(
+      source?.productId,
+      "removal.productId",
+      1,
+      Number.MAX_SAFE_INTEGER,
+      issues,
+    ),
+    productName: safeText(
+      source?.productName,
+      "removal.productName",
+      1024,
+      issues,
+    ),
+    productConditionId: whole(
+      source?.productConditionId,
+      "removal.productConditionId",
+      1,
+      Number.MAX_SAFE_INTEGER,
+      issues,
+    ),
+    conditionId: whole(
+      source?.conditionId,
+      "removal.conditionId",
+      1,
+      Number.MAX_SAFE_INTEGER,
+      issues,
+    ),
+    channelId: whole(source?.channelId, "removal.channelId", 0, 0, issues),
+    categoryName: safeText(
+      source?.categoryName,
+      "removal.categoryName",
+      256,
+      issues,
+    ),
+    currentQuantity: whole(
+      source?.currentQuantity,
+      "removal.currentQuantity",
+      1,
+      10_000_000,
+      issues,
+    ),
+    price: money(source?.price, "removal.price", 0.01, issues),
+    storePriceCustomId:
+      source?.storePriceCustomId === null
+        ? null
+        : whole(
+            source?.storePriceCustomId,
+            "removal.storePriceCustomId",
+            0,
+            Number.MAX_SAFE_INTEGER,
+            issues,
+          ),
+    reserveQuantity,
+  };
+  if (issues.length > 0) throw new ConfigurationError(issues);
+  return removal;
+}
+
 function parseQueueState(value: unknown): InventoryAdditionQueueState {
   const source = objectValue(value);
   if (source?.version !== 1 || !Array.isArray(source.jobs)) {
     throw new ApplicationError(
       "PERSISTENCE_ERROR",
-      "The inventory-addition queue has an unsupported schema.",
+      "The inventory-change queue has an unsupported schema.",
     );
   }
   const statuses = new Set<InventoryAdditionJobStatus>([
@@ -1057,12 +1159,12 @@ function parseQueueState(value: unknown): InventoryAdditionQueueState {
     ) {
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
-        `Inventory-addition job ${String(index)} is invalid.`,
+        `Inventory-change job ${String(index)} is invalid.`,
       );
     }
-    return {
+    const operation = job.operation === "remove" ? "remove" : "add";
+    const base = {
       id: job.id,
-      addition: parseAddition(job.addition),
       status: job.status as InventoryAdditionJobStatus,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
@@ -1077,6 +1179,9 @@ function parseQueueState(value: unknown): InventoryAdditionQueueState {
         ? { resubmittedFromJobId: job.resubmittedFromJobId }
         : {}),
     };
+    return operation === "remove"
+      ? { ...base, operation, removal: parseRemoval(job.removal) }
+      : { ...base, operation, addition: parseAddition(job.addition) };
   });
   return { version: 1, jobs };
 }
@@ -1119,10 +1224,12 @@ export class InventoryAdditionQueueStore {
         const key = additionKey(addition);
         const previous = state.jobs.find(
           (job) =>
-            job.status === "pending" && additionKey(job.addition) === key,
+            job.status === "pending" &&
+            job.operation === "add" &&
+            additionKey(job.addition) === key,
         );
         const combined =
-          previous === undefined
+          previous?.operation !== "add"
             ? addition
             : {
                 ...addition,
@@ -1135,7 +1242,7 @@ export class InventoryAdditionQueueStore {
           ]);
         }
         const jobs = state.jobs.map((job) =>
-          job.status === "pending" && additionKey(job.addition) === key
+          job.status === "pending" && jobKey(job) === key
             ? {
                 ...job,
                 status: "superseded" as const,
@@ -1145,6 +1252,7 @@ export class InventoryAdditionQueueStore {
         );
         const created: InventoryAdditionJob = {
           id: randomUUID(),
+          operation: "add",
           addition: combined,
           status: "pending",
           createdAt: timestamp,
@@ -1160,6 +1268,40 @@ export class InventoryAdditionQueueStore {
     );
   }
 
+  enqueueRemoval(value: unknown): Promise<InventoryAdditionJob> {
+    const removal = parseRemoval(value);
+    return this.exclusive(async () =>
+      this.lease.runExclusive(async () => {
+        const state = await this.loadState();
+        const timestamp = this.now().toISOString();
+        const key = removalKey(removal);
+        const jobs = state.jobs.map((job) =>
+          job.status === "pending" && jobKey(job) === key
+            ? {
+                ...job,
+                status: "superseded" as const,
+                updatedAt: timestamp,
+              }
+            : job,
+        );
+        const created: InventoryAdditionJob = {
+          id: randomUUID(),
+          operation: "remove",
+          removal,
+          status: "pending",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          attempts: 0,
+        };
+        await this.saveState({
+          version: 1,
+          jobs: this.prune([...jobs, created]),
+        });
+        return created;
+      }),
+    );
+  }
+
   snapshot(): Promise<InventoryAdditionQueueSnapshot> {
     return this.exclusive(async () =>
       this.snapshotFrom(await this.loadState()),
@@ -1168,9 +1310,7 @@ export class InventoryAdditionQueueStore {
 
   cancel(jobId: string): Promise<InventoryAdditionJob> {
     if (!/^[0-9a-f-]{36}$/iu.test(jobId)) {
-      throw new ConfigurationError([
-        "The inventory-addition job id is invalid.",
-      ]);
+      throw new ConfigurationError(["The inventory-change job id is invalid."]);
     }
     return this.exclusive(async () =>
       this.lease.runExclusive(async () => {
@@ -1179,7 +1319,7 @@ export class InventoryAdditionQueueStore {
         if (existing?.status !== "pending") {
           throw new ApplicationError(
             "REVIEW_REQUIRED",
-            "Only an existing pending inventory-addition job can be canceled.",
+            "Only an existing pending inventory-change job can be canceled.",
           );
         }
         const canceled = {
@@ -1198,9 +1338,7 @@ export class InventoryAdditionQueueStore {
 
   resubmit(jobId: string): Promise<InventoryAdditionJob> {
     if (!/^[0-9a-f-]{36}$/iu.test(jobId)) {
-      throw new ConfigurationError([
-        "The inventory-addition job id is invalid.",
-      ]);
+      throw new ConfigurationError(["The inventory-change job id is invalid."]);
     }
     return this.exclusive(async () =>
       this.lease.runExclusive(async () => {
@@ -1209,25 +1347,27 @@ export class InventoryAdditionQueueStore {
         if (existing === undefined) {
           throw new ApplicationError(
             "PROVIDER_ERROR",
-            "The inventory-addition job was not found.",
+            "The inventory-change job was not found.",
           );
         }
         if (existing.status !== "failed") {
           throw new ApplicationError(
             "REVIEW_REQUIRED",
-            "Only a failed inventory-addition job can be resubmitted.",
+            "Only a failed inventory-change job can be resubmitted.",
           );
         }
         if (state.jobs.some((job) => job.resubmittedFromJobId === jobId)) {
           throw new ApplicationError(
             "REVIEW_REQUIRED",
-            "This failed inventory-addition job has already been resubmitted.",
+            "This failed inventory-change job has already been resubmitted.",
           );
         }
         const timestamp = this.now().toISOString();
         const created: InventoryAdditionJob = {
           id: randomUUID(),
-          addition: existing.addition,
+          ...(existing.operation === "add"
+            ? { operation: "add" as const, addition: existing.addition }
+            : { operation: "remove" as const, removal: existing.removal }),
           status: "pending",
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -1328,7 +1468,7 @@ export class InventoryAdditionQueueStore {
         if (existing?.status !== "applying") {
           throw new ApplicationError(
             "PERSISTENCE_ERROR",
-            "The claimed inventory-addition job changed unexpectedly.",
+            "The claimed inventory-change job changed unexpectedly.",
           );
         }
         const replacement: InventoryAdditionJob = {
@@ -1356,7 +1496,7 @@ export class InventoryAdditionQueueStore {
       if (error instanceof ApplicationError) throw error;
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
-        "Unable to read the inventory-addition queue.",
+        "Unable to read the inventory-change queue.",
         { cause: error },
       );
     }
@@ -1375,7 +1515,7 @@ export class InventoryAdditionQueueStore {
       await unlink(temporaryPath).catch(() => undefined);
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
-        "Unable to save the inventory-addition queue.",
+        "Unable to save the inventory-change queue.",
         { cause: error },
       );
     }
@@ -1482,14 +1622,14 @@ export class InventoryAdditionWorker {
         await wait(this.idleDelayMs, signal);
         continue;
       }
-      const listing = safeIdentifier(additionKey(job.addition));
+      const listing = safeIdentifier(jobKey(job));
       this.options.logger.info("inventory-queue.applying", {
         jobId: job.id,
         listing,
         attempt: job.attempts,
       });
       try {
-        await this.options.executor.apply(job.addition);
+        await this.options.executor.apply(jobChange(job), job.operation);
         await this.options.queue.finish(job.id, "submitted");
         this.options.logger.info("inventory-queue.submitted", {
           jobId: job.id,
@@ -1545,17 +1685,17 @@ export function createTcgplayerInventoryAdditionExecutor(
   }
   const client = createTcgplayerSellerClient({ session: { authCookie } });
   return {
-    apply: async (addition) => {
+    apply: async (change, operation) => {
       const [primary, secondary] = await Promise.all([
         client.searchMarketplaceProducts({
-          productIds: [addition.productId],
+          productIds: [change.productId],
           sellerKey,
-          channelId: addition.channelId,
+          channelId: change.channelId,
           limit: 24,
         }),
-        addition.channelId === 0
+        change.channelId === 0
           ? client.searchMarketplaceProducts({
-              productIds: [addition.productId],
+              productIds: [change.productId],
               sellerKey,
               channelId: 1,
               limit: 24,
@@ -1566,28 +1706,29 @@ export function createTcgplayerInventoryAdditionExecutor(
         .flatMap((product) => product.listings)
         .find(
           (listing) =>
-            listing.productConditionId === addition.productConditionId &&
+            listing.productConditionId === change.productConditionId &&
             listing.sellerKey === sellerKey &&
-            listing.channelId === addition.channelId,
+            listing.channelId === change.channelId,
         );
       const currentQuantity = current?.quantity ?? 0;
-      if (currentQuantity !== addition.currentQuantity) {
+      if (operation === "remove" && currentQuantity === 0) return;
+      if (currentQuantity !== change.currentQuantity) {
         throw new ApplicationError(
           "REVIEW_REQUIRED",
-          "Live quantity changed after preview, so the inventory addition was not submitted.",
+          `Live quantity changed after preview, so the inventory ${operation === "add" ? "addition" : "removal"} was not submitted.`,
         );
       }
       if (current?.customData.customListingId !== undefined) {
         throw new ApplicationError(
           "PROVIDER_ERROR",
-          "Custom listings cannot receive automatic inventory additions.",
+          `Custom listings cannot receive automatic inventory ${operation === "add" ? "additions" : "removals"}.`,
         );
       }
       const hasSecondaryInventory = secondary.products
         .flatMap((product) => product.listings)
         .some(
           (listing) =>
-            listing.productConditionId === addition.productConditionId &&
+            listing.productConditionId === change.productConditionId &&
             listing.sellerKey === sellerKey,
         );
       if (hasSecondaryInventory) {
@@ -1596,8 +1737,41 @@ export function createTcgplayerInventoryAdditionExecutor(
           "Secondary-channel inventory appeared after preview, so reserve quantity cannot be preserved safely.",
         );
       }
-      await client.addSellerInventory({
-        additions: [{ ...addition, currentQuantity }],
+      if (operation === "add") {
+        if (!("addQuantity" in change)) {
+          throw new ApplicationError(
+            "PERSISTENCE_ERROR",
+            "The inventory job operation does not match its payload.",
+          );
+        }
+        await client.addSellerInventory({
+          additions: [
+            {
+              ...change,
+              currentQuantity,
+            },
+          ],
+        });
+        return;
+      }
+      if (current === undefined) return;
+      if ("addQuantity" in change) {
+        throw new ApplicationError(
+          "PERSISTENCE_ERROR",
+          "The inventory job operation does not match its payload.",
+        );
+      }
+      await client.removeSellerInventory({
+        removals: [
+          {
+            ...change,
+            currentQuantity,
+            conditionId: current.conditionId,
+            price: current.price,
+            storePriceCustomId: null,
+            reserveQuantity: 0,
+          },
+        ],
       });
     },
   };

@@ -754,6 +754,7 @@ describe("smart repricing", () => {
     const preview = await service.preview(rules);
     const row = preview.rows[0];
     if (row === undefined) throw new Error("Missing preview row");
+    const removal = service.takeRemoval(preview.id, row.id);
     const updates = service.takeUpdates(preview.id, { rowIds: [row.id] });
 
     expect(preview.totals).toEqual({
@@ -798,7 +799,54 @@ describe("smart repricing", () => {
         reserveQuantity: 0,
       }),
     ]);
+    expect(row).toMatchObject({ removable: true });
+    expect(removal).toEqual(
+      expect.objectContaining({
+        productConditionId: 1003,
+        currentQuantity: 2,
+        price: 3,
+        reserveQuantity: 0,
+      }),
+    );
     expect(() => service.takeUpdates(preview.id, { rowIds: [row.id] })).toThrow(
+      "Configuration is invalid",
+    );
+  });
+
+  it("does not offer automatic removal when the SKU has secondary inventory", async () => {
+    const ownListing = listing();
+    const secondaryListing = listing({ channelId: 1, quantity: 1 });
+    const competitor = listing({
+      listingId: 2,
+      sellerKey: "competitor",
+      price: 2,
+    });
+    const service = new RepricingService({
+      client: {
+        listSellerInventory: (input: { readonly channelId?: number }) =>
+          Promise.resolve([
+            product(input.channelId === 1 ? secondaryListing : ownListing),
+          ]),
+        searchMarketplaceProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            products: [product(competitor)],
+          }),
+      },
+      sellerKey,
+      now: () => new Date("2026-08-03T12:00:00.000Z"),
+      id: () => "synthetic-id",
+    });
+
+    const preview = await service.preview(rules);
+    const row = preview.rows[0];
+    if (row === undefined) throw new Error("Missing preview row");
+
+    expect(row).toMatchObject({
+      removable: false,
+      removalReason: "This SKU also has secondary-channel inventory.",
+    });
+    expect(() => service.takeRemoval(preview.id, row.id)).toThrow(
       "Configuration is invalid",
     );
   });

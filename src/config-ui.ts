@@ -1103,6 +1103,24 @@ async function handleRequest(
         jobs: await priceQueue.enqueue({ updates }),
       });
     } else if (
+      request.method === "POST" &&
+      /^\/api\/repricing\/previews\/[0-9a-f-]{36}\/remove$/iu.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (repricingService === undefined || inventoryQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory-removal queue is unavailable.",
+        });
+        return;
+      }
+      const pathParts = url.pathname.split("/");
+      const previewId = pathParts[4] ?? "";
+      const body = objectValue(await readJsonBody(request));
+      const removal = repricingService.takeRemoval(previewId, body?.rowId);
+      sendJson(response, 202, {
+        job: await inventoryQueue.enqueueRemoval(removal),
+      });
+    } else if (
       request.method === "GET" &&
       url.pathname === "/api/catalog/search"
     ) {
@@ -1183,7 +1201,7 @@ async function handleRequest(
       if (!isAllowedMutationRequest(request, response)) return;
       if (inventoryService === undefined || inventoryQueue === undefined) {
         sendJson(response, 503, {
-          message: "The inventory-addition queue is unavailable.",
+          message: "The inventory-change queue is unavailable.",
         });
         return;
       }
@@ -1200,7 +1218,7 @@ async function handleRequest(
     ) {
       if (inventoryQueue === undefined) {
         sendJson(response, 503, {
-          message: "The inventory-addition queue is unavailable.",
+          message: "The inventory-change queue is unavailable.",
         });
         return;
       }
@@ -1217,7 +1235,7 @@ async function handleRequest(
       if (!isAllowedMutationRequest(request, response)) return;
       if (inventoryQueue === undefined) {
         sendJson(response, 503, {
-          message: "The inventory-addition queue is unavailable.",
+          message: "The inventory-change queue is unavailable.",
         });
         return;
       }
@@ -1232,7 +1250,7 @@ async function handleRequest(
       if (!isAllowedMutationRequest(request, response)) return;
       if (inventoryQueue === undefined) {
         sendJson(response, 503, {
-          message: "The inventory-addition queue is unavailable.",
+          message: "The inventory-change queue is unavailable.",
         });
         return;
       }

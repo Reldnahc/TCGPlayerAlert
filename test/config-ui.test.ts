@@ -1068,6 +1068,10 @@ describe("configuration UI service", () => {
     expect(pageText).toContain('role="tablist"');
     expect(pageText).toContain("Add cards");
     expect(pageText).toContain('id="inventory-profile-select"');
+    expect(pageText).toContain('id="inventory-search"');
+    expect(pageText).toContain("Inventory changes");
+    expect(CONFIG_UI_JS).toContain("function inventoryRowMatches(row, query)");
+    expect(CONFIG_UI_JS).toContain(' + "/remove"');
     expect(pageText).not.toContain('id="inventory-card-condition"');
     expect(CONFIG_UI_JS).not.toContain('id: "inventory-card-condition"');
     expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
@@ -1125,5 +1129,64 @@ describe("configuration UI service", () => {
     expect(page.headers.get("permissions-policy")).toBe(
       "clipboard-write=(self)",
     );
+  });
+
+  it("queues a server-held inventory removal from a repricing preview", async () => {
+    const fixture = await configurationFixture();
+    const inventoryQueue = new InventoryAdditionQueueStore({
+      stateFile: join(dirname(fixture.path), "inventory-removals.json"),
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
+    const previewId = "11111111-1111-4111-8111-111111111111";
+    const rowId = "22222222-2222-4222-8222-222222222222";
+    const takeRemoval = vi.fn().mockReturnValue({
+      productId: 123,
+      productName: "Synthetic Card",
+      productConditionId: 456,
+      conditionId: 3,
+      channelId: 0,
+      categoryName: "Synthetic Game",
+      currentQuantity: 2,
+      price: 2,
+      storePriceCustomId: null,
+      reserveQuantity: 0,
+    });
+    server = await startConfigurationUi({
+      configPath: fixture.path,
+      port: 0,
+      service: fixture.service,
+      inventoryQueue,
+      repricingService: { takeRemoval } as unknown as RepricingService,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/repricing/previews/${previewId}/remove`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server.url,
+        },
+        body: JSON.stringify({ rowId }),
+      },
+    );
+
+    expect(response.status).toBe(202);
+    expect(takeRemoval).toHaveBeenCalledWith(previewId, rowId);
+    expect(await response.json()).toMatchObject({
+      job: {
+        operation: "remove",
+        status: "pending",
+        removal: {
+          productConditionId: 456,
+          currentQuantity: 2,
+        },
+      },
+    });
+    expect(await inventoryQueue.snapshot()).toMatchObject({
+      counts: { pending: 1 },
+      jobs: [expect.objectContaining({ operation: "remove" })],
+    });
   });
 });

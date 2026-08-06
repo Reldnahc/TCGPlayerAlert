@@ -15,7 +15,7 @@ The product must remain useful beyond one seller, scheduling cadence, operating 
 
 ## Current Phase
 
-Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are authorized through the profile-driven preview and durable, paced queue in ADRs 0005 and 0006. Exact-SKU inventory additions with an initial price are authorized through the profile-driven, internally previewed queue in ADR 0007. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review.
+Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are authorized through the profile-driven preview and durable, paced queue in ADRs 0005 and 0006. Exact-SKU inventory additions with an initial price are authorized through the profile-driven, internally previewed queue in ADR 0007. Operator-confirmed removal of an entire eligible exact-SKU listing is authorized through the searchable Inventory preview and the same durable inventory queue in ADR 0008. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review.
 
 The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
 
@@ -42,7 +42,7 @@ Keep these concerns separated even if the first version runs as one process:
 - **Actions:** plugins that consume domain data or documents and produce side effects.
 - **Printing:** printer discovery/selection, rendering, job submission, and job-result reporting behind a print interface.
 - **Configuration and secrets:** validated non-secret configuration separated from credentials and session material.
-- **Persistence:** the smallest durable store that safely supports cursors, deduplication, job state, and audit history. Price and inventory-addition jobs use separate state documents and may never contain credentials.
+- **Persistence:** the smallest durable store that safely supports cursors, deduplication, job state, and audit history. Price and inventory-change jobs use separate state documents and may never contain credentials.
 
 Initial adapters are expected to include:
 
