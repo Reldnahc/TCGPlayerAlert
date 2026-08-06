@@ -525,6 +525,7 @@ export function calculateRepricingRow(
       (listing) =>
         listing.productId === own.listing.productId &&
         listing.sellerKey !== sellerKey &&
+        (listing.channelId !== 1 || listing.directListing === true) &&
         listing.printing === own.listing.printing &&
         listing.language === own.listing.language &&
         conditions.includes(listing.condition) &&
@@ -933,13 +934,17 @@ function mergeComparisonProduct(
   product: MarketplaceProduct,
   channelId: number,
 ): MarketplaceComparisonSample {
+  const eligibleListings =
+    channelId === 1
+      ? product.listings.filter((listing) => listing.directListing === true)
+      : product.listings;
   const listings = [...sample.listings];
   const listingKeys = new Set(
     listings.map(
       (listing) => `${String(listing.listingId)}:${String(listing.channelId)}`,
     ),
   );
-  for (const listing of product.listings) {
+  for (const listing of eligibleListings) {
     const listingKey = `${String(listing.listingId)}:${String(listing.channelId)}`;
     if (listingKeys.has(listingKey)) continue;
     listingKeys.add(listingKey);
@@ -954,10 +959,10 @@ function mergeComparisonProduct(
         ? product.listings.length
         : sample.marketplaceReturnedListings,
     secondaryTotalListings:
-      channelId === 1 ? product.totalListings : sample.secondaryTotalListings,
+      channelId === 1 ? eligibleListings.length : sample.secondaryTotalListings,
     secondaryReturnedListings:
       channelId === 1
-        ? product.listings.length
+        ? eligibleListings.length
         : sample.secondaryReturnedListings,
   };
 }

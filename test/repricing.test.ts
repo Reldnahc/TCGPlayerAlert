@@ -105,13 +105,14 @@ describe("smart repricing", () => {
     });
   });
 
-  it("uses Direct-channel listings as marketplace comparables", () => {
+  it("uses explicitly eligible Direct listings as marketplace comparables", () => {
     const ownListing = listing({ price: 3, channelId: 0 });
     const directCompetitor = listing({
       listingId: 2,
       sellerKey: "direct-competitor",
       sellerName: "Direct Store",
       channelId: 1,
+      directListing: true,
       price: 2,
     });
 
@@ -127,6 +128,57 @@ describe("smart repricing", () => {
       status: "ready",
       proposedPrice: 2,
       competitorPrice: 2,
+      qualifyingListings: 1,
+    });
+  });
+
+  it("rejects channel-1 records that are not customer-buyable Direct listings", () => {
+    const ownListing = listing({
+      conditionId: 2,
+      condition: "Lightly Played",
+      price: 40,
+      shippingPrice: 0,
+    });
+    const marketplaceCompetitor = listing({
+      listingId: 2,
+      productConditionId: ownListing.productConditionId,
+      conditionId: 2,
+      condition: "Lightly Played",
+      sellerKey: "marketplace-competitor",
+      price: 42.19,
+      shippingPrice: 0.99,
+    });
+    const phantomDirectRecord = listing({
+      listingId: 3,
+      productConditionId: ownListing.productConditionId,
+      conditionId: 2,
+      condition: "Lightly Played",
+      sellerKey: "channel-record",
+      channelId: 1,
+      directListing: false,
+      price: 0.5,
+      shippingPrice: 1.49,
+    });
+
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [phantomDirectRecord, marketplaceCompetitor],
+      sellerKey,
+      {
+        ...rules,
+        priceBasis: "delivered",
+        adjustmentCents: 1,
+        allowPriceIncreases: true,
+      },
+      "row-phantom-direct",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 43.17,
+      lowestPrice: 42.19,
+      lowestShipping: 0.99,
+      competitorPrice: 42.19,
       qualifyingListings: 1,
     });
   });

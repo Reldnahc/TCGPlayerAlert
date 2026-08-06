@@ -12,7 +12,7 @@ Price-only Seller Portal mutations also include quantity and reserve fields. A s
 ## Decision
 
 - Load the authenticated seller's live marketplace inventory through `tcgplayer-private-api`.
-- Compare the same product, printing, and language across ordinary marketplace and Direct channels, excluding the seller's own listings and custom listings.
+- Compare the same product, printing, and language across ordinary marketplace and Direct channels, excluding the seller's own listings and custom listings. A channel-1 record is eligible only when TCGplayer explicitly returns `directListing: true`; channel id alone is not proof of a customer-buyable Direct offer.
 - Support either same-condition or same-or-better-condition comparison. Better-to-worse order is Near Mint, Lightly Played, Moderately Played, Heavily Played, and Damaged.
 - Store reusable pricing profiles containing a hard minimum, item-price or delivered-price comparison, condition policy, optional cent adjustment, explicit price-increase toggle, a sparse-market fallback, and one or more ordered value ranges. Inventory selects these profiles directly; merchandise profiles reference them for initial listing prices. Sparse-market behavior is profile-level because a conservative policy and an always-undercut policy should not make the same decision when seller support is absent.
 - Select a range using the lowest qualifying listing, falling back to product market price only when no comparison exists. The inventory response carries one market figure at product level, while live listings are filtered to exact printing, language, and allowed conditions; the exact comparison is therefore the safer value-tier signal. Every range except the last has an editable maximum; the final range is open-ended.
