@@ -18,7 +18,7 @@ const firstOrder = {
 const secondOrder = {
   ...firstOrder,
   orderNumber: "synthetic-order-2",
-  orderStatus: "Shipped",
+  orderStatus: "Shipped - In Transit",
   buyerName: "Example Customer",
 };
 
@@ -135,7 +135,10 @@ describe("order management", () => {
           shippingAmount: 1.49,
           totalAmount: 13.49,
         },
-        expect.objectContaining({ orderNumber: secondOrder.orderNumber }),
+        expect.objectContaining({
+          orderNumber: secondOrder.orderNumber,
+          status: "Shipped - In Transit",
+        }),
       ],
     });
     expect(cached).toBe(first);
@@ -247,7 +250,7 @@ describe("order management", () => {
     expect(fakeClient.searchOrders).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps a successfully shipped order out of stale ready-to-ship results", async () => {
+  it("never substitutes a local status after a shipment mutation", async () => {
     const fakeClient = client();
     fakeClient.searchOrders.mockResolvedValue({
       totalOrders: 1,
@@ -262,18 +265,14 @@ describe("order management", () => {
     });
     await orders.markShipped(firstOrder.orderNumber);
 
-    await expect(
-      orders.listOrders("ready-to-ship", { force: true }),
-    ).resolves.toMatchObject({ orders: [] });
-    await expect(
-      orders.listOrders("all", { force: true }),
-    ).resolves.toMatchObject({
+    await expect(orders.listOrders("all")).resolves.toMatchObject({
       orders: [
         expect.objectContaining({
           orderNumber: firstOrder.orderNumber,
-          status: "Shipped",
+          status: "ReadyToShip",
         }),
       ],
     });
+    expect(fakeClient.searchOrders).toHaveBeenCalledTimes(2);
   });
 });

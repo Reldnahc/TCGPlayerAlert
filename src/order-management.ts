@@ -84,7 +84,6 @@ export class OrderManagementService {
     string,
     CachedPirateShipPreparation
   >();
-  private readonly locallyShippedOrderNumbers = new Set<string>();
 
   constructor(options: OrderManagementServiceOptions) {
     this.client = options.client;
@@ -143,15 +142,7 @@ export class OrderManagementService {
         options.signal === undefined ? undefined : { signal: options.signal },
       );
       for (const order of response.orders) {
-        const locallyShipped = this.locallyShippedOrderNumbers.has(
-          order.orderNumber,
-        );
-        if (scope === "ready-to-ship" && locallyShipped) continue;
-        const managed = toManagedOrder(order);
-        orders.set(
-          order.orderNumber,
-          locallyShipped ? { ...managed, status: "Shipped" } : managed,
-        );
+        orders.set(order.orderNumber, toManagedOrder(order));
       }
       offset += response.orders.length;
       if (offset >= response.totalOrders) {
@@ -334,7 +325,6 @@ export class OrderManagementService {
         "TCGplayer returned an unrecognized shipment result.",
       );
     }
-    this.locallyShippedOrderNumbers.add(normalized);
     return { orderNumber: normalized, outcome };
   }
 }
