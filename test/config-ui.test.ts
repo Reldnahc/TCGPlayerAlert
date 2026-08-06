@@ -263,6 +263,24 @@ describe("configuration UI service", () => {
       "new URLSearchParams({ q: query, offset: String(offset) })",
     );
     expect(CONFIG_UI_JS).toContain('text: "Foil"');
+    expect(CONFIG_UI_JS).toContain('if (foil && !normal) return "Foil"');
+    expect(CONFIG_UI_JS).toContain('if (normal && !foil) return "Normal"');
+    expect(CONFIG_UI_JS).toContain(
+      "foil.disabled = loading || printingCheckPending || lockedPrinting !== null",
+    );
+    expect(CONFIG_UI_JS).toContain('"This card is only available in Foil"');
+    expect(CONFIG_UI_JS).toContain('"This card is not available in Foil"');
+    expect(CONFIG_UI_JS).toContain("maximumCatalogDetailRequests = 2");
+    expect(CONFIG_UI_JS).toContain('rootMargin: "160px 0px"');
+    expect(
+      CONFIG_UI_JS.indexOf(
+        "const printing = selectedInventoryPrinting(productId, profile)",
+      ),
+    ).toBeGreaterThan(
+      CONFIG_UI_JS.indexOf(
+        "const details = await loadInventoryProductDetails(productId)",
+      ),
+    );
     expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
     expect(CONFIG_UI_JS).toContain("product.foilMarketPrice");
     expect(CONFIG_UI_JS).toContain(

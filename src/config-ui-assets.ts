@@ -455,6 +455,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-result-actions button { min-width: 38px; padding: 8px 9px; }
 .catalog-condition-select { width: 154px; padding: 8px 30px 8px 10px; font-size: .78rem; }
 .foil-toggle[aria-pressed="true"] { background: linear-gradient(125deg, #dff8f3, #e9e3ff, #ffe3ef, #fff2bd); color: #4c356f; }
+.foil-toggle:disabled { cursor: not-allowed; opacity: .72; }
 .quantity-choice.selected { background: var(--green); color: white; }
 .product-image { display: grid; place-items: center; width: 64px; aspect-ratio: 200 / 279; overflow: hidden; border-radius: 7px; background: #eef0e8; color: var(--muted); font-size: .62rem; text-align: center; }
 .product-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
@@ -581,6 +582,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
     inventoryRemovalQueuedRowIds: new Set(),
     inventoryAddingProductIds: new Set(),
     inventoryProductDetailsById: new Map(),
+    inventoryProductDetailsRequestsById: new Map(),
+    inventoryProductDetailsFailedIds: new Set(),
+    inventoryProductDetailsQueue: [],
+    inventoryProductDetailsQueuedIds: new Set(),
+    inventoryProductDetailsActive: 0,
     inventoryResultByProductId: new Map(),
     selectedMerchandiseProfileId: null,
     selectedRepricingProfileId: null,
@@ -603,6 +609,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   const repricingProfileStorageKey = "tcgplayer-alert.repricing-profile";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
   const jobsPerPage = 10;
+  const maximumCatalogDetailRequests = 2;
   const tabIds = ["dashboard", "orders", "add-cards", "inventory", "settings", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
@@ -613,6 +620,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   const saveBar = document.querySelector("#save-bar");
   const saveTitle = document.querySelector("#save-title");
   const saveDetail = document.querySelector("#save-detail");
+  let catalogDetailsObserver = null;
 
   function isTabId(value) {
     return tabIds.includes(value);
@@ -1678,12 +1686,114 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return frame;
   }
 
+  function lockedInventoryPrinting(productId) {
+    const details = state.inventoryProductDetailsById.get(productId);
+    if (!details) return null;
+    const printings = new Set(details.skus.map((sku) => sku.printing));
+    const normal = printings.has("Normal");
+    const foil = printings.has("Foil");
+    if (foil && !normal) return "Foil";
+    if (normal && !foil) return "Normal";
+    return null;
+  }
+
+  function selectedInventoryPrinting(productId, profile) {
+    const preferred = state.inventoryPrintingByProductId.get(productId) || profile?.defaultPrinting || "Normal";
+    const locked = lockedInventoryPrinting(productId);
+    const selected = locked || preferred;
+    if (locked) state.inventoryPrintingByProductId.set(productId, locked);
+    return selected;
+  }
+
+  async function loadInventoryProductDetails(productId) {
+    const cached = state.inventoryProductDetailsById.get(productId);
+    if (cached) return cached;
+    const existing = state.inventoryProductDetailsRequestsById.get(productId);
+    if (existing) return existing;
+    const request = fetch("/api/catalog/products/" + encodeURIComponent(productId), {
+      headers: { Accept: "application/json" },
+    }).then(async (response) => {
+      const details = await response.json();
+      if (!response.ok) throw new Error(details.message || "Product details could not be loaded.");
+      state.inventoryProductDetailsById.set(productId, details);
+      state.inventoryProductDetailsFailedIds.delete(productId);
+      return details;
+    }).finally(() => {
+      state.inventoryProductDetailsRequestsById.delete(productId);
+    });
+    state.inventoryProductDetailsRequestsById.set(productId, request);
+    return request;
+  }
+
+  function drainInventoryProductDetailsQueue() {
+    while (
+      state.inventoryProductDetailsActive < maximumCatalogDetailRequests
+      && state.inventoryProductDetailsQueue.length > 0
+    ) {
+      const productId = state.inventoryProductDetailsQueue.shift();
+      state.inventoryProductDetailsQueuedIds.delete(productId);
+      if (
+        state.inventoryProductDetailsById.has(productId)
+        || state.inventoryProductDetailsRequestsById.has(productId)
+      ) continue;
+      state.inventoryProductDetailsActive += 1;
+      void loadInventoryProductDetails(productId).catch(() => {
+        state.inventoryProductDetailsFailedIds.add(productId);
+      }).finally(() => {
+        state.inventoryProductDetailsActive -= 1;
+        if (state.catalogSearch?.products.some((product) => product.productId === productId)) {
+          renderCatalogSearch();
+        }
+        drainInventoryProductDetailsQueue();
+      });
+    }
+  }
+
+  function queueInventoryProductDetails(productId) {
+    if (
+      state.inventoryProductDetailsById.has(productId)
+      || state.inventoryProductDetailsRequestsById.has(productId)
+      || state.inventoryProductDetailsFailedIds.has(productId)
+      || state.inventoryProductDetailsQueuedIds.has(productId)
+    ) return;
+    state.inventoryProductDetailsQueuedIds.add(productId);
+    state.inventoryProductDetailsQueue.push(productId);
+    drainInventoryProductDetailsQueue();
+  }
+
+  function observeInventoryProductDetails(card, productId) {
+    if (
+      state.inventoryProductDetailsById.has(productId)
+      || state.inventoryProductDetailsFailedIds.has(productId)
+    ) return;
+    if (!("IntersectionObserver" in window)) {
+      queueInventoryProductDetails(productId);
+      return;
+    }
+    if (catalogDetailsObserver === null) {
+      catalogDetailsObserver = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          observer.unobserve(entry.target);
+          queueInventoryProductDetails(Number(entry.target.dataset.productId));
+        }
+      }, {
+        root: document.querySelector("#catalog-results"),
+        rootMargin: "160px 0px",
+      });
+    }
+    catalogDetailsObserver.observe(card);
+  }
+
   function catalogResult(product) {
     const loading = state.inventoryAddingProductIds.has(product.productId);
     const result = state.inventoryResultByProductId.get(product.productId);
     const profile = activeMerchandiseProfile();
-    const selectedPrinting = state.inventoryPrintingByProductId.get(product.productId) || profile?.defaultPrinting || "Normal";
+    const selectedPrinting = selectedInventoryPrinting(product.productId, profile);
     const foilSelected = selectedPrinting === "Foil";
+    const lockedPrinting = lockedInventoryPrinting(product.productId);
+    const printingCheckPending = !state.inventoryProductDetailsById.has(product.productId)
+      && !state.inventoryProductDetailsFailedIds.has(product.productId);
     const selectedCondition = state.inventoryConditionByProductId.get(product.productId) || profile?.defaultCondition || "Near Mint";
     const condition = el("select", {
       className: "catalog-condition-select",
@@ -1702,9 +1812,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
       type: "button",
       text: "Foil",
       "aria-pressed": String(foilSelected),
-      title: "Toggle foil printing",
+      title: printingCheckPending
+        ? "Checking available printings"
+        : lockedPrinting === "Foil"
+          ? "This card is only available in Foil"
+          : lockedPrinting === "Normal"
+            ? "This card is not available in Foil"
+            : "Toggle foil printing",
     });
-    foil.disabled = loading;
+    foil.disabled = loading || printingCheckPending || lockedPrinting !== null;
     foil.addEventListener("click", () => toggleInventoryFoil(product.productId));
     const quantityButtons = [1, 2, 3, 4].map((quantity) => {
       const button = el("button", {
@@ -1772,9 +1888,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
         className: "catalog-inline-status" + (result ? " " + result.kind : ""),
       }, statusChildren));
     }
-    return el("div", {
+    const card = el("div", {
       className: "catalog-result" + (foilSelected ? " foil" : ""),
+      "data-product-id": String(product.productId),
     }, children);
+    observeInventoryProductDetails(card, product.productId);
+    return card;
   }
 
   const catalogMatchOrder = { exact: 0, variant: 1, related: 2 };
@@ -1827,6 +1946,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const search = state.catalogSearch;
     const message = document.querySelector("#inventory-message");
     const results = document.querySelector("#catalog-results");
+    catalogDetailsObserver?.disconnect();
     const exact = search.products.filter((product) => product.matchKind === "exact");
     const variants = search.products.filter((product) => product.matchKind === "variant");
     const related = search.products.filter((product) => product.matchKind === "related");
@@ -1900,6 +2020,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     message.textContent = "";
     if (!append) {
       state.catalogSearch = null;
+      catalogDetailsObserver?.disconnect();
+      state.inventoryProductDetailsQueue.length = 0;
+      state.inventoryProductDetailsQueuedIds.clear();
       results.hidden = true;
     }
     try {
@@ -2076,6 +2199,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function toggleInventoryFoil(productId) {
+    if (lockedInventoryPrinting(productId) !== null) return;
     const profile = activeMerchandiseProfile();
     const selected = state.inventoryPrintingByProductId.get(productId) || profile?.defaultPrinting || "Normal";
     state.inventoryPrintingByProductId.set(productId, selected === "Foil" ? "Normal" : "Foil");
@@ -2130,22 +2254,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return;
     }
     const condition = state.inventoryConditionByProductId.get(productId) || profile.defaultCondition;
-    const printing = state.inventoryPrintingByProductId.get(productId) || profile.defaultPrinting;
     state.inventoryAddingProductIds.add(productId);
     state.inventoryResultByProductId.delete(productId);
     renderCatalogSearch();
     try {
-      let details = state.inventoryProductDetailsById.get(productId);
-      if (!details) {
-        const detailsResponse = await fetch("/api/catalog/products/" + encodeURIComponent(productId), {
-          headers: { Accept: "application/json" },
-        });
-        details = await detailsResponse.json();
-        if (!detailsResponse.ok) {
-          throw new Error(details.message || "Product details could not be loaded.");
-        }
-        state.inventoryProductDetailsById.set(productId, details);
-      }
+      const details = await loadInventoryProductDetails(productId);
+      const printing = selectedInventoryPrinting(productId, profile);
       const matchingSkus = details.skus.filter(
         (candidate) => candidate.condition === condition
           && candidate.printing === printing,
