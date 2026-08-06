@@ -1110,9 +1110,11 @@ async function handleRequest(
         return;
       }
       const query = url.searchParams.get("q")?.trim() ?? "";
-      if (query.length < 2 || query.length > 200) {
+      const isProductNumber = /^\d+$/u.test(query);
+      if ((!isProductNumber && query.length < 2) || query.length > 200) {
         sendJson(response, 400, {
-          message: "Search text must contain 2-200 characters.",
+          message:
+            "Enter a TCGplayer product number or 2-200 characters of a card name.",
         });
         return;
       }

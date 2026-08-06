@@ -205,6 +205,56 @@ describe("inventory additions", () => {
     });
   });
 
+  it("loads a bare TCGplayer product number directly and caches the product", async () => {
+    const searchCatalogProducts = vi.fn(() =>
+      Promise.resolve({
+        totalProducts: 0,
+        productLines: [],
+        sets: [],
+        products: [],
+      }),
+    );
+    const getCatalogProduct = vi.fn(
+      ({ productId }: { readonly productId: number }) =>
+        Promise.resolve({ ...product, productId }),
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts,
+        getCatalogProduct,
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const first = await service.search("123");
+    const cached = await service.search("123");
+
+    expect(cached).toBe(first);
+    expect(getCatalogProduct).toHaveBeenCalledOnce();
+    expect(getCatalogProduct).toHaveBeenCalledWith({ productId: 123 });
+    expect(searchCatalogProducts).not.toHaveBeenCalled();
+    expect(first).toMatchObject({
+      totalProducts: 1,
+      productLines: [{ name: "Synthetic Game", count: 1 }],
+      sets: [{ name: "Synthetic Set", count: 1 }],
+      nextOffset: 1,
+      hasMore: false,
+      products: [
+        {
+          productId: 123,
+          productName: "Synthetic Card",
+          matchKind: "exact",
+          matchRank: [0, 0],
+        },
+      ],
+    });
+    expect(first.products[0]).not.toHaveProperty("skus");
+    await expect(service.search("0")).rejects.toMatchObject({
+      issues: ["TCGplayer product number must be a positive integer."],
+    });
+  });
+
   it("normalizes punctuation and keeps exact products above variants", () => {
     const ranked = rankCatalogSearchProducts(
       [

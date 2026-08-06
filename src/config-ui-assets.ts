@@ -155,7 +155,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <button id="edit-merchandise-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
             <div class="catalog-search-row">
-              <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
+              <label class="field"><span>Card name or product number</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search name or TCGplayer #" /></label>
               <label class="field"><span>Product line (optional)</span><select id="catalog-product-line" disabled><option value="">All product lines</option></select></label>
               <label class="field"><span>Set (optional)</span><select id="catalog-set" disabled><option value="">All sets</option></select></label>
               <button id="catalog-search" class="primary-button dark-button" type="button">Search catalog</button>
@@ -1600,7 +1600,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       productImage(product),
       el("div", { className: "catalog-result-copy" }, [
         el("strong", { text: product.productName }),
-        el("small", { text: product.productLineName + " / " + product.setName }),
+        el("small", { text: product.productLineName + " / " + product.setName + " / TCGplayer #" + String(product.productId) }),
         el("small", { text: (product.cardNumber ? "#" + product.cardNumber + " / " : "") + (product.rarityName || "No rarity") + " / market " + money(product.marketPrice) + " / foil " + (product.foilMarketPrice === undefined ? "—" : money(product.foilMarketPrice)) }),
       ]),
       actions,
@@ -1724,9 +1724,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     state.catalogSearchToken = requestToken;
     state.catalogSearchController?.abort();
     state.catalogSearchController = null;
-    if (query.length < 2) {
+    if (query.length < 2 && !/^\d+$/u.test(query)) {
       message.className = "repricing-message error";
-      message.textContent = "Enter at least two characters of the card name.";
+      message.textContent = "Enter a TCGplayer product number or at least two characters of the card name.";
       return;
     }
     const button = triggerButton || document.querySelector("#catalog-search");

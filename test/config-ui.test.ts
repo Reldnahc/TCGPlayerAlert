@@ -234,6 +234,8 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain('id="catalog-product-line" disabled');
     expect(CONFIG_UI_HTML).not.toContain("catalog-product-lines");
     expect(CONFIG_UI_HTML).toContain('id="catalog-set"');
+    expect(CONFIG_UI_HTML).toContain("Card name or product number");
+    expect(CONFIG_UI_HTML).toContain("Search name or TCGplayer #");
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
     expect(
@@ -257,6 +259,10 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('text: "Foil"');
     expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
     expect(CONFIG_UI_JS).toContain("product.foilMarketPrice");
+    expect(CONFIG_UI_JS).toContain(
+      '" / TCGplayer #" + String(product.productId)',
+    );
+    expect(CONFIG_UI_JS).toContain("!/^\\d+$/u.test(query)");
     expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
     expect(CONFIG_UI_JS).toContain("inventoryPrintingByProductId");
     expect(CONFIG_UI_JS).toContain('"pricingProfileId"');
@@ -800,7 +806,8 @@ describe("configuration UI service", () => {
             sets: [{ name: "Synthetic Set", count: 1 }],
             products: [catalogSummary],
           }),
-        getCatalogProduct: () => Promise.resolve(catalogProduct),
+        getCatalogProduct: ({ productId }: { readonly productId: number }) =>
+          Promise.resolve({ ...catalogProduct, productId }),
         searchMarketplaceProducts: () =>
           Promise.resolve({ totalProducts: 0, products: [] }),
       },
@@ -866,6 +873,9 @@ describe("configuration UI service", () => {
     );
     const catalogSearch = await fetch(
       `${server.url}/api/catalog/search?q=Synthetic`,
+    );
+    const productNumberSearch = await fetch(
+      `${server.url}/api/catalog/search?q=1`,
     );
     const invalidCatalogOffset = await fetch(
       `${server.url}/api/catalog/search?q=Synthetic&offset=-1`,
@@ -955,6 +965,13 @@ describe("configuration UI service", () => {
       products: [
         { productId: 123, foilMarketPrice: 8.25, matchKind: "variant" },
       ],
+    });
+    expect(productNumberSearch.status).toBe(200);
+    expect(await productNumberSearch.json()).toMatchObject({
+      totalProducts: 1,
+      nextOffset: 1,
+      hasMore: false,
+      products: [{ productId: 1, matchKind: "exact" }],
     });
     expect(invalidCatalogOffset.status).toBe(400);
     expect(invalidSetSearch.status).toBe(400);

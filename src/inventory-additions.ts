@@ -286,6 +286,50 @@ export function rankCatalogSearchProducts(
     });
 }
 
+function parseCatalogProductNumber(query: string): number | undefined {
+  const normalized = query.trim();
+  if (!/^\d+$/u.test(normalized)) return undefined;
+  const productId = Number(normalized);
+  if (!Number.isSafeInteger(productId) || productId < 1) {
+    throw new ConfigurationError([
+      "TCGplayer product number must be a positive integer.",
+    ]);
+  }
+  return productId;
+}
+
+function catalogProductSearchResult(
+  product: CatalogProductDetails,
+  offset: number,
+): CatalogSearchResult {
+  const products: readonly CatalogSearchProduct[] =
+    offset === 0
+      ? [
+          {
+            productId: product.productId,
+            imageUrl: product.imageUrl,
+            productName: product.productName,
+            productLineName: product.productLineName,
+            setName: product.setName,
+            rarityName: product.rarityName,
+            cardNumber: product.cardNumber,
+            marketPrice: product.marketPrice,
+            sellerListable: product.sellerListable,
+            matchKind: "exact",
+            matchRank: [0, 0],
+          },
+        ]
+      : [];
+  return {
+    totalProducts: 1,
+    productLines: [{ name: product.productLineName, count: 1 }],
+    sets: [{ name: product.setName, count: 1 }],
+    products,
+    nextOffset: 1,
+    hasMore: false,
+  };
+}
+
 function money(
   value: unknown,
   path: string,
@@ -466,32 +510,41 @@ export class InventoryAdditionService {
     ]);
     const cached = this.catalogSearches.get(cacheKey);
     if (cached !== undefined) return cached.result;
-    const result = await this.client.searchCatalogProducts(
-      {
-        query,
-        productTypeName: "Cards",
-        ...(productLineName === undefined || productLineName.trim() === ""
-          ? {}
-          : { productLineName }),
-        ...(setName === undefined || setName.trim() === "" ? {} : { setName }),
-        offset,
-        limit: CATALOG_SEARCH_PAGE_SIZE,
-        includeFoilMarketPrices: true,
-      },
-      signal === undefined ? undefined : { signal },
-    );
-    const nextOffset = Math.min(
-      offset + CATALOG_SEARCH_PAGE_SIZE,
-      result.totalProducts,
-    );
-    const searchResult = {
-      totalProducts: result.totalProducts,
-      productLines: result.productLines,
-      sets: result.sets,
-      products: rankCatalogSearchProducts(result.products, query),
-      nextOffset,
-      hasMore: nextOffset < result.totalProducts,
-    };
+    const productId = parseCatalogProductNumber(query);
+    let searchResult: CatalogSearchResult;
+    if (productId !== undefined) {
+      const product = await this.getProduct(productId);
+      searchResult = catalogProductSearchResult(product, offset);
+    } else {
+      const result = await this.client.searchCatalogProducts(
+        {
+          query,
+          productTypeName: "Cards",
+          ...(productLineName === undefined || productLineName.trim() === ""
+            ? {}
+            : { productLineName }),
+          ...(setName === undefined || setName.trim() === ""
+            ? {}
+            : { setName }),
+          offset,
+          limit: CATALOG_SEARCH_PAGE_SIZE,
+          includeFoilMarketPrices: true,
+        },
+        signal === undefined ? undefined : { signal },
+      );
+      const nextOffset = Math.min(
+        offset + CATALOG_SEARCH_PAGE_SIZE,
+        result.totalProducts,
+      );
+      searchResult = {
+        totalProducts: result.totalProducts,
+        productLines: result.productLines,
+        sets: result.sets,
+        products: rankCatalogSearchProducts(result.products, query),
+        nextOffset,
+        hasMore: nextOffset < result.totalProducts,
+      };
+    }
     signal?.throwIfAborted();
     if (this.catalogSearches.size >= CATALOG_SEARCH_CACHE_LIMIT) {
       const oldestKey = this.catalogSearches.keys().next().value;
