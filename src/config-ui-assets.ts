@@ -287,7 +287,7 @@ button { cursor: pointer; }
 .shell { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 20px 0 112px; }
 h2, p { margin-top: 0; }
 h2 { margin-bottom: 0; font: 700 1.45rem/1.15 Georgia, serif; }
-.tab-list { position: sticky; z-index: 4; top: 10px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: rgba(244,245,239,.9); box-shadow: 0 10px 28px rgba(32,51,40,.08); backdrop-filter: blur(12px); }
+.tab-list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; margin-bottom: 24px; padding: 6px; border: 1px solid rgba(202,211,201,.9); border-radius: 16px; background: var(--card); box-shadow: 0 10px 28px rgba(32,51,40,.08); }
 .tab-button { min-height: 46px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); padding: 10px 16px; font-weight: 800; }
 .tab-button:hover { color: var(--green-dark); background: rgba(255,255,255,.72); }
 .tab-button[aria-selected="true"] { color: white; background: var(--green); box-shadow: 0 7px 16px rgba(22,107,73,.2); }
@@ -480,9 +480,20 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .error-panel p { color: var(--muted); }
 [hidden] { display: none !important; }
 
+@media (min-width: 781px) and (min-height: 600px) {
+  body.add-cards-active { overflow: hidden; }
+  body.add-cards-active .shell { height: 100dvh; padding-bottom: 20px; }
+  body.add-cards-active main, body.add-cards-active #settings-form { height: 100%; min-height: 0; }
+  body.add-cards-active #settings-form:not([hidden]) { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  body.add-cards-active #panel-add-cards:not([hidden]) { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  body.add-cards-active .inventory-panel { min-height: 0; margin-bottom: 0; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); }
+  body.add-cards-active .catalog-results { min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  body.add-cards-active:has(#save-bar:not([hidden])) .catalog-results { padding-bottom: 96px; }
+}
+
 @media (max-width: 780px) {
   .shell { width: min(100% - 22px, 600px); padding-top: 10px; }
-  .tab-list { display: flex; overflow-x: auto; top: 6px; }
+  .tab-list { display: flex; overflow-x: auto; }
   .tab-button { flex: 1 0 auto; min-width: 112px; }
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
   .dashboard-automation { grid-template-columns: 1fr; }
@@ -559,6 +570,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function activateTab(tabId, updateHistory = false, focusTab = false) {
     const selectedTab = normalizeTabId(tabId) || "dashboard";
+    document.body.classList.toggle("add-cards-active", selectedTab === "add-cards");
     for (const button of document.querySelectorAll('[role="tab"][data-tab]')) {
       const selected = button.dataset.tab === selectedTab;
       button.setAttribute("aria-selected", String(selected));

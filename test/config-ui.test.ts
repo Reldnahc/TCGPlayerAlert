@@ -686,6 +686,19 @@ describe("configuration UI service", () => {
     );
   });
 
+  it("keeps navigation in document flow and confines desktop card results", () => {
+    expect(CONFIG_UI_CSS).not.toContain("position: sticky");
+    expect(CONFIG_UI_CSS).toContain(
+      "body.add-cards-active { overflow: hidden; }",
+    );
+    expect(CONFIG_UI_CSS).toContain(
+      "body.add-cards-active .catalog-results { min-height: 0; max-height: none; overflow-y: auto;",
+    );
+    expect(CONFIG_UI_JS).toContain(
+      'document.body.classList.toggle("add-cards-active", selectedTab === "add-cards")',
+    );
+  });
+
   it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
     const fixture = await configurationFixture();
     const priceQueue = new PriceUpdateQueueStore({
