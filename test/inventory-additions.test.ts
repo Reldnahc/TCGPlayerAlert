@@ -17,6 +17,7 @@ import {
   parseConfig,
   rankCatalogSearchProducts,
   type InventoryAdditionExecutor,
+  type InventoryPricingRules,
   type Logger,
 } from "../src/index.js";
 
@@ -82,6 +83,32 @@ function searchResult(listings: readonly MarketplaceListing[]) {
               listings,
             },
           ],
+  };
+}
+
+function additionPricingRules(
+  overrides: Partial<InventoryPricingRules> = {},
+): InventoryPricingRules {
+  return {
+    minimumPrice: 0.35,
+    conditionPolicy: "same-or-better",
+    priceBasis: "item",
+    adjustmentCents: 0,
+    allowPriceIncreases: false,
+    estimatedShippingPrice: 0,
+    ranges: [
+      {
+        minimumListings: 1,
+        priceSource: "lowest",
+        percentage: 100,
+        gapThresholdPercent: 100,
+        gapAction: "follow-lowest",
+        supportMode: "adjacent",
+        minimumSellerSupport: 1,
+        supportWindowPercent: 5,
+      },
+    ],
+    ...overrides,
   };
 }
 
@@ -393,14 +420,7 @@ describe("inventory additions", () => {
       productId: 123,
       productConditionId: 456,
       addQuantity: 1,
-      rules: {
-        minimumPrice: 0.35,
-        conditionPolicy: "same-or-better",
-        priceBasis: "item",
-        adjustmentCents: 0,
-        estimatedShippingPrice: 0,
-        noComparisonFallback: "market",
-      },
+      rules: additionPricingRules(),
     });
 
     expect(preview).toMatchObject({
@@ -437,14 +457,7 @@ describe("inventory additions", () => {
         searchMarketplaceProducts,
       },
     });
-    const rules = {
-      minimumPrice: 0.35,
-      conditionPolicy: "same-or-better" as const,
-      priceBasis: "item" as const,
-      adjustmentCents: 0,
-      estimatedShippingPrice: 0,
-      noComparisonFallback: "market" as const,
-    };
+    const rules = additionPricingRules();
 
     await service.getProduct(product.productId);
     const first = await service.preview({
@@ -514,14 +527,18 @@ describe("inventory additions", () => {
       productId: 123,
       productConditionId: 456,
       addQuantity: 2,
-      rules: {
-        minimumPrice: 0.35,
+      rules: additionPricingRules({
         conditionPolicy: "same",
-        priceBasis: "item",
-        adjustmentCents: 0,
-        estimatedShippingPrice: 0,
-        noComparisonFallback: "market",
-      },
+        ranges: [
+          {
+            minimumListings: 0,
+            priceSource: "market",
+            percentage: 100,
+            gapThresholdPercent: 100,
+            gapAction: "follow-lowest",
+          },
+        ],
+      }),
     });
 
     expect(preview).toMatchObject({
@@ -556,14 +573,10 @@ describe("inventory additions", () => {
       productId: 123,
       productConditionId: 456,
       addQuantity: 1,
-      rules: {
-        minimumPrice: 0.35,
-        conditionPolicy: "same-or-better",
+      rules: additionPricingRules({
         priceBasis: "delivered",
-        adjustmentCents: 0,
         estimatedShippingPrice: 0.99,
-        noComparisonFallback: "market",
-      },
+      }),
     });
 
     expect(preview).toMatchObject({
@@ -573,6 +586,56 @@ describe("inventory additions", () => {
       competitorShipping: 1.99,
       queueable: true,
     });
+  });
+
+  it("uses the pricing profile's gap rule when pricing a new listing", async () => {
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: (input) =>
+          Promise.resolve(
+            input.sellerKey === "synthetic-seller"
+              ? searchResult([])
+              : searchResult([
+                  listing({ sellerKey: "seller-a", price: 1 }),
+                  listing({ sellerKey: "seller-b", price: 2 }),
+                ]),
+          ),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules: additionPricingRules({
+        ranges: [
+          {
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 50,
+            gapAction: "use-next",
+            supportMode: "adjacent",
+          },
+        ],
+      }),
+    });
+
+    expect(preview).toMatchObject({
+      proposedPrice: 2,
+      competitorPrice: 2,
+      queueable: true,
+    });
+    expect(preview.reason).toContain("uses 100% of the next listing");
   });
 
   it("combines pending additions for the same SKU without losing quantity", async () => {

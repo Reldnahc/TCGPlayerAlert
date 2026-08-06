@@ -22,7 +22,9 @@ describe("application configuration", () => {
       expect.objectContaining({
         name: "English singles",
         language: "English",
-        priceBasis: "delivered",
+        defaultCondition: "Near Mint",
+        defaultPrinting: "Normal",
+        pricingProfileId: "match-lowest",
       }),
     ]);
     expect(config.defaultRepricingProfileId).toBe("match-lowest");
@@ -99,12 +101,10 @@ describe("application configuration", () => {
         id: "english-singles",
         name: "English singles",
         language: "English",
-        minimumPrice: 0.35,
         estimatedShippingPrice: 0,
-        conditionPolicy: "same-or-better",
-        priceBasis: "delivered",
-        adjustmentCents: 0,
-        noComparisonFallback: "market",
+        defaultCondition: "Near Mint",
+        defaultPrinting: "Normal",
+        pricingProfileId: "match-lowest",
       },
     ]);
     expect(parseConfig(value).repricingProfiles).toEqual([
@@ -201,6 +201,34 @@ describe("application configuration", () => {
     );
   });
 
+  it("migrates legacy merchandise pricing fields to a pricing-profile reference", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      merchandiseProfiles: Record<string, unknown>[];
+    };
+    const profile = value.merchandiseProfiles[0];
+    if (profile === undefined) throw new Error("Missing merchandise profile");
+    delete profile.defaultCondition;
+    delete profile.defaultPrinting;
+    delete profile.pricingProfileId;
+    Object.assign(profile, {
+      minimumPrice: 0.5,
+      conditionPolicy: "same",
+      priceBasis: "item",
+      adjustmentCents: 5,
+      noComparisonFallback: "market",
+    });
+
+    expect(parseConfig(value).merchandiseProfiles[0]).toMatchObject({
+      language: "English",
+      estimatedShippingPrice: 0,
+      defaultCondition: "Near Mint",
+      defaultPrinting: "Normal",
+      pricingProfileId: "match-lowest",
+    });
+  });
+
   it("rejects invalid merchandise profiles and default references", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
@@ -212,6 +240,19 @@ describe("application configuration", () => {
       ...value.merchandiseProfiles[0],
     } as { id: string });
     value.defaultMerchandiseProfileId = "missing-profile";
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
+  });
+
+  it("rejects a merchandise profile with a missing pricing profile", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      merchandiseProfiles: { pricingProfileId: string }[];
+    };
+    const profile = value.merchandiseProfiles[0];
+    if (profile === undefined) throw new Error("Missing merchandise profile");
+    profile.pricingProfileId = "missing-pricing-profile";
 
     expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });

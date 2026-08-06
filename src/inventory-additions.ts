@@ -8,6 +8,7 @@ import {
   type CatalogProductSku,
   type CatalogProductSummary,
   type MarketplaceListing,
+  type MarketplaceProduct,
   type SearchMarketplaceProductsResult,
   type SellerInventoryAddition,
   type TcgplayerSellerClient,
@@ -20,11 +21,13 @@ import {
 } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { safeIdentifier } from "./logger.js";
-import type {
-  RepricingConditionPolicy,
-  RepricingPriceBasis,
+import {
+  calculateRepricingRow,
+  parseRepricingRules,
+  TCGPLAYER_CONDITION_ORDER,
+  type RepricingConditionPolicy,
+  type RepricingRules,
 } from "./repricing.js";
-import { TCGPLAYER_CONDITION_ORDER } from "./repricing.js";
 import { FileSyncLease, type SyncLease } from "./sync-lease.js";
 
 type UnknownRecord = Record<string, unknown>;
@@ -33,14 +36,8 @@ const CATALOG_SEARCH_PAGE_SIZE = 24;
 const CATALOG_SEARCH_CACHE_TTL_MS = 60_000;
 const CATALOG_SEARCH_CACHE_LIMIT = 100;
 
-export interface InventoryPricingRules {
-  readonly minimumPrice: number;
-  readonly conditionPolicy: RepricingConditionPolicy;
-  readonly priceBasis: RepricingPriceBasis;
-  readonly adjustmentCents: number;
+export interface InventoryPricingRules extends RepricingRules {
   readonly estimatedShippingPrice: number;
-  readonly noComparisonFallback: "market" | "manual" | "stop";
-  readonly manualPrice?: number;
 }
 
 export interface InventoryAdditionPreview {
@@ -314,54 +311,17 @@ export function parseInventoryPricingRules(
   const source = objectValue(value);
   const issues: string[] = [];
   if (source === undefined) issues.push("Pricing rules must be an object.");
-  const minimumPrice = money(
-    source?.minimumPrice,
-    "minimumPrice",
-    0.01,
-    issues,
-  );
-  const conditionPolicy = source?.conditionPolicy;
-  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
-    issues.push("conditionPolicy must be same or same-or-better.");
-  }
-  const priceBasis = source?.priceBasis;
-  if (priceBasis !== "item" && priceBasis !== "delivered") {
-    issues.push("priceBasis must be item or delivered.");
-  }
-  const adjustmentCents = whole(
-    source?.adjustmentCents,
-    "adjustmentCents",
-    0,
-    100_000,
-    issues,
-  );
   const estimatedShippingPrice = money(
     source?.estimatedShippingPrice,
     "estimatedShippingPrice",
     0,
     issues,
   );
-  const noComparisonFallback = source?.noComparisonFallback;
-  if (
-    noComparisonFallback !== "market" &&
-    noComparisonFallback !== "manual" &&
-    noComparisonFallback !== "stop"
-  ) {
-    issues.push("noComparisonFallback must be market, manual, or stop.");
-  }
-  const manualPrice =
-    noComparisonFallback === "manual"
-      ? money(source?.manualPrice, "manualPrice", 0.01, issues)
-      : undefined;
   if (issues.length > 0) throw new ConfigurationError(issues);
+  const repricingRules = parseRepricingRules(value);
   return {
-    minimumPrice,
-    conditionPolicy: conditionPolicy as RepricingConditionPolicy,
-    priceBasis: priceBasis as RepricingPriceBasis,
-    adjustmentCents,
+    ...repricingRules,
     estimatedShippingPrice,
-    noComparisonFallback: noComparisonFallback as "market" | "manual" | "stop",
-    ...(manualPrice === undefined ? {} : { manualPrice }),
   };
 }
 
@@ -376,13 +336,6 @@ function allowedConditions(
   return index === -1
     ? undefined
     : TCGPLAYER_CONDITION_ORDER.slice(0, index + 1);
-}
-
-function listingBasis(
-  listing: MarketplaceListing,
-  basis: RepricingPriceBasis,
-): number {
-  return listing.price + (basis === "delivered" ? listing.shippingPrice : 0);
 }
 
 function roundCurrency(value: number): number {
@@ -401,16 +354,68 @@ function effectiveShippingPrice(
     : configuredShippingPrice;
 }
 
-function itemPriceForDeliveredTarget(
-  deliveredTarget: number,
-  configuredShippingPrice: number,
-): number {
-  const underMinimumCandidate =
-    deliveredTarget -
-    Math.max(configuredShippingPrice, TCGPLAYER_MINIMUM_SHIPPING_PRICE);
-  return underMinimumCandidate < TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL
-    ? underMinimumCandidate
-    : deliveredTarget - configuredShippingPrice;
+function calculateInventoryAdditionPrice(
+  product: CatalogProductDetails,
+  sku: CatalogProductSku,
+  currentQuantity: number,
+  comparisonListings: readonly MarketplaceListing[],
+  sellerKey: string,
+  rules: InventoryPricingRules,
+) {
+  let shippingPrice = rules.estimatedShippingPrice;
+  let result: ReturnType<typeof calculateRepricingRow> | undefined;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const ownListing: MarketplaceListing = {
+      listingId: 0,
+      productId: product.productId,
+      productConditionId: sku.productConditionId,
+      conditionId: sku.conditionId,
+      condition: sku.condition,
+      channelId: 0,
+      printing: sku.printing,
+      language: sku.language,
+      languageId: 0,
+      sellerKey,
+      sellerName: "Current seller",
+      quantity: currentQuantity,
+      price: 0,
+      shippingPrice,
+      customData: {},
+    };
+    const marketplaceProduct: MarketplaceProduct = {
+      productId: product.productId,
+      productName: product.productName,
+      productLineName: product.productLineName,
+      setName: product.setName,
+      rarityName: product.rarityName,
+      marketPrice: product.marketPrice,
+      totalListings: comparisonListings.length,
+      listings: [ownListing],
+    };
+    result = calculateRepricingRow(
+      { product: marketplaceProduct, listing: ownListing },
+      comparisonListings,
+      sellerKey,
+      { ...rules, allowPriceIncreases: true },
+      "inventory-addition",
+    );
+    if (!result.queueable) return result;
+    const effectiveShipping = roundCurrency(
+      effectiveShippingPrice(
+        result.proposedPrice,
+        rules.estimatedShippingPrice,
+      ),
+    );
+    if (effectiveShipping === shippingPrice) return result;
+    shippingPrice = effectiveShipping;
+  }
+  if (result === undefined) {
+    throw new ApplicationError(
+      "PROVIDER_ERROR",
+      "The inventory price could not be calculated.",
+    );
+  }
+  return result;
 }
 
 export class InventoryAdditionService {
@@ -608,97 +613,43 @@ export class InventoryAdditionService {
           "This SKU has secondary-channel inventory, so reserve quantity cannot be preserved safely.",
       });
     }
-    const candidates = comparisons.products
-      .flatMap((item) => item.listings)
-      .filter(
-        (listing) =>
-          listing.productId === productId &&
-          listing.sellerKey !== this.sellerKey &&
-          listing.channelId === 0 &&
-          listing.printing === sku.printing &&
-          listing.language === sku.language &&
-          conditions.includes(listing.condition) &&
-          listing.quantity > 0 &&
-          listing.customData.customListingId === undefined,
-      )
-      .sort(
-        (left, right) =>
-          listingBasis(left, rules.priceBasis) -
-          listingBasis(right, rules.priceBasis),
-      );
-    const competitor = candidates[0];
-    let rawTarget: number | undefined;
-    let reason: string;
-    if (competitor !== undefined) {
-      const comparisonTarget =
-        listingBasis(competitor, rules.priceBasis) -
-        rules.adjustmentCents / 100;
-      rawTarget =
-        rules.priceBasis === "delivered"
-          ? itemPriceForDeliveredTarget(
-              comparisonTarget,
-              rules.estimatedShippingPrice,
-            )
-          : comparisonTarget;
-      reason =
-        competitor.condition === sku.condition
-          ? "Matches the lowest qualifying listing."
-          : `Matches a lower-priced ${competitor.condition} listing because it is a better condition.`;
-    } else if (
-      rules.noComparisonFallback === "market" &&
-      product.marketPrice > 0
-    ) {
-      rawTarget = product.marketPrice;
-      reason =
-        "No qualifying listing was found, so the market price fallback was used.";
-    } else if (rules.noComparisonFallback === "manual") {
-      rawTarget = rules.manualPrice;
-      reason =
-        "No qualifying listing was found, so the manual fallback was used.";
-    } else {
+    const pricing = calculateInventoryAdditionPrice(
+      product,
+      sku,
+      currentQuantity,
+      comparisons.products.flatMap((item) => item.listings),
+      this.sellerKey,
+      rules,
+    );
+    if (!pricing.queueable) {
       return this.storePreview(product, sku, addQuantity, rules, {
         currentQuantity,
-        minimumApplied: false,
+        minimumApplied: pricing.minimumApplied,
         queueable: false,
-        reason:
-          "No qualifying competing listing or enabled fallback price was found.",
+        reason: pricing.reason,
       });
     }
-    if (rawTarget === undefined) {
-      throw new ApplicationError(
-        "PROVIDER_ERROR",
-        "The inventory price could not be calculated.",
-      );
-    }
-    const minimumApplied = rawTarget < rules.minimumPrice;
-    const proposedPrice = roundCurrency(
-      Math.max(rules.minimumPrice, rawTarget),
-    );
+    const proposedPrice = pricing.proposedPrice;
     const shippingPrice = roundCurrency(
       effectiveShippingPrice(proposedPrice, rules.estimatedShippingPrice),
     );
     const proposedDeliveredPrice = roundCurrency(proposedPrice + shippingPrice);
-    const shippingMinimumApplied =
-      rules.priceBasis === "delivered" &&
-      shippingPrice > rules.estimatedShippingPrice;
     return this.storePreview(product, sku, addQuantity, rules, {
       currentQuantity,
       proposedPrice,
       effectiveShippingPrice: shippingPrice,
       proposedDeliveredPrice,
-      ...(competitor === undefined
+      ...(pricing.competitorPrice === undefined
         ? {}
         : {
-            competitorPrice: competitor.price,
-            competitorShipping: competitor.shippingPrice,
-            competitorCondition: competitor.condition,
+            competitorPrice: pricing.competitorPrice,
+            competitorShipping: pricing.competitorShipping,
+            competitorCondition: pricing.competitorCondition,
           }),
-      minimumApplied,
+      minimumApplied: pricing.minimumApplied,
       queueable: product.sellerListable,
       reason: product.sellerListable
-        ? minimumApplied
-          ? `${reason} The configured item-price minimum was applied.${shippingMinimumApplied ? ` TCGplayer's $${TCGPLAYER_MINIMUM_SHIPPING_PRICE.toFixed(2)} minimum shipping for orders under $${TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL.toFixed(2)} was also applied.` : ""}`
-          : `${reason}${shippingMinimumApplied ? ` TCGplayer's $${TCGPLAYER_MINIMUM_SHIPPING_PRICE.toFixed(2)} minimum shipping for orders under $${TCGPLAYER_MINIMUM_SHIPPING_ORDER_SUBTOTAL.toFixed(2)} was applied.` : ""}`
+        ? pricing.reason
         : "TCGplayer marks this product as unavailable for seller listings.",
     });
   }

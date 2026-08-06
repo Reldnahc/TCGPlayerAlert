@@ -102,13 +102,16 @@ export interface MerchandiseProfileConfig {
   readonly id: string;
   readonly name: string;
   readonly language: string;
-  readonly minimumPrice: number;
   readonly estimatedShippingPrice: number;
-  readonly conditionPolicy: "same" | "same-or-better";
-  readonly priceBasis: "item" | "delivered";
-  readonly adjustmentCents: number;
-  readonly noComparisonFallback: "market" | "manual" | "stop";
-  readonly manualPrice?: number;
+  readonly defaultCondition:
+    | "Near Mint"
+    | "Lightly Played"
+    | "Moderately Played"
+    | "Heavily Played"
+    | "Damaged"
+    | "Unopened";
+  readonly defaultPrinting: "Normal" | "Foil";
+  readonly pricingProfileId: string;
 }
 
 export interface RepricingRangeConfig {
@@ -307,12 +310,10 @@ const DEFAULT_MERCHANDISE_PROFILE: MerchandiseProfileConfig = {
   id: "english-singles",
   name: "English singles",
   language: "English",
-  minimumPrice: 0.35,
   estimatedShippingPrice: 0,
-  conditionPolicy: "same-or-better",
-  priceBasis: "delivered",
-  adjustmentCents: 0,
-  noComparisonFallback: "market",
+  defaultCondition: "Near Mint",
+  defaultPrinting: "Normal",
+  pricingProfileId: "match-lowest",
 };
 
 const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
@@ -385,39 +386,29 @@ function parseMerchandiseProfile(
   value: unknown,
   index: number,
   issues: string[],
+  fallbackPricingProfileId: string,
 ): MerchandiseProfileConfig {
   const source = record(value);
   const path = `config.merchandiseProfiles[${String(index)}]`;
-  const conditionPolicy = source?.conditionPolicy;
-  const priceBasis = source?.priceBasis;
-  const fallback = source?.noComparisonFallback;
-  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
-    issues.push(`${path}.conditionPolicy must be same or same-or-better.`);
+  const defaultCondition = source?.defaultCondition ?? "Near Mint";
+  const defaultPrinting = source?.defaultPrinting ?? "Normal";
+  if (
+    defaultCondition !== "Near Mint" &&
+    defaultCondition !== "Lightly Played" &&
+    defaultCondition !== "Moderately Played" &&
+    defaultCondition !== "Heavily Played" &&
+    defaultCondition !== "Damaged" &&
+    defaultCondition !== "Unopened"
+  ) {
+    issues.push(`${path}.defaultCondition is invalid.`);
   }
-  if (priceBasis !== "item" && priceBasis !== "delivered") {
-    issues.push(`${path}.priceBasis must be item or delivered.`);
+  if (defaultPrinting !== "Normal" && defaultPrinting !== "Foil") {
+    issues.push(`${path}.defaultPrinting must be Normal or Foil.`);
   }
-  if (fallback !== "market" && fallback !== "manual" && fallback !== "stop") {
-    issues.push(
-      `${path}.noComparisonFallback must be market, manual, or stop.`,
-    );
-  }
-  const manualPrice =
-    fallback === "manual"
-      ? numberValue(source, "manualPrice", path, 0.01, 1_000_000, issues)
-      : undefined;
   return {
     id: identifier(source?.id, `${path}.id`, issues),
     name: text(source, "name", path, issues),
     language: text(source, "language", path, issues),
-    minimumPrice: numberValue(
-      source,
-      "minimumPrice",
-      path,
-      0.01,
-      1_000_000,
-      issues,
-    ),
     estimatedShippingPrice: numberValue(
       source,
       "estimatedShippingPrice",
@@ -426,20 +417,15 @@ function parseMerchandiseProfile(
       1_000_000,
       issues,
     ),
-    conditionPolicy:
-      conditionPolicy as MerchandiseProfileConfig["conditionPolicy"],
-    priceBasis: priceBasis as MerchandiseProfileConfig["priceBasis"],
-    adjustmentCents: integer(
-      source,
-      "adjustmentCents",
-      path,
-      0,
-      100_000,
+    defaultCondition:
+      defaultCondition as MerchandiseProfileConfig["defaultCondition"],
+    defaultPrinting:
+      defaultPrinting as MerchandiseProfileConfig["defaultPrinting"],
+    pricingProfileId: identifier(
+      source?.pricingProfileId ?? fallbackPricingProfileId,
+      `${path}.pricingProfileId`,
       issues,
     ),
-    noComparisonFallback:
-      fallback as MerchandiseProfileConfig["noComparisonFallback"],
-    ...(manualPrice === undefined ? {} : { manualPrice }),
   };
 }
 
@@ -666,6 +652,18 @@ export function parseConfig(value: unknown): AppConfig {
     issues.push("config.priceUpdateQueue must be an object.");
   }
   const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
+  const legacyRepricingProfileValues = root?.repricingProfiles;
+  const firstLegacyRepricingProfile = Array.isArray(
+    legacyRepricingProfileValues,
+  )
+    ? record(legacyRepricingProfileValues[0])
+    : undefined;
+  const fallbackPricingProfileId =
+    typeof root?.defaultRepricingProfileId === "string"
+      ? root.defaultRepricingProfileId
+      : typeof firstLegacyRepricingProfile?.id === "string"
+        ? firstLegacyRepricingProfile.id
+        : DEFAULT_REPRICING_PROFILE.id;
   const merchandiseProfileValues = root?.merchandiseProfiles;
   if (
     merchandiseProfileValues !== undefined &&
@@ -680,7 +678,12 @@ export function parseConfig(value: unknown): AppConfig {
           ? merchandiseProfileValues
           : []
         ).map((profile, index) =>
-          parseMerchandiseProfile(profile, index, issues),
+          parseMerchandiseProfile(
+            profile,
+            index,
+            issues,
+            fallbackPricingProfileId,
+          ),
         );
   if (merchandiseProfiles.length < 1 || merchandiseProfiles.length > 20) {
     issues.push(
@@ -753,6 +756,17 @@ export function parseConfig(value: unknown): AppConfig {
     issues.push(
       "config.defaultRepricingProfileId must reference a repricing profile.",
     );
+  }
+  for (const [index, profile] of merchandiseProfiles.entries()) {
+    if (
+      !repricingProfiles.some(
+        (pricingProfile) => pricingProfile.id === profile.pricingProfileId,
+      )
+    ) {
+      issues.push(
+        `config.merchandiseProfiles[${String(index)}].pricingProfileId must reference a pricing profile.`,
+      );
+    }
   }
 
   const printersSource = record(root?.printers);

@@ -83,8 +83,8 @@ describe("configuration UI service", () => {
       merchandiseProfiles: [
         {
           ...initial.merchandiseProfiles[0],
-          minimumPrice: 0.5,
           estimatedShippingPrice: 0.99,
+          defaultCondition: "Lightly Played",
         },
       ],
       defaultMerchandiseProfileId: "english-singles",
@@ -140,8 +140,9 @@ describe("configuration UI service", () => {
       merchandiseProfiles: [
         {
           id: "english-singles",
-          minimumPrice: 0.5,
           estimatedShippingPrice: 0.99,
+          defaultCondition: "Lightly Played",
+          pricingProfileId: "match-lowest",
         },
       ],
       defaultMerchandiseProfileId: "english-singles",
@@ -193,6 +194,26 @@ describe("configuration UI service", () => {
     expect(await readFile(fixture.path, "utf8")).toMatch(/\s $/u);
   });
 
+  it("rejects removal of a pricing profile used by merchandise", async () => {
+    const fixture = await configurationFixture();
+    const initial = await fixture.service.read();
+    const pricingProfile = initial.repricingProfiles[0];
+    if (pricingProfile === undefined)
+      throw new Error("Missing pricing profile");
+
+    await expect(
+      fixture.service.save({
+        ...initial,
+        repricingProfiles: [{ ...pricingProfile, id: "replacement-pricing" }],
+        defaultRepricingProfileId: "replacement-pricing",
+      }),
+    ).rejects.toMatchObject({
+      issues: [
+        expect.stringContaining("must reference an existing pricing profile"),
+      ],
+    });
+  });
+
   it("ships syntactically valid browser JavaScript", () => {
     expect(() => new Script(CONFIG_UI_JS)).not.toThrow();
     expect(CONFIG_UI_JS).not.toContain(
@@ -208,6 +229,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain('id="merchandise-profile-list"');
     expect(CONFIG_UI_HTML).toContain('id="repricing-profile-select"');
     expect(CONFIG_UI_HTML).toContain('id="repricing-profile-list"');
+    expect(CONFIG_UI_HTML).toContain("Pricing profiles");
     expect(CONFIG_UI_HTML).not.toContain('id="repricing-minimum"');
     expect(CONFIG_UI_HTML).toContain('id="catalog-product-line" disabled');
     expect(CONFIG_UI_HTML).not.toContain("catalog-product-lines");
@@ -236,6 +258,9 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
     expect(CONFIG_UI_JS).toContain("product.foilMarketPrice");
     expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
+    expect(CONFIG_UI_JS).toContain("inventoryPrintingByProductId");
+    expect(CONFIG_UI_JS).toContain('"pricingProfileId"');
+    expect(CONFIG_UI_JS).toContain("updatePricingProfileRemovalState");
     expect(CONFIG_UI_JS).toContain('text: "+" + String(quantity)');
     expect(CONFIG_UI_JS).toContain('text: "+X"');
     expect(CONFIG_UI_JS).toContain("showModal()");
@@ -868,8 +893,17 @@ describe("configuration UI service", () => {
             conditionPolicy: "same-or-better",
             priceBasis: "item",
             adjustmentCents: 0,
+            allowPriceIncreases: false,
             estimatedShippingPrice: 0,
-            noComparisonFallback: "market",
+            ranges: [
+              {
+                minimumListings: 0,
+                priceSource: "market",
+                percentage: 100,
+                gapThresholdPercent: 100,
+                gapAction: "follow-lowest",
+              },
+            ],
           },
         }),
       },

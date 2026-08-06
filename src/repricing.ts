@@ -452,7 +452,7 @@ export function calculateRepricingRow(
         listing.productId === own.listing.productId &&
         listing.sellerKey !== sellerKey &&
         listing.printing === own.listing.printing &&
-        listing.languageId === own.listing.languageId &&
+        listing.language === own.listing.language &&
         conditions.includes(listing.condition) &&
         listing.quantity > 0 &&
         listing.customData.customListingId === undefined,

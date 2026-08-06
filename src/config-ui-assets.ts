@@ -80,12 +80,12 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
 
           <div class="section-heading">
             <div>
-              <h2 id="repricing-profiles-title">Repricing profiles</h2>
+              <h2 id="repricing-profiles-title">Pricing profiles</h2>
             </div>
             <button id="add-repricing-profile" class="quiet-button" type="button">Add profile</button>
           </div>
           <section class="panel profile-settings-panel" aria-labelledby="repricing-profiles-title">
-            <p class="profile-help">Value ranges can price from the lowest listing or market, and decide whether to wait out a separated low listing.</p>
+            <p class="profile-help">Shared pricing policies used by inventory repricing and merchandise profiles.</p>
             <div id="repricing-profile-list" class="profile-list"></div>
           </section>
 
@@ -183,7 +183,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </div>
           <section class="panel repricing-panel" aria-labelledby="repricing-title">
             <div class="repricing-profile-bar">
-              <label class="field profile-picker"><span>Repricing profile</span><select id="repricing-profile-select"></select></label>
+              <label class="field profile-picker"><span>Pricing profile</span><select id="repricing-profile-select"></select></label>
               <p id="repricing-profile-summary" class="inventory-profile-summary"></p>
               <button id="edit-repricing-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
@@ -535,7 +535,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     selectedMerchandiseProfileId: null,
     selectedRepricingProfileId: null,
     inventoryQuantityProductId: null,
-    inventoryFoilProductIds: new Set(),
+    inventoryPrintingByProductId: new Map(),
     inventoryConditionByProductId: new Map(),
     catalogSearch: null,
     catalogSearchToken: 0,
@@ -679,25 +679,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     name.value = profile.name;
     const language = el("input", { name: "language", maxlength: "64", required: "" });
     language.value = profile.language;
-    const fallback = selectInput("noComparisonFallback", profile.noComparisonFallback, [
-      ["market", "Use market price"],
-      ["stop", "Stop for review"],
-      ["manual", "Use manual price"],
-    ]);
-    const manualPrice = numberInput(
-      "manualPrice",
-      profile.manualPrice ?? profile.minimumPrice,
-      0.01,
-      1000000,
-      "0.01",
+    const pricingProfile = selectInput(
+      "pricingProfileId",
+      profile.pricingProfileId,
+      state.settings.repricingProfiles.map((candidate) => [candidate.id, candidate.name]),
     );
-    const manualField = field("Manual fallback price ($)", manualPrice);
-    const updateManualVisibility = () => {
-      manualField.hidden = fallback.value !== "manual";
-      manualPrice.required = fallback.value === "manual";
-    };
-    fallback.addEventListener("change", updateManualVisibility);
-    updateManualVisibility();
+    pricingProfile.addEventListener("change", updatePricingProfileRemovalState);
     card.append(
       el("div", { className: "profile-card-head" }, [
         el("label", { className: "profile-default" }, [
@@ -709,13 +696,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
       el("div", { className: "profile-fields" }, [
         field("Profile name", name),
         field("Language", language),
-        field("Minimum item price ($)", numberInput("minimumPrice", profile.minimumPrice, 0.01, 1000000, "0.01")),
         field("Shipping rate ($)", numberInput("estimatedShippingPrice", profile.estimatedShippingPrice, 0, 1000000, "0.01")),
-        field("Compare using", selectInput("priceBasis", profile.priceBasis, [["delivered", "Item + shipping"], ["item", "Item price only"]])),
-        field("Compare against", selectInput("conditionPolicy", profile.conditionPolicy, [["same-or-better", "Same or better condition"], ["same", "Same condition only"]])),
-        field("Undercut (cents)", numberInput("adjustmentCents", profile.adjustmentCents, 0, 100000)),
-        field("If no listing matches", fallback),
-        manualField,
+        field("Default condition", selectInput("defaultCondition", profile.defaultCondition, inventoryConditionOrder.map((condition) => [condition, condition]))),
+        field("Default printing", selectInput("defaultPrinting", profile.defaultPrinting, [["Normal", "Normal"], ["Foil", "Foil"]])),
+        field("Pricing profile", pricingProfile),
       ]),
     );
     return card;
@@ -725,6 +709,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#merchandise-profile-list").replaceChildren(
       ...state.settings.merchandiseProfiles.map(renderMerchandiseProfile),
     );
+    updatePricingProfileRemovalState();
   }
 
   function merchandiseProfileDrafts() {
@@ -852,6 +837,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       className: "profile-remove",
       type: "button",
       text: "Remove",
+      "data-remove-pricing-profile": profile.id,
     });
     remove.disabled = state.settings.repricingProfiles.length === 1;
     remove.addEventListener("click", () => removeRepricingProfile(profile.id));
@@ -899,6 +885,17 @@ export const CONFIG_UI_JS = String.raw`(() => {
     document.querySelector("#repricing-profile-list").replaceChildren(
       ...state.settings.repricingProfiles.map(renderRepricingProfile),
     );
+    updatePricingProfileRemovalState();
+  }
+
+  function updatePricingProfileRemovalState() {
+    if (!state.settings) return;
+    const references = new Set(merchandiseProfileDrafts().map((profile) => profile.pricingProfileId));
+    for (const button of document.querySelectorAll("[data-remove-pricing-profile]")) {
+      const referenced = references.has(button.dataset.removePricingProfile);
+      button.disabled = state.settings.repricingProfiles.length === 1 || referenced;
+      button.title = referenced ? "This pricing profile is used by a merchandise profile." : "";
+    }
   }
 
   function repricingProfileDrafts() {
@@ -927,6 +924,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function addRepricingProfile() {
     if (state.settings.repricingProfiles.length >= 20) return;
     const profiles = repricingProfileDrafts();
+    const merchandiseProfiles = merchandiseProfileDrafts();
     const source = profiles.find((profile) => profile.id === state.selectedRepricingProfileId)
       ?? profiles.find((profile) => profile.id === repricingProfileDefaultDraft())
       ?? profiles[0];
@@ -938,22 +936,27 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }
     state.settings = {
       ...state.settings,
-      repricingProfiles: [...profiles, { ...source, id, name: "New repricing profile" }],
+      merchandiseProfiles,
+      repricingProfiles: [...profiles, { ...source, id, name: "New pricing profile" }],
       defaultRepricingProfileId: repricingProfileDefaultDraft(),
     };
     renderRepricingProfiles();
+    renderMerchandiseProfiles();
     updateSaveBarVisibility();
     document.querySelector('[data-repricing-profile-id="' + CSS.escape(id) + '"] [name="profileName"]').select();
   }
 
   function removeRepricingProfile(id) {
     if (state.settings.repricingProfiles.length === 1) return;
+    if (merchandiseProfileDrafts().some((profile) => profile.pricingProfileId === id)) return;
     const repricingProfiles = repricingProfileDrafts().filter((profile) => profile.id !== id);
+    const merchandiseProfiles = merchandiseProfileDrafts();
     const defaultDraft = repricingProfileDefaultDraft();
     const defaultRepricingProfileId = defaultDraft === id ? repricingProfiles[0].id : defaultDraft;
-    state.settings = { ...state.settings, repricingProfiles, defaultRepricingProfileId };
+    state.settings = { ...state.settings, merchandiseProfiles, repricingProfiles, defaultRepricingProfileId };
     if (state.selectedRepricingProfileId === id) state.selectedRepricingProfileId = defaultRepricingProfileId;
     renderRepricingProfiles();
+    renderMerchandiseProfiles();
     renderRepricingProfileSelector();
     updateSaveBarVisibility();
   }
@@ -1543,8 +1546,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function catalogResult(product) {
     const loading = state.inventoryAddingProductIds.has(product.productId);
     const result = state.inventoryResultByProductId.get(product.productId);
-    const foilSelected = state.inventoryFoilProductIds.has(product.productId);
-    const selectedCondition = state.inventoryConditionByProductId.get(product.productId) || "Near Mint";
+    const profile = activeMerchandiseProfile();
+    const selectedPrinting = state.inventoryPrintingByProductId.get(product.productId) || profile?.defaultPrinting || "Normal";
+    const foilSelected = selectedPrinting === "Foil";
+    const selectedCondition = state.inventoryConditionByProductId.get(product.productId) || profile?.defaultCondition || "Near Mint";
     const condition = el("select", {
       className: "catalog-condition-select",
       "aria-label": "Condition for " + product.productName + " from " + product.setName,
@@ -1815,8 +1820,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return option;
     }));
     const profile = activeMerchandiseProfile();
+    const pricingProfile = profile
+      ? state.settings.repricingProfiles.find((candidate) => candidate.id === profile.pricingProfileId)
+      : null;
     document.querySelector("#inventory-profile-summary").textContent = profile
-      ? profile.language + " · min " + money(profile.minimumPrice) + " · shipping " + money(profile.estimatedShippingPrice) + " · " + (profile.priceBasis === "delivered" ? "delivered price" : "item price") + " · " + (profile.conditionPolicy === "same-or-better" ? "same or better condition" : "same condition")
+      ? profile.language + " · " + profile.defaultCondition + " · " + profile.defaultPrinting + " · shipping " + money(profile.estimatedShippingPrice) + " · " + (pricingProfile?.name || "Missing pricing profile")
       : "";
   }
 
@@ -1828,6 +1836,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       // The saved default remains available when browser storage is unavailable.
     }
     renderMerchandiseProfileSelector();
+    state.inventoryConditionByProductId.clear();
+    state.inventoryPrintingByProductId.clear();
     state.inventoryResultByProductId.clear();
     if (state.catalogSearch) renderCatalogSearch();
   }
@@ -1905,11 +1915,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function toggleInventoryFoil(productId) {
-    if (state.inventoryFoilProductIds.has(productId)) {
-      state.inventoryFoilProductIds.delete(productId);
-    } else {
-      state.inventoryFoilProductIds.add(productId);
-    }
+    const profile = activeMerchandiseProfile();
+    const selected = state.inventoryPrintingByProductId.get(productId) || profile?.defaultPrinting || "Normal";
+    state.inventoryPrintingByProductId.set(productId, selected === "Foil" ? "Normal" : "Foil");
     state.inventoryResultByProductId.delete(productId);
     if (state.catalogSearch) renderCatalogSearch();
   }
@@ -1923,14 +1931,18 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function inventoryPricingRules(profile) {
+    const pricingProfile = state.settings?.repricingProfiles.find(
+      (candidate) => candidate.id === profile.pricingProfileId,
+    );
+    if (!pricingProfile) return null;
     return {
-      minimumPrice: profile.minimumPrice,
-      conditionPolicy: profile.conditionPolicy,
-      priceBasis: profile.priceBasis,
-      adjustmentCents: profile.adjustmentCents,
+      minimumPrice: pricingProfile.minimumPrice,
+      conditionPolicy: pricingProfile.conditionPolicy,
+      priceBasis: pricingProfile.priceBasis,
+      adjustmentCents: pricingProfile.adjustmentCents,
+      allowPriceIncreases: pricingProfile.allowPriceIncreases,
+      ranges: pricingProfile.ranges,
       estimatedShippingPrice: profile.estimatedShippingPrice,
-      noComparisonFallback: profile.noComparisonFallback,
-      ...(profile.noComparisonFallback === "manual" ? { manualPrice: profile.manualPrice } : {}),
     };
   }
 
@@ -1938,8 +1950,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const productId = product.productId;
     if (state.inventoryAddingProductIds.has(productId)) return;
     const profile = activeMerchandiseProfile();
-    const condition = state.inventoryConditionByProductId.get(productId) || "Near Mint";
-    const printing = state.inventoryFoilProductIds.has(productId) ? "Foil" : "Normal";
     if (!profile) {
       state.inventoryResultByProductId.set(productId, {
         kind: "error",
@@ -1948,6 +1958,17 @@ export const CONFIG_UI_JS = String.raw`(() => {
       renderCatalogSearch();
       return;
     }
+    const pricingRules = inventoryPricingRules(profile);
+    if (!pricingRules) {
+      state.inventoryResultByProductId.set(productId, {
+        kind: "error",
+        text: "The merchandise profile references a missing pricing profile.",
+      });
+      renderCatalogSearch();
+      return;
+    }
+    const condition = state.inventoryConditionByProductId.get(productId) || profile.defaultCondition;
+    const printing = state.inventoryPrintingByProductId.get(productId) || profile.defaultPrinting;
     state.inventoryAddingProductIds.add(productId);
     state.inventoryResultByProductId.delete(productId);
     renderCatalogSearch();
@@ -1978,7 +1999,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
           productId,
           productConditionId: sku.productConditionId,
           addQuantity,
-          rules: inventoryPricingRules(profile),
+          rules: pricingRules,
         }),
       });
       const preview = await previewResponse.json();
@@ -2266,18 +2287,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function collectMerchandiseProfile(card) {
-    const fallback = card.querySelector('[name="noComparisonFallback"]').value;
     return {
       id: card.dataset.profileId,
       name: card.querySelector('[name="profileName"]').value.trim(),
       language: card.querySelector('[name="language"]').value.trim(),
-      minimumPrice: Number(card.querySelector('[name="minimumPrice"]').value),
       estimatedShippingPrice: Number(card.querySelector('[name="estimatedShippingPrice"]').value),
-      conditionPolicy: card.querySelector('[name="conditionPolicy"]').value,
-      priceBasis: card.querySelector('[name="priceBasis"]').value,
-      adjustmentCents: Number(card.querySelector('[name="adjustmentCents"]').value),
-      noComparisonFallback: fallback,
-      ...(fallback === "manual" ? { manualPrice: Number(card.querySelector('[name="manualPrice"]').value) } : {}),
+      defaultCondition: card.querySelector('[name="defaultCondition"]').value,
+      defaultPrinting: card.querySelector('[name="defaultPrinting"]').value,
+      pricingProfileId: card.querySelector('[name="pricingProfileId"]').value,
     };
   }
 

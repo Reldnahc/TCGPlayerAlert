@@ -439,7 +439,7 @@ function parseUiUpdate(
       repricingProfileValues.length < 1 ||
       repricingProfileValues.length > 20
     ) {
-      issues.push("Repricing profiles must contain between 1 and 20 profiles.");
+      issues.push("Pricing profiles must contain between 1 and 20 profiles.");
     }
     repricingProfiles = (
       Array.isArray(repricingProfileValues) ? repricingProfileValues : []
@@ -450,7 +450,7 @@ function parseUiUpdate(
       new Set(repricingProfiles.map((profile) => profile.id)).size !==
       repricingProfiles.length
     ) {
-      issues.push("Repricing profile ids must be unique.");
+      issues.push("Pricing profile ids must be unique.");
     }
     if (
       typeof defaultRepricingProfileValue !== "string" ||
@@ -458,9 +458,20 @@ function parseUiUpdate(
         (profile) => profile.id === defaultRepricingProfileValue,
       )
     ) {
-      issues.push("The default repricing profile must reference a profile.");
+      issues.push("The default pricing profile must reference a profile.");
     } else {
       defaultRepricingProfileId = defaultRepricingProfileValue;
+    }
+  }
+  for (const [index, profile] of merchandiseProfiles.entries()) {
+    if (
+      !repricingProfiles.some(
+        (pricingProfile) => pricingProfile.id === profile.pricingProfileId,
+      )
+    ) {
+      issues.push(
+        `Merchandise profile ${String(index + 1)} must reference an existing pricing profile.`,
+      );
     }
   }
   const outputValues = source?.outputs;
@@ -514,43 +525,32 @@ function parseMerchandiseProfileUpdate(
   if (!safeText(name)) issues.push(`${path} requires a valid name.`);
   const language = source?.language;
   if (!safeText(language)) issues.push(`${path} requires a valid language.`);
-  const conditionPolicy = source?.conditionPolicy;
-  if (conditionPolicy !== "same" && conditionPolicy !== "same-or-better") {
-    issues.push(`${path} has an invalid condition comparison.`);
-  }
-  const priceBasis = source?.priceBasis;
-  if (priceBasis !== "item" && priceBasis !== "delivered") {
-    issues.push(`${path} has an invalid price basis.`);
-  }
-  const noComparisonFallback = source?.noComparisonFallback;
+  const defaultCondition = source?.defaultCondition;
   if (
-    noComparisonFallback !== "market" &&
-    noComparisonFallback !== "manual" &&
-    noComparisonFallback !== "stop"
+    defaultCondition !== "Near Mint" &&
+    defaultCondition !== "Lightly Played" &&
+    defaultCondition !== "Moderately Played" &&
+    defaultCondition !== "Heavily Played" &&
+    defaultCondition !== "Damaged" &&
+    defaultCondition !== "Unopened"
   ) {
-    issues.push(`${path} has an invalid no-listing fallback.`);
+    issues.push(`${path} has an invalid default condition.`);
   }
-  const manualPrice =
-    noComparisonFallback === "manual"
-      ? boundedNumber(
-          source?.manualPrice,
-          0.01,
-          1_000_000,
-          `${path} manual fallback price`,
-          issues,
-        )
-      : undefined;
+  const defaultPrinting = source?.defaultPrinting;
+  if (defaultPrinting !== "Normal" && defaultPrinting !== "Foil") {
+    issues.push(`${path} has an invalid default printing.`);
+  }
+  const pricingProfileId = source?.pricingProfileId;
+  if (
+    typeof pricingProfileId !== "string" ||
+    !/^[a-z][a-z0-9-]{0,63}$/u.test(pricingProfileId)
+  ) {
+    issues.push(`${path} has an invalid pricing profile reference.`);
+  }
   return {
     id: typeof id === "string" ? id : "invalid",
     name: typeof name === "string" ? name.trim() : "",
     language: typeof language === "string" ? language.trim() : "",
-    minimumPrice: boundedNumber(
-      source?.minimumPrice,
-      0.01,
-      1_000_000,
-      `${path} minimum price`,
-      issues,
-    ),
     estimatedShippingPrice: boundedNumber(
       source?.estimatedShippingPrice,
       0,
@@ -558,19 +558,12 @@ function parseMerchandiseProfileUpdate(
       `${path} shipping rate`,
       issues,
     ),
-    conditionPolicy:
-      conditionPolicy as MerchandiseProfileConfig["conditionPolicy"],
-    priceBasis: priceBasis as MerchandiseProfileConfig["priceBasis"],
-    adjustmentCents: boundedInteger(
-      source?.adjustmentCents,
-      0,
-      100_000,
-      `${path} adjustment`,
-      issues,
-    ),
-    noComparisonFallback:
-      noComparisonFallback as MerchandiseProfileConfig["noComparisonFallback"],
-    ...(manualPrice === undefined ? {} : { manualPrice }),
+    defaultCondition:
+      defaultCondition as MerchandiseProfileConfig["defaultCondition"],
+    defaultPrinting:
+      defaultPrinting as MerchandiseProfileConfig["defaultPrinting"],
+    pricingProfileId:
+      typeof pricingProfileId === "string" ? pricingProfileId : "invalid",
   };
 }
 
@@ -580,7 +573,7 @@ function parseRepricingProfileUpdate(
   issues: string[],
 ): RepricingProfileConfig {
   const source = objectValue(value);
-  const path = `Repricing profile ${String(index + 1)}`;
+  const path = `Pricing profile ${String(index + 1)}`;
   const id = source?.id;
   if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/u.test(id)) {
     issues.push(`${path} has an invalid id.`);
