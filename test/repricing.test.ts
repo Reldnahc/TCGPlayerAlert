@@ -813,6 +813,64 @@ describe("smart repricing", () => {
     );
   });
 
+  it("converts 200 selected preview rows into one queueable batch", async () => {
+    const ownProducts = Array.from({ length: 200 }, (_, index) => {
+      const ownListing = listing({
+        listingId: 1000 + index,
+        productId: 2000 + index,
+        productConditionId: 20_000 + index,
+        quantity: 1,
+        price: 3,
+      });
+      return {
+        ...product(ownListing),
+        productName: `Synthetic Card ${String(index + 1)}`,
+        totalListings: 1,
+      };
+    });
+    const productsById = new Map(
+      ownProducts.map((candidate) => [candidate.productId, candidate]),
+    );
+    const service = new RepricingService({
+      client: {
+        listSellerInventory: (input) =>
+          Promise.resolve(input.channelId === 0 ? ownProducts : []),
+        searchMarketplaceProducts: (input) => {
+          const products = (input.productIds ?? []).flatMap((productId) => {
+            const ownProduct = productsById.get(productId);
+            if (ownProduct === undefined) return [];
+            const competitor = listing({
+              listingId: 50_000 + productId,
+              productId,
+              productConditionId:
+                ownProduct.listings[0]?.productConditionId ?? productId,
+              sellerKey: `competitor-${String(productId)}`,
+              sellerName: "Synthetic Competitor",
+              quantity: 1,
+              price: 2,
+            });
+            return [{ ...ownProduct, listings: [competitor] }];
+          });
+          return Promise.resolve({
+            totalProducts: products.length,
+            products,
+          });
+        },
+      },
+      sellerKey,
+      now: () => new Date("2026-08-05T12:00:00.000Z"),
+    });
+
+    const preview = await service.preview(rules);
+    const updates = service.takeUpdates(preview.id, {
+      rowIds: preview.rows.map((row) => row.id),
+    });
+
+    expect(preview.rows).toHaveLength(200);
+    expect(preview.counts.ready).toBe(200);
+    expect(updates).toHaveLength(200);
+  });
+
   it("does not offer automatic removal when the SKU has secondary inventory", async () => {
     const ownListing = listing();
     const secondaryListing = listing({ channelId: 1, quantity: 1 });

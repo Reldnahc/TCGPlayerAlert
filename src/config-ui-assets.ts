@@ -2449,7 +2449,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error((data.issues || []).join(" ") || data.message || "The changes were not queued.");
       message.className = "repricing-message success";
-      message.textContent = data.jobs.length + " price " + (data.jobs.length === 1 ? "update" : "updates") + " queued.";
+      message.textContent = data.jobs.length + " price " + (data.jobs.length === 1 ? "update" : "updates")
+        + " queued. Processing runs one at a time; follow progress in Jobs.";
       state.repricingPreview = null;
       document.querySelector("#repricing-results").hidden = true;
       state.jobQueues.price.page = 0;

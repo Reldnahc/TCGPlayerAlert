@@ -65,6 +65,8 @@ const TERMINAL_STATUSES = new Set<PriceUpdateJobStatus>([
   "canceled",
 ]);
 
+export const MAX_PRICE_UPDATE_BATCH_SIZE = 1000;
+
 export class PriceUpdateQueueStore {
   private readonly stateFile: string;
   private readonly historyLimit: number;
@@ -569,8 +571,13 @@ export function parsePriceUpdates(
 ): readonly SellerPriceUpdate[] {
   const source = objectValue(value);
   const candidates = Array.isArray(source?.updates) ? source.updates : [value];
-  if (candidates.length === 0 || candidates.length > 100) {
-    throw new ConfigurationError(["Provide 1-100 price updates."]);
+  if (
+    candidates.length === 0 ||
+    candidates.length > MAX_PRICE_UPDATE_BATCH_SIZE
+  ) {
+    throw new ConfigurationError([
+      `Provide 1-${String(MAX_PRICE_UPDATE_BATCH_SIZE)} price updates.`,
+    ]);
   }
   const issues: string[] = [];
   const updates = candidates.map((candidate, index) =>

@@ -175,6 +175,8 @@ The JSON file may contain one update or `{ "updates": [...] }`. A complete item 
 
 Pending jobs for the same SKU/channel are superseded by the newest price. The service keeps one mutation request in flight, waits for TCGplayer to accept it, and then applies the configured cooldown before claiming the next job. The default cooldown is one second. An `applied` queue status means Seller Portal accepted the update; TCGplayer documents that site-visible prices may lag by up to five minutes, and configured rounding or Direct price floors can make the displayed price differ from the submitted price. A definite HTTP 429 is delayed for five minutes. Authentication and validation failures stop as failed, while a timeout, disconnect, or lost mutation response becomes `review-required` and is never resubmitted automatically.
 
+One preview action can durably queue up to 1,000 selected listings, including batches of 200 or more. Queue creation is one local operation, but submission remains deliberately sequential. A 200-listing batch therefore takes at least 199 seconds with the default one-second cooldown, plus the time required for each live-state check and accepted mutation. Progress is visible in **Jobs**.
+
 ## Enable printing safely
 
 The example uses `windows-native-label` for address text and `windows-pdf` for packing slips. Neither needs a separately installed PDF viewer. Configure each exact Windows printer name; the label adapter also uses the action's configured dimensions, while the PDF adapter controls render DPI and scaling.

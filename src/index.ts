@@ -59,6 +59,7 @@ export {
 export type * from "./inventory-additions.js";
 export {
   createTcgplayerPriceUpdateExecutor,
+  MAX_PRICE_UPDATE_BATCH_SIZE,
   parsePriceUpdates,
   PriceUpdateQueueStore,
   PriceUpdateWorker,

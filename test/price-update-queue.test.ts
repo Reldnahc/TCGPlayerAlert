@@ -91,6 +91,23 @@ describe("price-update queue", () => {
     expect((await queue.snapshot()).jobs).toHaveLength(0);
   });
 
+  it("atomically queues a 200-listing repricing batch", async () => {
+    const { queue } = await queueFixture();
+    const updates = Array.from({ length: 200 }, (_, index) => ({
+      ...syntheticUpdate,
+      productId: 1000 + index,
+      productConditionId: 10_000 + index,
+      productName: `Synthetic Card ${String(index + 1)}`,
+    }));
+
+    const jobs = await queue.enqueue({ updates });
+    const snapshot = await queue.snapshot();
+
+    expect(jobs).toHaveLength(200);
+    expect(snapshot.counts.pending).toBe(200);
+    expect(snapshot.jobs).toHaveLength(200);
+  });
+
   it("resubmits a failed update once as a new auditable job", async () => {
     const { queue } = await queueFixture();
     const original = (await queue.enqueue(syntheticUpdate))[0];
