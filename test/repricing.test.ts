@@ -105,10 +105,15 @@ describe("smart repricing", () => {
     });
   });
 
-  it("uses explicitly eligible Direct listings as marketplace comparables", () => {
+  it("ignores channel-1 records even when they are marked as Direct listings", () => {
     const ownListing = listing({ price: 3, channelId: 0 });
-    const directCompetitor = listing({
+    const marketplaceCompetitor = listing({
       listingId: 2,
+      sellerKey: "marketplace-competitor",
+      price: 2.5,
+    });
+    const directCompetitor = listing({
+      listingId: 3,
       sellerKey: "direct-competitor",
       sellerName: "Direct Store",
       channelId: 1,
@@ -118,21 +123,21 @@ describe("smart repricing", () => {
 
     const row = calculateRepricingRow(
       { product: product(ownListing), listing: ownListing },
-      [directCompetitor],
+      [directCompetitor, marketplaceCompetitor],
       sellerKey,
       rules,
-      "row-direct-comparable",
+      "row-ignore-direct",
     );
 
     expect(row).toMatchObject({
       status: "ready",
-      proposedPrice: 2,
-      competitorPrice: 2,
+      proposedPrice: 2.5,
+      competitorPrice: 2.5,
       qualifyingListings: 1,
     });
   });
 
-  it("rejects channel-1 records that are not customer-buyable Direct listings", () => {
+  it("ignores channel-1 records without relying on Direct eligibility flags", () => {
     const ownListing = listing({
       conditionId: 2,
       condition: "Lightly Played",
@@ -829,20 +834,7 @@ describe("smart repricing", () => {
       channelId: 0,
       limit: 24,
     });
-    expect(searchMarketplaceProducts).toHaveBeenCalledWith({
-      productIds: [100],
-      conditions: [
-        "Near Mint",
-        "Lightly Played",
-        "Moderately Played",
-        "Heavily Played",
-        "Damaged",
-      ],
-      printings: ["Normal"],
-      languages: ["English"],
-      channelId: 1,
-      limit: 24,
-    });
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
     expect(updates).toEqual([
       expect.objectContaining({
         productConditionId: 1003,
@@ -1091,9 +1083,9 @@ describe("smart repricing", () => {
     });
     expect(first.rows[0]?.reason).toContain("price increases are disabled");
     expect(first.rows[0]?.sparseMarketFallbackApplied).toBeUndefined();
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
-      3,
+      2,
       expect.objectContaining({
         productIds: [111645],
         conditions: ["Near Mint"],
@@ -1103,10 +1095,10 @@ describe("smart repricing", () => {
       }),
     );
     expect(second.marketplaceSnapshot.source).toBe("cache");
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
   });
 
-  it("does not let a Direct result mask marketplace listings hidden by worse conditions", async () => {
+  it("recovers marketplace listings hidden by worse conditions", async () => {
     const ownListing = listing({
       listingId: 10,
       productId: 31833,
@@ -1170,18 +1162,6 @@ describe("smart repricing", () => {
         shippingPrice: 1.49,
       }),
     ];
-    const directListing = listing({
-      listingId: 40,
-      productId: 31833,
-      productConditionId: 318334,
-      conditionId: 4,
-      condition: "Heavily Played",
-      channelId: 1,
-      directListing: true,
-      sellerKey: "direct-seller",
-      price: 1.67,
-      shippingPrice: 3.99,
-    });
     const listSellerInventory = vi.fn(
       (input: { readonly channelId?: number }) =>
         Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
@@ -1192,14 +1172,6 @@ describe("smart repricing", () => {
         readonly conditions?: readonly string[];
       }) => {
         const exactConditions = input.conditions?.length === 4;
-        if (input.channelId === 1) {
-          return Promise.resolve({
-            totalProducts: 1,
-            products: [
-              { ...ownProduct, totalListings: 1, listings: [directListing] },
-            ],
-          });
-        }
         return Promise.resolve({
           totalProducts: 1,
           products: [
@@ -1249,9 +1221,9 @@ describe("smart repricing", () => {
       status: "unchanged",
       pricingSource: "lowest",
     });
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
-      3,
+      2,
       expect.objectContaining({
         productIds: [31833],
         conditions: [
@@ -1298,7 +1270,7 @@ describe("smart repricing", () => {
       source: "cache",
     });
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
 
     const row = second.rows[0];
     if (row === undefined) throw new Error("Missing cached preview row");
@@ -1307,7 +1279,7 @@ describe("smart repricing", () => {
 
     expect(afterQueue.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(4);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
   });
 
   it("reloads an expired or explicitly refreshed marketplace snapshot", async () => {
@@ -1345,7 +1317,7 @@ describe("smart repricing", () => {
     expect(expired.marketplaceSnapshot.source).toBe("fresh");
     expect(forced.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(6);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(6);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(3);
   });
 
   it("coalesces simultaneous marketplace snapshot loads", async () => {
@@ -1385,6 +1357,6 @@ describe("smart repricing", () => {
       second.marketplaceSnapshot.source,
     ]).toEqual(["fresh", "shared"]);
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(1);
   });
 });

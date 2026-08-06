@@ -145,8 +145,6 @@ interface MarketplaceComparisonSample {
   readonly listings: readonly MarketplaceListing[];
   readonly marketplaceTotalListings: number;
   readonly marketplaceReturnedListings: number;
-  readonly secondaryTotalListings: number;
-  readonly secondaryReturnedListings: number;
 }
 
 interface RepricingComparisonEvidence {
@@ -525,7 +523,7 @@ export function calculateRepricingRow(
       (listing) =>
         listing.productId === own.listing.productId &&
         listing.sellerKey !== sellerKey &&
-        (listing.channelId !== 1 || listing.directListing === true) &&
+        listing.channelId === 0 &&
         listing.printing === own.listing.printing &&
         listing.language === own.listing.language &&
         conditions.includes(listing.condition) &&
@@ -915,29 +913,22 @@ function emptyComparisonSample(): MarketplaceComparisonSample {
     listings: [],
     marketplaceTotalListings: 0,
     marketplaceReturnedListings: 0,
-    secondaryTotalListings: 0,
-    secondaryReturnedListings: 0,
   };
 }
 
 function comparisonSampleIncomplete(
   sample: MarketplaceComparisonSample,
 ): boolean {
-  return (
-    sample.marketplaceTotalListings > sample.marketplaceReturnedListings ||
-    sample.secondaryTotalListings > sample.secondaryReturnedListings
-  );
+  return sample.marketplaceTotalListings > sample.marketplaceReturnedListings;
 }
 
 function mergeComparisonProduct(
   sample: MarketplaceComparisonSample,
   product: MarketplaceProduct,
-  channelId: number,
 ): MarketplaceComparisonSample {
-  const eligibleListings =
-    channelId === 1
-      ? product.listings.filter((listing) => listing.directListing === true)
-      : product.listings;
+  const eligibleListings = product.listings.filter(
+    (listing) => listing.channelId === 0,
+  );
   const listings = [...sample.listings];
   const listingKeys = new Set(
     listings.map(
@@ -952,18 +943,8 @@ function mergeComparisonProduct(
   }
   return {
     listings,
-    marketplaceTotalListings:
-      channelId === 0 ? product.totalListings : sample.marketplaceTotalListings,
-    marketplaceReturnedListings:
-      channelId === 0
-        ? product.listings.length
-        : sample.marketplaceReturnedListings,
-    secondaryTotalListings:
-      channelId === 1 ? eligibleListings.length : sample.secondaryTotalListings,
-    secondaryReturnedListings:
-      channelId === 1
-        ? eligibleListings.length
-        : sample.secondaryReturnedListings,
+    marketplaceTotalListings: product.totalListings,
+    marketplaceReturnedListings: eligibleListings.length,
   };
 }
 
@@ -1003,8 +984,8 @@ function marketplaceSampleCanHideLowestListing(
 
   // TCGplayer embeds only a small lowest-price sample for each product. A broad
   // all-condition query can fill that sample with worse conditions and the
-  // seller's own listing, while a higher-priced Direct record makes the row
-  // appear usable. Retry with the exact allowed conditions before trusting it.
+  // seller's own listing. Retry with the exact allowed conditions before
+  // concluding that no qualifying marketplace competitor exists.
   return (
     sample.marketplaceReturnedListings === 0 ||
     sample.marketplaceTotalListings > sample.marketplaceReturnedListings
@@ -1322,25 +1303,22 @@ export class RepricingService {
         ...new Set(contexts.map((context) => context.product.productId)),
       ];
       for (const productIdChunk of chunks(productIds, 24)) {
-        for (const channelId of [0, 1]) {
-          const result = await this.client.searchMarketplaceProducts({
-            productIds: productIdChunk,
-            conditions: TCGPLAYER_CONDITION_ORDER,
-            printings: [printing],
-            languages: [language],
-            channelId,
-            limit: 24,
-          });
-          for (const product of result.products) {
-            comparisons.set(
-              product.productId,
-              mergeComparisonProduct(
-                comparisons.get(product.productId) ?? emptyComparisonSample(),
-                product,
-                channelId,
-              ),
-            );
-          }
+        const result = await this.client.searchMarketplaceProducts({
+          productIds: productIdChunk,
+          conditions: TCGPLAYER_CONDITION_ORDER,
+          printings: [printing],
+          languages: [language],
+          channelId: 0,
+          limit: 24,
+        });
+        for (const product of result.products) {
+          comparisons.set(
+            product.productId,
+            mergeComparisonProduct(
+              comparisons.get(product.productId) ?? emptyComparisonSample(),
+              product,
+            ),
+          );
         }
       }
     }
@@ -1422,25 +1400,22 @@ export class RepricingService {
             emptyComparisonSample(),
           ]),
         );
-        for (const channelId of [0, 1]) {
-          const result = await this.client.searchMarketplaceProducts({
-            productIds: productIdChunk,
-            conditions: group.conditions,
-            printings: [printing],
-            languages: [language],
-            channelId,
-            limit: 24,
-          });
-          for (const product of result.products) {
-            samples.set(
-              product.productId,
-              mergeComparisonProduct(
-                samples.get(product.productId) ?? emptyComparisonSample(),
-                product,
-                channelId,
-              ),
-            );
-          }
+        const result = await this.client.searchMarketplaceProducts({
+          productIds: productIdChunk,
+          conditions: group.conditions,
+          printings: [printing],
+          languages: [language],
+          channelId: 0,
+          limit: 24,
+        });
+        for (const product of result.products) {
+          samples.set(
+            product.productId,
+            mergeComparisonProduct(
+              samples.get(product.productId) ?? emptyComparisonSample(),
+              product,
+            ),
+          );
         }
         for (const context of group.contexts) {
           if (!productIdChunk.includes(context.product.productId)) continue;
