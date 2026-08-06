@@ -4,12 +4,7 @@ import { randomUUID } from "node:crypto";
 import { ApplicationError } from "./errors.js";
 
 export type ActionStatus =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "dry-run"
-  | "failed"
-  | "review-required";
+  "pending" | "running" | "succeeded" | "failed" | "review-required";
 
 export interface PersistedActionState {
   readonly status: ActionStatus;
@@ -19,12 +14,7 @@ export interface PersistedActionState {
 }
 
 export type OrderWorkflowStatus =
-  | "baseline"
-  | "pending"
-  | "completed"
-  | "dry-run"
-  | "failed"
-  | "review-required";
+  "baseline" | "pending" | "completed" | "failed" | "review-required";
 
 export interface PersistedOrderState {
   readonly firstSeenAt: string;
@@ -89,7 +79,6 @@ const ACTION_STATUSES = new Set<ActionStatus>([
   "pending",
   "running",
   "succeeded",
-  "dry-run",
   "failed",
   "review-required",
 ]);
@@ -97,7 +86,6 @@ const WORKFLOW_STATUSES = new Set<OrderWorkflowStatus>([
   "baseline",
   "pending",
   "completed",
-  "dry-run",
   "failed",
   "review-required",
 ]);
@@ -168,9 +156,9 @@ export class JsonStateStore implements StateStore {
 
   async load(): Promise<ApplicationState> {
     try {
-      const value = JSON.parse(
-        await readFile(this.absolutePath, "utf8"),
-      ) as unknown;
+      const value = migrateLegacyDryRunState(
+        JSON.parse(await readFile(this.absolutePath, "utf8")) as unknown,
+      );
       if (!isState(value)) {
         throw new ApplicationError(
           "PERSISTENCE_ERROR",
@@ -216,6 +204,36 @@ export class JsonStateStore implements StateStore {
       );
     }
   }
+}
+
+function migrateLegacyDryRunState(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.orders)) return value;
+  const orders = Object.fromEntries(
+    Object.entries(value.orders).map(([orderId, order]) => {
+      if (!isRecord(order) || !isRecord(order.actions)) return [orderId, order];
+      const actions = Object.fromEntries(
+        Object.entries(order.actions).map(([actionId, action]) => {
+          if (!isRecord(action) || action.status !== "dry-run") {
+            return [actionId, action];
+          }
+          return [actionId, { ...action, status: "pending" }];
+        }),
+      );
+      let workflowStatus = order.workflowStatus;
+      if (workflowStatus === "dry-run") {
+        workflowStatus = "pending";
+      }
+      return [
+        orderId,
+        {
+          ...order,
+          workflowStatus,
+          actions,
+        },
+      ];
+    }),
+  );
+  return { ...value, orders };
 }
 
 export function recoverInterruptedActions(

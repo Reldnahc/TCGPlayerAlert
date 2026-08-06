@@ -68,14 +68,6 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
                 <span>minutes</span>
               </span>
             </label>
-            <label class="switch-row warning-switch">
-              <span>
-                <strong>Dry run</strong>
-                <small>Prevents printing and remote changes.</small>
-              </span>
-              <input id="dry-run" type="checkbox" />
-              <span class="switch" aria-hidden="true"></span>
-            </label>
           </section>
 
           <div class="section-heading">
@@ -1142,13 +1134,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function renderDashboardAutomation() {
     const container = document.querySelector("#dashboard-automation-controls");
-    const controls = [
-      dashboardToggle("Dry run", state.settings.dryRun, (checked) => {
-        const settingsControl = document.querySelector("#dry-run");
-        settingsControl.checked = checked;
-        settingsControl.dispatchEvent(new Event("change", { bubbles: true }));
-      }),
-    ];
+    const controls = [];
     for (const [type, label] of [["print-address-label", "Address labels"], ["print-packing-slip", "Packing slips"]]) {
       const output = state.settings.outputs.find((candidate) => candidate.type === type);
       if (!output) continue;
@@ -1162,8 +1148,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function syncDashboardAutomation() {
-    const dryRun = document.querySelector('#dashboard-automation-controls input[aria-label="Dry run"]');
-    if (dryRun) dryRun.checked = document.querySelector("#dry-run").checked;
     for (const control of document.querySelectorAll("#dashboard-automation-controls input[data-action-id]")) {
       const settingsControl = outputs.querySelector('[data-action-id="' + CSS.escape(control.dataset.actionId) + '"] [name="enabled"]');
       if (settingsControl) control.checked = settingsControl.checked;
@@ -1172,7 +1156,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function render() {
     document.querySelector("#poll-interval").value = String(state.settings.pollIntervalMinutes);
-    document.querySelector("#dry-run").checked = state.settings.dryRun;
     document.querySelector("#price-queue-enabled").checked = state.settings.priceUpdateQueue.enabled;
     document.querySelector("#price-delay").value = String(state.settings.priceUpdateQueue.delaySeconds);
     document.querySelector("#inventory-queue-enabled").checked = state.settings.inventoryAdditionQueue.enabled;
@@ -1420,9 +1403,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   async function orderMutationRequest(order, path, body) {
-    if (document.querySelector("#dry-run").checked) {
-      throw new Error("Turn off dry run and save settings before changing or printing a real order.");
-    }
     const response = await fetch(
       "/api/orders/" + encodeURIComponent(order.orderNumber) + "/" + path,
       {
@@ -2484,7 +2464,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return {
       revision: state.settings.revision,
       pollIntervalMinutes: Number(document.querySelector("#poll-interval").value),
-      dryRun: document.querySelector("#dry-run").checked,
       priceUpdateQueue: {
         enabled: document.querySelector("#price-queue-enabled").checked,
         delaySeconds: Number(document.querySelector("#price-delay").value),

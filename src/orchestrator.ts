@@ -157,7 +157,6 @@ export class FulfillmentWorkflow {
           current === undefined ||
           !shouldProcess(
             current.workflowStatus,
-            this.dependencies.config.dryRun,
             options.processBacklog === true,
           )
         ) {
@@ -276,7 +275,6 @@ export class FulfillmentWorkflow {
         actionState === undefined ||
         actionState.status === "succeeded" ||
         actionState.status === "review-required" ||
-        (actionState.status === "dry-run" && this.dependencies.config.dryRun) ||
         (actionState.status === "failed" &&
           actionState.attempts >=
             this.dependencies.config.actionMaximumAttempts)
@@ -289,14 +287,6 @@ export class FulfillmentWorkflow {
         updatedAt: this.timestamp(),
       };
       state = await this.saveAction(state, orderId, actionId, running);
-      if (this.dependencies.config.dryRun) {
-        state = await this.saveAction(state, orderId, actionId, {
-          ...running,
-          status: "dry-run",
-          updatedAt: this.timestamp(),
-        });
-        continue;
-      }
       try {
         if (action.requiresPackingSlip && packingSlip === undefined) {
           packingSlip = await this.dependencies.provider.getPackingSlip(
@@ -337,10 +327,7 @@ export class FulfillmentWorkflow {
     const relevantActions = actionIds
       .map((actionId) => current.actions[actionId])
       .filter((value): value is PersistedActionState => value !== undefined);
-    const workflowStatus = statusFromActions(
-      relevantActions,
-      this.dependencies.config.dryRun,
-    );
+    const workflowStatus = statusFromActions(relevantActions);
     return this.saveOrder(state, orderId, {
       ...withoutOrderError(current),
       workflowStatus,
@@ -415,17 +402,14 @@ function withoutOrderError(order: PersistedOrderState): PersistedOrderState {
 
 function shouldProcess(
   status: OrderWorkflowStatus,
-  dryRun: boolean,
   processBacklog: boolean,
 ): boolean {
   if (status === "baseline") return processBacklog;
-  if (status === "pending" || status === "failed") return true;
-  return status === "dry-run" && !dryRun;
+  return status === "pending" || status === "failed";
 }
 
 function statusFromActions(
   actions: readonly PersistedActionState[],
-  dryRun: boolean,
 ): OrderWorkflowStatus {
   if (actions.some((action) => action.status === "review-required"))
     return "review-required";
@@ -438,8 +422,6 @@ function statusFromActions(
     )
   )
     return "failed";
-  if (dryRun && actions.some((action) => action.status === "dry-run"))
-    return "dry-run";
   return "completed";
 }
 

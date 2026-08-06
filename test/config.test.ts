@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ConfigurationError, parseConfig } from "../src/index.js";
 
 describe("application configuration", () => {
-  it("validates the committed dry-run example", async () => {
+  it("validates the committed example with every side effect disabled", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as unknown;
@@ -12,10 +12,9 @@ describe("application configuration", () => {
 
     expect(config.version).toBe(1);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
-    expect(config.dryRun).toBe(true);
     expect(config.priceUpdateQueue.delaySeconds).toBe(1);
     expect(config.inventoryAdditionQueue).toMatchObject({
-      enabled: true,
+      enabled: false,
       delaySeconds: 0,
     });
     expect(config.defaultMerchandiseProfileId).toBe("english-singles");
@@ -90,7 +89,7 @@ describe("application configuration", () => {
     });
     expect(config.rules).toHaveLength(1);
     expect(config.actions["print-address-label"]).toMatchObject({
-      enabled: true,
+      enabled: false,
       omitLineValues: ["US", "USA"],
       page: { fontSize: 14 },
     });
@@ -301,7 +300,6 @@ describe("application configuration", () => {
         version: 2,
         pollIntervalMinutes: 0,
         actionMaximumAttempts: 0,
-        dryRun: "yes",
         provider: {},
         printers: {},
         actions: {},
@@ -317,26 +315,53 @@ describe("application configuration", () => {
     }
   });
 
-  it("rejects live printing while placeholder printers remain", async () => {
+  it("rejects enabled printing while placeholder printers remain", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
-    value.dryRun = false;
+    const actions = value.actions as Record<string, { enabled: boolean }>;
+    const address = actions["print-address-label"];
+    if (address === undefined) throw new Error("Missing example action");
+    address.enabled = true;
 
     expect(() => parseConfig(value)).toThrow(/Configuration is invalid/u);
   });
 
-  it("allows disabled outputs to retain placeholder printers in live mode", async () => {
+  it("allows disabled outputs to retain placeholder printers", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as {
-      dryRun: boolean;
       actions: Record<string, { enabled: boolean }>;
     };
-    value.dryRun = false;
     for (const action of Object.values(value.actions)) action.enabled = false;
 
-    expect(parseConfig(value).dryRun).toBe(false);
+    expect(parseConfig(value).actions["print-address-label"]?.enabled).toBe(
+      false,
+    );
+  });
+
+  it("migrates a legacy dryRun configuration to disabled side effects", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      dryRun?: boolean;
+      priceUpdateQueue: { enabled: boolean };
+      inventoryAdditionQueue: { enabled: boolean };
+      actions: Record<string, { enabled: boolean }>;
+    };
+    value.priceUpdateQueue.enabled = true;
+    value.inventoryAdditionQueue.enabled = true;
+    for (const action of Object.values(value.actions)) action.enabled = true;
+    value.dryRun = true;
+
+    const config = parseConfig(value);
+
+    expect("dryRun" in config).toBe(false);
+    expect(config.priceUpdateQueue.enabled).toBe(false);
+    expect(config.inventoryAdditionQueue.enabled).toBe(false);
+    expect(
+      Object.values(config.actions).every((action) => !action.enabled),
+    ).toBe(true);
   });
 
   it("rejects unknown label and command placeholders", async () => {

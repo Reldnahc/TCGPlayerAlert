@@ -15,7 +15,7 @@ Seller Portal price updates are slow and should not block an operator or reprici
 - Return from enqueue immediately. Run one worker with one in-flight mutation. Await Seller Portal's response, then apply a configurable cooldown before claiming the next job; default the cooldown to one second.
 - Treat a successful Seller Portal response as acceptance, not proof of an immediately visible exact marketplace price. Do not poll for exact equality: TCGplayer documents visibility delays of up to five minutes, and account rounding or Direct price floors can transform the displayed value.
 - Supersede an older pending job when a newer price targets the same product-condition/channel pair.
-- Pause processing while global dry run is enabled or the queue is disabled.
+- Pause processing while the queue is disabled.
 - Retry only a definite HTTP 429, after a long configured delay. Mark authentication, authorization, validation, and permanent failures as failed.
 - Mark timeouts, lost responses, server errors, and jobs found `applying` after process interruption as `review-required`; never automatically resubmit them.
 - Expose queue settings, repricing preview/selection, recent status, and pending-job cancellation through the loopback-only same-origin UI. Also retain JSON-file CLI ingestion for integrations.

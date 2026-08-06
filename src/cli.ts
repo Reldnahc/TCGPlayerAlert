@@ -100,10 +100,7 @@ try {
       executor: createPriceUpdateExecutor(initialConfig),
       settings: async () => {
         const current = await loadConfig(configPath);
-        return {
-          ...current.priceUpdateQueue,
-          enabled: current.priceUpdateQueue.enabled && !current.dryRun,
-        };
+        return current.priceUpdateQueue;
       },
       logger: jsonLogger,
       workerLease: new FileSyncLease(
@@ -115,10 +112,7 @@ try {
       executor: createInventoryAdditionExecutor(initialConfig),
       settings: async () => {
         const current = await loadConfig(configPath);
-        return {
-          ...current.inventoryAdditionQueue,
-          enabled: current.inventoryAdditionQueue.enabled && !current.dryRun,
-        };
+        return current.inventoryAdditionQueue;
       },
       logger: jsonLogger,
       workerLease: new FileSyncLease(

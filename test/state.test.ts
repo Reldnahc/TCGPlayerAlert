@@ -62,4 +62,45 @@ describe("workflow state", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("migrates legacy dry-run actions into pending work", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tcgplayer-alert-state-"));
+    try {
+      const path = join(directory, "state.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          baselineCompletedAt: "2026-01-01T00:00:00.000Z",
+          orders: {
+            synthetic: {
+              firstSeenAt: "2026-01-01T00:00:00.000Z",
+              lastSeenAt: "2026-01-01T00:00:00.000Z",
+              providerStatus: "ReadyToShip",
+              workflowStatus: "dry-run",
+              matchedRuleIds: ["default"],
+              ruleReasons: {},
+              actions: {
+                print: {
+                  status: "dry-run",
+                  attempts: 1,
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                },
+              },
+            },
+          },
+        }),
+        "utf8",
+      );
+
+      const state = await new JsonStateStore(path).load();
+
+      expect(state.orders.synthetic).toMatchObject({
+        workflowStatus: "pending",
+        actions: { print: { status: "pending", attempts: 1 } },
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

@@ -224,7 +224,6 @@ export function createOrderManagementService(
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes,
-    liveMode: async () => !(await loadConfig(configPath)).dryRun,
     executePrint: async (orderNumber, actionType, signal) => {
       await executeConfiguredOrderPrint(
         await loadConfig(configPath),

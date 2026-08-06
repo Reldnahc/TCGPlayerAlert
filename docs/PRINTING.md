@@ -40,12 +40,12 @@ PDF.js accepts PDFs up to 50 MiB, renders at most 50 pages per document, rejects
 
 ## Safe setup
 
-1. Leave `dryRun` enabled.
-2. Run `npm run configure` and select the exact installed printer for each output. The UI can also disable either output completely. Each printer card has a test button that uses its currently visible printer, label, scaling, and DPI values without saving them. Testing remains available while an output is disabled.
+1. Leave both automated print outputs disabled.
+2. Run `npm run configure` and select the exact installed printer for each output. Each printer card has a test button that uses its currently visible printer, label, scaling, and DPI values without saving them. Testing remains available while an output is disabled.
 3. Build the application and run `config validate`.
 4. Click `Print test label`, or run `print test --action print-address-label`, and verify the synthetic label's size, orientation, and destination.
 5. Click `Print test sheet`, or run `print test --action print-packing-slip`, and verify the synthetic page's destination and scaling.
-6. Only then set `dryRun` to `false`.
+6. Only then enable the individual output or outputs whose tests routed correctly.
 
 The buttons and test commands intentionally submit real print jobs, but their documents contain only obvious synthetic data and no seller credentials, customer addresses, or order details. The packing-slip test sheet includes an inset border so clipping and page scaling are easy to spot.
 

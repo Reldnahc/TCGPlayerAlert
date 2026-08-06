@@ -130,7 +130,7 @@ The seller interface is private and may change without notice. Keep reverse-engi
 - Preserve enough state to resume safely after a crash.
 - Quarantine malformed or unrecognized events for inspection without blocking unrelated work.
 - Validate that a packing slip belongs to the confirmed seller order before dispatching actions.
-- Support a dry-run mode that evaluates and explains rules without causing side effects.
+- Keep side effects behind explicit per-action and per-queue enable controls, with preview or synthetic-test paths where appropriate.
 - Make time zones explicit and store machine timestamps in UTC.
 
 ## Coding Standards
@@ -159,7 +159,7 @@ All production changes must follow these rules:
 - Unit-test domain rules, parsing, idempotency, retry classification, and orchestration without live services or printers.
 - Contract-test each adapter against sanitized fixtures that reflect observed provider behavior.
 - Integration tests may exercise local test doubles or sandbox accounts, but must be opt-in when they require network access, credentials, printers, or remote mutations.
-- End-to-end tests must use dedicated test data and default to dry-run/no-print behavior.
+- End-to-end tests must use dedicated test data and default to disabled actions or injected no-side-effect adapters.
 - Test first-run baselining, pagination, duplicate discovery, overlapping scheduled/manual requests, restarts, expired authentication, API drift, missing printers, spool failures, and ambiguous print outcomes.
 - Do not use real customer PII in fixtures or snapshots. Use reserved domains and obviously synthetic addresses.
 - Keep tests deterministic; inject clocks and unique-ID sources.

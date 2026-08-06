@@ -27,7 +27,7 @@ Queueable internal previews become durable jobs immediately. Pending jobs for th
 
 Successful requests are recorded as `submitted`, not `applied`. Definite validation and authentication failures are terminal. Timeouts, disconnects, server errors, interrupted in-flight work, and stale live quantity require operator review and are never retried automatically.
 
-The queue is paused whenever application dry-run mode or its own enable switch is active. The configuration-only UI may create jobs, but only the long-running service runs the worker.
+The queue is paused whenever its enable switch is off. The configuration-only UI may create jobs, but only the long-running service runs the worker.
 
 ## Consequences
 

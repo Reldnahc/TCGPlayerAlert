@@ -144,7 +144,6 @@ export interface AppConfig {
   readonly pricingProfileDefaultsVersion: 1;
   readonly pollIntervalMinutes: number;
   readonly actionMaximumAttempts: number;
-  readonly dryRun: boolean;
   readonly stateFile: string;
   readonly spoolDirectory: string;
   readonly timezoneOffsetMinutes: number | "local";
@@ -682,6 +681,7 @@ export function parseConfig(value: unknown): AppConfig {
   const issues: string[] = [];
   const root = record(value);
   if (root === undefined) issues.push("config must be an object.");
+  const disableLegacySideEffects = root?.dryRun === true;
   if (root?.version !== 1) issues.push("config.version must be 1.");
   if (
     root?.pricingProfileDefaultsVersion !== undefined &&
@@ -1070,7 +1070,6 @@ export function parseConfig(value: unknown): AppConfig {
     10,
     issues,
   );
-  const dryRun = booleanValue(root, "dryRun", "config", issues);
   const stateFile = text(root, "stateFile", "config", issues);
   const spoolDirectory = text(root, "spoolDirectory", "config", issues);
   const timezoneOffsetMinutes = timezoneOffset(root, issues);
@@ -1188,13 +1187,27 @@ export function parseConfig(value: unknown): AppConfig {
           ),
         };
 
+  const effectiveActions = disableLegacySideEffects
+    ? Object.fromEntries<ActionConfig>(
+        Object.entries(actions).map(([actionId, action]) => [
+          actionId,
+          { ...action, enabled: false },
+        ]),
+      )
+    : actions;
+  const effectivePriceUpdateQueueConfig = disableLegacySideEffects
+    ? { ...priceUpdateQueueConfig, enabled: false }
+    : priceUpdateQueueConfig;
+  const effectiveInventoryAdditionQueueConfig = disableLegacySideEffects
+    ? { ...inventoryAdditionQueueConfig, enabled: false }
+    : inventoryAdditionQueueConfig;
+
   const activePrinterIds = new Set(
-    Object.values(actions)
+    Object.values(effectiveActions)
       .filter((action) => action.enabled !== false)
       .map((action) => action.printer),
   );
   if (
-    !dryRun &&
     Object.entries(printers).some(
       ([printerId, printer]) =>
         activePrinterIds.has(printerId) &&
@@ -1215,12 +1228,11 @@ export function parseConfig(value: unknown): AppConfig {
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
     actionMaximumAttempts,
-    dryRun,
     stateFile,
     spoolDirectory,
     timezoneOffsetMinutes,
-    priceUpdateQueue: priceUpdateQueueConfig,
-    inventoryAdditionQueue: inventoryAdditionQueueConfig,
+    priceUpdateQueue: effectivePriceUpdateQueueConfig,
+    inventoryAdditionQueue: effectiveInventoryAdditionQueueConfig,
     merchandiseProfiles,
     defaultMerchandiseProfileId,
     repricingProfiles,
@@ -1233,7 +1245,7 @@ export function parseConfig(value: unknown): AppConfig {
       maximumPages,
     },
     printers,
-    actions,
+    actions: effectiveActions,
     rules,
   };
 }

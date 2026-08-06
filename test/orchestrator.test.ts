@@ -20,13 +20,13 @@ const defaultRule: RuleConfig = {
   actions: ["label", "packing-slip"],
 };
 
-function workflowFixture(options: { dryRun: boolean }) {
+function workflowFixture() {
   const provider = new FakeProvider();
   const stateStore = new MemoryStateStore();
   const label = new FakeAction("label", false);
   const packingSlip = new FakeAction("packing-slip", true);
   const workflow = new FulfillmentWorkflow({
-    config: appConfig({ dryRun: options.dryRun, rules: [defaultRule] }),
+    config: appConfig({ rules: [defaultRule] }),
     provider,
     stateStore,
     actions: { label, "packing-slip": packingSlip },
@@ -39,7 +39,7 @@ function workflowFixture(options: { dryRun: boolean }) {
 
 describe("fulfillment workflow", () => {
   it("establishes the first-run baseline without confirming or acting", async () => {
-    const fixture = workflowFixture({ dryRun: false });
+    const fixture = workflowFixture();
     fixture.provider.discovered = [
       { id: syntheticOrderId, status: "ReadyToShip" },
     ];
@@ -58,27 +58,8 @@ describe("fulfillment workflow", () => {
     ).toBe("baseline");
   });
 
-  it("evaluates a new order in dry-run mode without fetching or printing", async () => {
-    const fixture = workflowFixture({ dryRun: true });
-    await fixture.workflow.run("manual");
-    fixture.provider.discovered = [
-      { id: syntheticOrderId, status: "ReadyToShip" },
-    ];
-
-    const result = await fixture.workflow.run("scheduled");
-
-    expect(result.processedCount).toBe(1);
-    expect(fixture.provider.confirmations).toBe(1);
-    expect(fixture.provider.packingSlips).toBe(0);
-    expect(fixture.label.calls).toBe(0);
-    expect(fixture.packingSlip.calls).toBe(0);
-    expect(
-      fixture.stateStore.state.orders[syntheticOrderId]?.workflowStatus,
-    ).toBe("dry-run");
-  });
-
   it("prints each action once and lazily fetches one packing slip", async () => {
-    const fixture = workflowFixture({ dryRun: false });
+    const fixture = workflowFixture();
     await fixture.workflow.run("manual");
     fixture.provider.discovered = [
       { id: syntheticOrderId, status: "ReadyToShip" },
@@ -103,7 +84,7 @@ describe("fulfillment workflow", () => {
     const provider = new FakeProvider();
     const stateStore = new MemoryStateStore();
     const workflow = new FulfillmentWorkflow({
-      config: appConfig({ dryRun: false, rules: [defaultRule] }),
+      config: appConfig({ rules: [defaultRule] }),
       provider,
       stateStore,
       actions: {},
@@ -125,7 +106,7 @@ describe("fulfillment workflow", () => {
   });
 
   it("quarantines an ambiguous print and never submits it again", async () => {
-    const fixture = workflowFixture({ dryRun: false });
+    const fixture = workflowFixture();
     fixture.label.error = new ApplicationError(
       "PRINT_AMBIGUOUS",
       "Synthetic ambiguous print.",
@@ -148,7 +129,7 @@ describe("fulfillment workflow", () => {
   });
 
   it("processes the initial queue only with the explicit backlog option", async () => {
-    const fixture = workflowFixture({ dryRun: true });
+    const fixture = workflowFixture();
     fixture.provider.discovered = [
       { id: syntheticOrderId, status: "ReadyToShip" },
     ];
@@ -163,7 +144,7 @@ describe("fulfillment workflow", () => {
   });
 
   it("coalesces overlapping synchronization requests", async () => {
-    const fixture = workflowFixture({ dryRun: true });
+    const fixture = workflowFixture();
     let release: () => void = () => undefined;
     fixture.provider.discoveryGate = new Promise<void>((resolvePromise) => {
       release = resolvePromise;

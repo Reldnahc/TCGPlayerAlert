@@ -65,7 +65,6 @@ export type OutputSettings =
 export interface ConfigurationUiSettings {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
-  readonly dryRun: boolean;
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
@@ -86,7 +85,6 @@ export interface ConfigurationUiSettings {
 export interface ConfigurationUiUpdate {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
-  readonly dryRun: boolean;
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
@@ -184,7 +182,6 @@ export class ConfigurationService {
     return {
       revision,
       pollIntervalMinutes: config.pollIntervalMinutes,
-      dryRun: config.dryRun,
       priceUpdateQueue: {
         enabled: config.priceUpdateQueue.enabled,
         delaySeconds: config.priceUpdateQueue.delaySeconds,
@@ -354,9 +351,6 @@ function parseUiUpdate(
   ) {
     issues.push("The polling interval must be between 1 and 1440 minutes.");
   }
-  const dryRun = source?.dryRun;
-  if (typeof dryRun !== "boolean")
-    issues.push("Dry run must be true or false.");
   const priceUpdateQueueSource = objectValue(source?.priceUpdateQueue);
   if (priceUpdateQueueSource === undefined) {
     issues.push("Price-update queue settings are required.");
@@ -493,7 +487,6 @@ function parseUiUpdate(
   return {
     revision: revision as string,
     pollIntervalMinutes: Number(pollIntervalMinutes),
-    dryRun: dryRun as boolean,
     priceUpdateQueue: {
       enabled: priceUpdateQueueEnabled as boolean,
       delaySeconds: Number(priceUpdateDelaySeconds),
@@ -866,7 +859,6 @@ function applyUpdate(
   return {
     ...config,
     pollIntervalMinutes: update.pollIntervalMinutes,
-    dryRun: update.dryRun,
     priceUpdateQueue: {
       ...config.priceUpdateQueue,
       enabled: update.priceUpdateQueue.enabled,

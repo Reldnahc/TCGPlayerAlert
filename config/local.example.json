@@ -3,19 +3,18 @@
   "pricingProfileDefaultsVersion": 1,
   "pollIntervalMinutes": 60,
   "actionMaximumAttempts": 3,
-  "dryRun": true,
   "stateFile": ".data/state.json",
   "spoolDirectory": ".spool",
   "timezoneOffsetMinutes": "local",
   "priceUpdateQueue": {
-    "enabled": true,
+    "enabled": false,
     "stateFile": ".data/price-updates.json",
     "delaySeconds": 1,
     "rateLimitDelaySeconds": 300,
     "historyLimit": 500
   },
   "inventoryAdditionQueue": {
-    "enabled": true,
+    "enabled": false,
     "stateFile": ".data/inventory-additions.json",
     "delaySeconds": 0,
     "rateLimitDelaySeconds": 300,
@@ -148,7 +147,7 @@
   "actions": {
     "print-address-label": {
       "type": "print-address-label",
-      "enabled": true,
+      "enabled": false,
       "printer": "address-label-printer",
       "page": {
         "widthMm": 89,
@@ -167,7 +166,7 @@
     },
     "print-packing-slip": {
       "type": "print-packing-slip",
-      "enabled": true,
+      "enabled": false,
       "printer": "packing-slip-printer"
     }
   },

@@ -76,7 +76,6 @@ describe("configuration UI service", () => {
     const saved = await fixture.service.save({
       revision: initial.revision,
       pollIntervalMinutes: 15,
-      dryRun: false,
       priceUpdateQueue: {
         enabled: true,
         delaySeconds: 0,
@@ -142,7 +141,6 @@ describe("configuration UI service", () => {
     );
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
-      dryRun: false,
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
       inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
       merchandiseProfiles: [
@@ -363,7 +361,9 @@ describe("configuration UI service", () => {
     for (const phrase of removedPhrases) {
       expect(interfaceSource).not.toContain(phrase);
     }
-    expect(CONFIG_UI_HTML).toContain("Prevents printing and remote changes.");
+    expect(CONFIG_UI_HTML).not.toContain(
+      "Prevents printing and remote changes.",
+    );
     expect(CONFIG_UI_HTML).toContain(
       "For items under $5, effective shipping is at least $1.49.",
     );
@@ -671,7 +671,8 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain(
       "<th>Total</th><th>Pirate Ship</th><th>Add tracking</th>",
     );
-    expect(CONFIG_UI_JS).toContain('dashboardToggle("Dry run"');
+    expect(CONFIG_UI_HTML).not.toContain('id="dry-run"');
+    expect(CONFIG_UI_JS).not.toContain('dashboardToggle("Dry run"');
     expect(CONFIG_UI_JS).toContain('"Print address label"');
     expect(CONFIG_UI_JS).toContain('"Print packing slip"');
     expect(CONFIG_UI_JS).toContain('"Download packing slip"');
@@ -693,9 +694,6 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).not.toContain(
       "const card = form.querySelector('[data-action-id=\"'",
     );
-    expect(CONFIG_UI_JS).toContain(
-      "Turn off dry run and save settings before changing or printing a real order.",
-    );
   });
 
   it("keeps persistent configuration in Settings and job pages focused", () => {
@@ -709,7 +707,6 @@ describe("configuration UI service", () => {
     );
     const persistentControlIds = [
       "poll-interval",
-      "dry-run",
       "inventory-queue-enabled",
       "inventory-delay",
       "price-queue-enabled",

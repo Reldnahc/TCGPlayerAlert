@@ -53,7 +53,6 @@ export interface OrderManagementServiceOptions {
   readonly timezoneOffsetMinutes: number;
   readonly cacheMilliseconds?: number;
   readonly now?: () => Date;
-  readonly liveMode?: () => Promise<boolean>;
   readonly executePrint?: (
     orderNumber: string,
     actionType: ManualPrintActionType,
@@ -79,7 +78,6 @@ export class OrderManagementService {
   private readonly timezoneOffsetMinutes: number;
   private readonly cacheMilliseconds: number;
   private readonly now: () => Date;
-  private readonly liveMode: () => Promise<boolean>;
   private readonly executePrint?: OrderManagementServiceOptions["executePrint"];
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly pirateShipCache = new Map<
@@ -110,7 +108,6 @@ export class OrderManagementService {
       "Cache duration",
     );
     this.now = options.now ?? (() => new Date());
-    this.liveMode = options.liveMode ?? (() => Promise.resolve(true));
     this.executePrint = options.executePrint;
   }
 
@@ -251,7 +248,6 @@ export class OrderManagementService {
     actionType: ManualPrintActionType,
     signal?: AbortSignal,
   ): Promise<void> {
-    await this.requireLiveMode();
     if (this.executePrint === undefined) {
       throw new ApplicationError(
         "CONFIGURATION_ERROR",
@@ -270,7 +266,6 @@ export class OrderManagementService {
     trackingNumber: string,
     signal?: AbortSignal,
   ): Promise<AddTrackingResult> {
-    await this.requireLiveMode();
     const normalizedOrder = requiredText(orderNumber, "Order number", 128);
     const normalizedTracking = requiredText(
       trackingNumber,
@@ -303,7 +298,6 @@ export class OrderManagementService {
     readonly orderNumber: string;
     readonly outcome: "applied" | "already-applied";
   }> {
-    await this.requireLiveMode();
     const normalized = requiredText(orderNumber, "Order number", 128);
     this.cache.clear();
     this.pirateShipCache.clear();
@@ -332,15 +326,6 @@ export class OrderManagementService {
       );
     }
     return { orderNumber: normalized, outcome };
-  }
-
-  private async requireLiveMode(): Promise<void> {
-    if (!(await this.liveMode())) {
-      throw new ApplicationError(
-        "CONFIGURATION_ERROR",
-        "Turn off dry run and save settings before changing or printing a real order.",
-      );
-    }
   }
 }
 

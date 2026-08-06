@@ -227,28 +227,6 @@ describe("order management", () => {
     );
   });
 
-  it("blocks real printing and mutations while dry run is enabled", async () => {
-    const fakeClient = client();
-    const executePrint = vi.fn(() => Promise.resolve());
-    const orders = service(fakeClient, {
-      liveMode: () => Promise.resolve(false),
-      executePrint,
-    });
-
-    await expect(
-      orders.print(firstOrder.orderNumber, "print-packing-slip"),
-    ).rejects.toThrow("Turn off dry run");
-    await expect(
-      orders.addTracking(firstOrder.orderNumber, "synthetic-tracking"),
-    ).rejects.toThrow("Turn off dry run");
-    await expect(orders.markShipped(firstOrder.orderNumber)).rejects.toThrow(
-      "Turn off dry run",
-    );
-    expect(executePrint).not.toHaveBeenCalled();
-    expect(fakeClient.addOrderTracking).not.toHaveBeenCalled();
-    expect(fakeClient.markOrdersShipped).not.toHaveBeenCalled();
-  });
-
   it("invalidates cached orders before an ambiguous mutation", async () => {
     const fakeClient = client();
     fakeClient.searchOrders.mockResolvedValue({
