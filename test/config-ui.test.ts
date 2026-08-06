@@ -711,6 +711,14 @@ describe("configuration UI service", () => {
     );
     expect(CONFIG_UI_JS).toContain('return order.status === "ReadyToShip"');
     expect(CONFIG_UI_JS).toContain("button.disabled = !canMarkShipped");
+    expect(CONFIG_UI_CSS).toContain(
+      ".order-action:disabled { cursor: not-allowed; opacity: .6; }",
+    );
+    expect(CONFIG_UI_CSS).toContain(
+      ".order-action.busy:disabled { cursor: wait; }",
+    );
+    expect(CONFIG_UI_JS).toContain("function setOrderButtonBusy(button, busy)");
+    expect(CONFIG_UI_JS).toContain('button.classList.toggle("busy", busy)');
     expect(CONFIG_UI_JS).not.toContain("shippedOrderNumbers");
     expect(CONFIG_UI_JS).not.toContain('status: "Shipped"');
     expect(CONFIG_UI_JS).not.toContain('=== "readytoship"');

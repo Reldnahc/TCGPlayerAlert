@@ -359,7 +359,8 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .dashboard-order-actions { display: flex; justify-content: flex-end; gap: 5px; min-width: 290px; }
 .dashboard-order-actions .order-action { padding: 6px 8px; font-size: .69rem; }
 .order-action:hover { background: var(--green-soft); }
-.order-action:disabled { cursor: wait; opacity: .6; }
+.order-action:disabled { cursor: not-allowed; opacity: .6; }
+.order-action.busy:disabled { cursor: wait; }
 .order-action.ship-action { border-color: #c9d8cf; background: var(--green-soft); }
 .tracking-row td { padding: 10px 12px; background: #f7f8f3; }
 .tracking-form { display: flex; align-items: end; justify-content: flex-end; gap: 8px; }
@@ -1285,6 +1286,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return button;
   }
 
+  function setOrderButtonBusy(button, busy) {
+    button.classList.toggle("busy", busy);
+    button.disabled = busy;
+    if (busy) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
+  }
+
   function dateText(value) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
@@ -1556,7 +1564,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   async function openInPirateShip(order, scope, button) {
     const idleText = button.textContent;
-    button.disabled = true;
+    setOrderButtonBusy(button, true);
     button.textContent = "Preparing...";
     showOrderMessage(scope, "");
     try {
@@ -1581,14 +1589,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "Pirate Ship could not be opened.", "error");
     } finally {
-      button.disabled = false;
+      setOrderButtonBusy(button, false);
       button.textContent = idleText;
     }
   }
 
   async function runOrderMutation(order, scope, path, body, button, busyText, successText) {
     const idleText = button.textContent;
-    button.disabled = true;
+    setOrderButtonBusy(button, true);
     button.textContent = busyText;
     showOrderMessage(scope, "");
     try {
@@ -1605,14 +1613,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "The order action failed.", "error");
     } finally {
-      button.disabled = false;
+      setOrderButtonBusy(button, false);
       button.textContent = idleText;
     }
   }
 
   async function runOrderPrint(order, actionType, label, button, scope) {
     const idleText = button.textContent;
-    button.disabled = true;
+    setOrderButtonBusy(button, true);
     button.textContent = "Printing...";
     showOrderMessage(scope, "");
     try {
@@ -1621,14 +1629,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "The order could not be printed.", "error");
     } finally {
-      button.disabled = false;
+      setOrderButtonBusy(button, false);
       button.textContent = idleText;
     }
   }
 
   async function downloadPackingSlip(order, button, scope) {
     const idleText = button.textContent;
-    button.disabled = true;
+    setOrderButtonBusy(button, true);
     button.textContent = "Downloading...";
     showOrderMessage(scope, "");
     try {
@@ -1649,7 +1657,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "The packing slip could not be downloaded.", "error");
     } finally {
-      button.disabled = false;
+      setOrderButtonBusy(button, false);
       button.textContent = idleText;
     }
   }
