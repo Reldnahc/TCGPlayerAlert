@@ -91,6 +91,46 @@ describe("price-update queue", () => {
     expect((await queue.snapshot()).jobs).toHaveLength(0);
   });
 
+  it("resubmits a failed update once as a new auditable job", async () => {
+    const { queue } = await queueFixture();
+    const original = (await queue.enqueue(syntheticUpdate))[0];
+    if (original === undefined)
+      throw new Error("The queue did not create a job.");
+    await queue.claimNext();
+    await queue.finish(original.id, "failed", "PROVIDER_ERROR");
+
+    const resubmitted = await queue.resubmit(original.id);
+    const snapshot = await queue.snapshot();
+
+    expect(resubmitted).toMatchObject({
+      update: syntheticUpdate,
+      status: "pending",
+      attempts: 0,
+      resubmittedFromJobId: original.id,
+    });
+    expect(resubmitted.id).not.toBe(original.id);
+    expect(snapshot.jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: original.id,
+          status: "failed",
+          errorCode: "PROVIDER_ERROR",
+        }),
+        expect.objectContaining({
+          id: resubmitted.id,
+          status: "pending",
+          resubmittedFromJobId: original.id,
+        }),
+      ]),
+    );
+    await expect(queue.resubmit(original.id)).rejects.toThrow(
+      "already been resubmitted",
+    );
+    await expect(queue.resubmit(resubmitted.id)).rejects.toThrow(
+      "Only a failed price-update job",
+    );
+  });
+
   it("processes one claimed update and records the accepted result", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(syntheticUpdate);

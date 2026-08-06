@@ -709,6 +709,43 @@ describe("inventory additions", () => {
     });
   });
 
+  it("resubmits a failed addition once without duplicating its quantity", async () => {
+    const { queue } = await queueFixture();
+    const original = (await queue.enqueue(addition))[0];
+    if (original === undefined)
+      throw new Error("The queue did not create a job.");
+    await queue.claimNext();
+    await queue.finish(original.id, "failed", "PROVIDER_ERROR");
+
+    const resubmitted = await queue.resubmit(original.id);
+    const snapshot = await queue.snapshot();
+
+    expect(resubmitted).toMatchObject({
+      addition,
+      status: "pending",
+      attempts: 0,
+      resubmittedFromJobId: original.id,
+    });
+    expect(resubmitted.id).not.toBe(original.id);
+    expect(resubmitted.addition.addQuantity).toBe(addition.addQuantity);
+    expect(snapshot.jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: original.id, status: "failed" }),
+        expect.objectContaining({
+          id: resubmitted.id,
+          status: "pending",
+          resubmittedFromJobId: original.id,
+        }),
+      ]),
+    );
+    await expect(queue.resubmit(original.id)).rejects.toThrow(
+      "already been resubmitted",
+    );
+    await expect(queue.resubmit(resubmitted.id)).rejects.toThrow(
+      "Only a failed inventory-addition job",
+    );
+  });
+
   it("stops an ambiguous inventory request for review", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(addition);

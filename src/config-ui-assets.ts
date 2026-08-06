@@ -228,9 +228,12 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </div>
           <section class="panel queue-panel" aria-labelledby="inventory-queue-title">
             <div class="queue-list-head">
+              <span id="inventory-queue-summary" class="queue-summary"></span>
               <button id="refresh-inventory-queue" class="quiet-button" type="button">Refresh</button>
             </div>
+            <p id="inventory-queue-message" class="queue-action-message" role="status" hidden></p>
             <div id="inventory-queue-jobs" class="queue-jobs" aria-live="polite"></div>
+            <nav id="inventory-queue-pagination" class="queue-pagination" aria-label="Card addition job pages" hidden></nav>
           </section>
 
           <div class="section-heading queue-heading">
@@ -240,9 +243,12 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           </div>
           <section class="panel queue-panel" aria-labelledby="queue-title">
             <div class="queue-list-head">
+              <span id="queue-summary" class="queue-summary"></span>
               <button id="refresh-queue" class="quiet-button" type="button">Refresh</button>
             </div>
+            <p id="queue-message" class="queue-action-message" role="status" hidden></p>
             <div id="queue-jobs" class="queue-jobs" aria-live="polite"></div>
+            <nav id="queue-pagination" class="queue-pagination" aria-label="Price update job pages" hidden></nav>
           </section>
           </div>
 
@@ -457,19 +463,28 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .queue-message { flex: 1; color: var(--muted); font-size: .86rem; }
 .dark-button { background: var(--green); color: white; }
 .dark-button:hover { background: var(--green-dark); }
-.queue-list-head { display: flex; justify-content: flex-end; align-items: center; padding: 18px 25px 12px; }
+.queue-list-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 25px 12px; }
+.queue-summary { color: var(--muted); font-size: .82rem; font-weight: 700; }
+.queue-action-message { margin: 0 25px 12px; color: var(--green-dark); font-size: .84rem; font-weight: 700; }
+.queue-action-message.error { color: #93401c; }
 .queue-jobs { padding: 0 25px 24px; display: grid; gap: 8px; }
 .queue-empty { color: var(--muted); background: var(--paper); border-radius: 12px; padding: 18px; text-align: center; }
 .queue-job { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .queue-job-copy { min-width: 0; display: grid; gap: 3px; }
 .queue-job-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
 .queue-job-copy small { color: var(--muted); }
+.queue-job-actions { display: flex; align-items: center; gap: 8px; }
 .status-pill { border-radius: 999px; padding: 5px 9px; background: #edf0eb; color: var(--muted); font-size: .73rem; font-weight: 800; text-transform: capitalize; }
 .status-pill.applied { background: var(--green-soft); color: var(--green-dark); }
 .status-pill.submitted { background: var(--green-soft); color: var(--green-dark); }
 .status-pill.review-required, .status-pill.failed { background: #fde8df; color: #93401c; }
 .status-pill.applying { background: #fff2d7; color: #845311; }
-.cancel-job { border: 0; background: transparent; color: #8c4630; padding: 5px; font-size: .8rem; font-weight: 750; }
+.job-action { border: 0; background: transparent; padding: 5px; font-size: .8rem; font-weight: 750; }
+.cancel-job { color: #8c4630; }
+.retry-job { color: var(--green-dark); }
+.job-action:disabled { cursor: wait; opacity: .55; }
+.queue-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px 25px 18px; border-top: 1px solid var(--line); }
+.queue-page-status { min-width: 92px; color: var(--muted); font-size: .82rem; font-weight: 750; text-align: center; }
 .save-bar { position: fixed; z-index: 5; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(1408px, calc(100% - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px 14px 20px; background: rgba(23,34,29,.94); color: white; border: 1px solid rgba(255,255,255,.14); border-radius: 17px; box-shadow: 0 18px 45px rgba(12,26,18,.25); backdrop-filter: blur(12px); }
 .save-bar div { display: grid; gap: 2px; }
 .save-bar span { color: #c3cec6; font-size: .82rem; }
@@ -514,7 +529,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .queue-form-grid { grid-template-columns: 1fr 1fr; }
   .queue-form-grid .wide-field { grid-column: span 2; }
   .queue-job { grid-template-columns: minmax(0, 1fr) auto; }
-  .queue-job .cancel-job { grid-column: 1 / -1; justify-self: end; }
+  .queue-job-actions { grid-column: 1 / -1; justify-self: end; }
   .catalog-result { grid-template-columns: 56px minmax(0, 1fr); }
   .catalog-result-actions { grid-column: 1 / -1; flex-wrap: wrap; }
   .preview-footer { align-items: stretch; flex-direction: column; }
@@ -543,10 +558,15 @@ export const CONFIG_UI_JS = String.raw`(() => {
     orderLists: { all: null, "ready-to-ship": null },
     orderLoading: { all: false, "ready-to-ship": false },
     pirateShipPreparations: new Map(),
+    jobQueues: {
+      inventory: { jobs: [], page: 0 },
+      price: { jobs: [], page: 0 },
+    },
   };
   const merchandiseProfileStorageKey = "tcgplayer-alert.merchandise-profile";
   const repricingProfileStorageKey = "tcgplayer-alert.repricing-profile";
   const activeTabStorageKey = "tcgplayer-alert.active-tab";
+  const jobsPerPage = 10;
   const tabIds = ["dashboard", "orders", "add-cards", "inventory", "settings", "jobs"];
   const form = document.querySelector("#settings-form");
   const outputs = document.querySelector("#outputs");
@@ -1167,20 +1187,28 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function queueJob(job) {
+    const detail = "$" + Number(job.update.price).toFixed(2)
+      + (job.errorCode ? " · " + job.errorCode.replaceAll("_", " ").toLocaleLowerCase() : "");
     const copy = el("div", { className: "queue-job-copy" }, [
       el("strong", { text: job.update.productName }),
-      el("small", { text: "$" + Number(job.update.price).toFixed(2) }),
+      el("small", { text: detail }),
     ]);
     const status = el("span", {
       className: "status-pill " + job.status,
       text: job.status.replace("-", " "),
     });
-    const children = [copy, status];
+    const actions = [];
     if (job.status === "pending") {
-      const cancel = el("button", { className: "cancel-job", type: "button", text: "Cancel" });
-      cancel.addEventListener("click", () => cancelJob(job.id));
-      children.push(cancel);
+      const cancel = el("button", { className: "job-action cancel-job", type: "button", text: "Cancel" });
+      cancel.addEventListener("click", () => void mutateQueueJob("price", job.id, "cancel", cancel));
+      actions.push(cancel);
+    } else if (job.status === "failed") {
+      const retry = el("button", { className: "job-action retry-job", type: "button", text: "Retry" });
+      retry.addEventListener("click", () => void mutateQueueJob("price", job.id, "resubmit", retry));
+      actions.push(retry);
     }
+    const children = [copy, status];
+    if (actions.length > 0) children.push(el("div", { className: "queue-job-actions" }, actions));
     return el("div", { className: "queue-job" }, children);
   }
 
@@ -2020,6 +2048,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         kind: "success",
         text: "Queued +" + String(addQuantity) + " at " + money(preview.proposedPrice) + " using " + profile.name + ".",
       });
+      state.jobQueues.inventory.page = 0;
       await loadInventoryQueue();
     } catch (error) {
       state.inventoryResultByProductId.set(productId, {
@@ -2033,18 +2062,76 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function inventoryQueueJob(job) {
+    const detail = "+" + job.addition.addQuantity + " · " + money(job.addition.price)
+      + (job.errorCode ? " · " + job.errorCode.replaceAll("_", " ").toLocaleLowerCase() : "");
     const copy = el("div", { className: "queue-job-copy" }, [
       el("strong", { text: job.addition.productName }),
-      el("small", { text: "+" + job.addition.addQuantity + " · " + money(job.addition.price) }),
+      el("small", { text: detail }),
     ]);
     const status = el("span", { className: "status-pill " + job.status, text: job.status.replace("-", " ") });
-    const children = [copy, status];
+    const actions = [];
     if (job.status === "pending") {
-      const cancel = el("button", { className: "cancel-job", type: "button", text: "Cancel" });
-      cancel.addEventListener("click", () => cancelInventoryJob(job.id));
-      children.push(cancel);
+      const cancel = el("button", { className: "job-action cancel-job", type: "button", text: "Cancel" });
+      cancel.addEventListener("click", () => void mutateQueueJob("inventory", job.id, "cancel", cancel));
+      actions.push(cancel);
+    } else if (job.status === "failed") {
+      const retry = el("button", { className: "job-action retry-job", type: "button", text: "Retry" });
+      retry.addEventListener("click", () => void mutateQueueJob("inventory", job.id, "resubmit", retry));
+      actions.push(retry);
     }
+    const children = [copy, status];
+    if (actions.length > 0) children.push(el("div", { className: "queue-job-actions" }, actions));
     return el("div", { className: "queue-job" }, children);
+  }
+
+  function showQueueMessage(queueName, text, error = false) {
+    const message = document.querySelector(queueName === "inventory" ? "#inventory-queue-message" : "#queue-message");
+    message.hidden = !text;
+    message.className = "queue-action-message" + (error ? " error" : "");
+    message.textContent = text;
+  }
+
+  function renderQueuePage(queueName) {
+    const inventory = queueName === "inventory";
+    const view = state.jobQueues[queueName];
+    const pageCount = Math.max(1, Math.ceil(view.jobs.length / jobsPerPage));
+    view.page = Math.min(view.page, pageCount - 1);
+    const start = view.page * jobsPerPage;
+    const jobs = view.jobs.slice(start, start + jobsPerPage);
+    const list = document.querySelector(inventory ? "#inventory-queue-jobs" : "#queue-jobs");
+    const summary = document.querySelector(inventory ? "#inventory-queue-summary" : "#queue-summary");
+    const pagination = document.querySelector(inventory ? "#inventory-queue-pagination" : "#queue-pagination");
+    const emptyText = inventory ? "No card additions." : "No price updates.";
+    list.replaceChildren(
+      ...(jobs.length === 0
+        ? [el("div", { className: "queue-empty", text: emptyText })]
+        : jobs.map(inventory ? inventoryQueueJob : queueJob)),
+    );
+    summary.textContent = view.jobs.length === 0
+      ? "0 jobs"
+      : "Showing " + String(start + 1) + "–" + String(start + jobs.length) + " of " + String(view.jobs.length);
+    pagination.hidden = pageCount <= 1;
+    if (pageCount <= 1) {
+      pagination.replaceChildren();
+      return;
+    }
+    const previous = el("button", { className: "quiet-button", type: "button", text: "Previous" });
+    previous.disabled = view.page === 0;
+    previous.addEventListener("click", () => {
+      view.page -= 1;
+      renderQueuePage(queueName);
+    });
+    const next = el("button", { className: "quiet-button", type: "button", text: "Next" });
+    next.disabled = view.page >= pageCount - 1;
+    next.addEventListener("click", () => {
+      view.page += 1;
+      renderQueuePage(queueName);
+    });
+    pagination.replaceChildren(
+      previous,
+      el("span", { className: "queue-page-status", text: "Page " + String(view.page + 1) + " of " + String(pageCount) }),
+      next,
+    );
   }
 
   async function loadInventoryQueue() {
@@ -2052,32 +2139,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const response = await fetch("/api/inventory-additions", { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Inventory queue unavailable.");
-      const jobs = data.jobs.slice(0, 50);
-      document.querySelector("#inventory-queue-jobs").replaceChildren(
-        ...(jobs.length === 0
-          ? [el("div", { className: "queue-empty", text: "No card additions." })]
-          : jobs.map(inventoryQueueJob)),
-      );
+      state.jobQueues.inventory.jobs = data.jobs;
+      renderQueuePage("inventory");
+      showQueueMessage("inventory", "");
     } catch (error) {
-      document.querySelector("#inventory-queue-jobs").replaceChildren(
-        el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Inventory queue unavailable." }),
-      );
+      showQueueMessage("inventory", error instanceof Error ? error.message : "Inventory queue unavailable.", true);
     }
-  }
-
-  async function cancelInventoryJob(jobId) {
-    const response = await fetch("/api/inventory-additions/" + encodeURIComponent(jobId), {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: "{}",
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const message = document.querySelector("#inventory-message");
-      message.className = "repricing-message error";
-      message.textContent = data.message || "The addition could not be canceled.";
-    }
-    await loadInventoryQueue();
   }
 
   function renderRepricingRow(row) {
@@ -2210,6 +2277,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       message.textContent = data.jobs.length + " price " + (data.jobs.length === 1 ? "update" : "updates") + " queued.";
       state.repricingPreview = null;
       document.querySelector("#repricing-results").hidden = true;
+      state.jobQueues.price.page = 0;
       await loadQueue();
     } catch (error) {
       message.className = "repricing-message error";
@@ -2224,32 +2292,43 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const response = await fetch("/api/price-updates", { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Queue unavailable.");
-      const jobs = data.jobs.slice(0, 50);
-      document.querySelector("#queue-jobs").replaceChildren(
-        ...(jobs.length === 0
-          ? [el("div", { className: "queue-empty", text: "No price updates." })]
-          : jobs.map(queueJob)),
-      );
+      state.jobQueues.price.jobs = data.jobs;
+      renderQueuePage("price");
+      showQueueMessage("price", "");
     } catch (error) {
-      document.querySelector("#queue-jobs").replaceChildren(
-        el("div", { className: "queue-empty", text: error instanceof Error ? error.message : "Queue unavailable." }),
-      );
+      showQueueMessage("price", error instanceof Error ? error.message : "Queue unavailable.", true);
     }
   }
 
-  async function cancelJob(jobId) {
-    const response = await fetch("/api/price-updates/" + encodeURIComponent(jobId), {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: "{}",
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const message = document.querySelector("#repricing-message");
-      message.className = "repricing-message error";
-      message.textContent = data.message || "The job could not be canceled.";
+  async function mutateQueueJob(queueName, jobId, action, button) {
+    const inventory = queueName === "inventory";
+    const basePath = inventory ? "/api/inventory-additions/" : "/api/price-updates/";
+    const resubmitting = action === "resubmit";
+    const idleText = resubmitting ? "Retry" : "Cancel";
+    button.disabled = true;
+    button.textContent = resubmitting ? "Retrying..." : "Canceling...";
+    try {
+      const response = await fetch(
+        basePath + encodeURIComponent(jobId) + (resubmitting ? "/resubmit" : ""),
+        {
+          method: resubmitting ? "POST" : "DELETE",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: "{}",
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error((data.issues || []).join(" ") || data.message || "The job could not be updated.");
+      }
+      if (resubmitting) state.jobQueues[queueName].page = 0;
+      if (inventory) await loadInventoryQueue();
+      else await loadQueue();
+      showQueueMessage(queueName, resubmitting ? "Failed job queued as a new attempt." : "Pending job canceled.");
+    } catch (error) {
+      showQueueMessage(queueName, error instanceof Error ? error.message : "The job could not be updated.", true);
+      button.disabled = false;
+      button.textContent = idleText;
     }
-    await loadQueue();
   }
 
   async function load() {

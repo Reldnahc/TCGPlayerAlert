@@ -891,6 +891,7 @@ export interface InventoryAdditionJob {
   readonly attempts: number;
   readonly nextAttemptAt?: string;
   readonly errorCode?: string;
+  readonly resubmittedFromJobId?: string;
 }
 
 interface InventoryAdditionQueueState {
@@ -1036,7 +1037,10 @@ function parseQueueState(value: unknown): InventoryAdditionQueueState {
       typeof job.updatedAt !== "string" ||
       !Number.isFinite(Date.parse(job.updatedAt)) ||
       !Number.isSafeInteger(job.attempts) ||
-      Number(job.attempts) < 0
+      Number(job.attempts) < 0 ||
+      (job.resubmittedFromJobId !== undefined &&
+        (typeof job.resubmittedFromJobId !== "string" ||
+          !/^[0-9a-f-]{36}$/iu.test(job.resubmittedFromJobId)))
     ) {
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
@@ -1055,6 +1059,9 @@ function parseQueueState(value: unknown): InventoryAdditionQueueState {
         : {}),
       ...(typeof job.errorCode === "string"
         ? { errorCode: job.errorCode }
+        : {}),
+      ...(typeof job.resubmittedFromJobId === "string"
+        ? { resubmittedFromJobId: job.resubmittedFromJobId }
         : {}),
     };
   });
@@ -1172,6 +1179,53 @@ export class InventoryAdditionQueueStore {
           jobs: state.jobs.map((job) => (job.id === jobId ? canceled : job)),
         });
         return canceled;
+      }),
+    );
+  }
+
+  resubmit(jobId: string): Promise<InventoryAdditionJob> {
+    if (!/^[0-9a-f-]{36}$/iu.test(jobId)) {
+      throw new ConfigurationError([
+        "The inventory-addition job id is invalid.",
+      ]);
+    }
+    return this.exclusive(async () =>
+      this.lease.runExclusive(async () => {
+        const state = await this.loadState();
+        const existing = state.jobs.find((job) => job.id === jobId);
+        if (existing === undefined) {
+          throw new ApplicationError(
+            "PROVIDER_ERROR",
+            "The inventory-addition job was not found.",
+          );
+        }
+        if (existing.status !== "failed") {
+          throw new ApplicationError(
+            "REVIEW_REQUIRED",
+            "Only a failed inventory-addition job can be resubmitted.",
+          );
+        }
+        if (state.jobs.some((job) => job.resubmittedFromJobId === jobId)) {
+          throw new ApplicationError(
+            "REVIEW_REQUIRED",
+            "This failed inventory-addition job has already been resubmitted.",
+          );
+        }
+        const timestamp = this.now().toISOString();
+        const created: InventoryAdditionJob = {
+          id: randomUUID(),
+          addition: existing.addition,
+          status: "pending",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          attempts: 0,
+          resubmittedFromJobId: jobId,
+        };
+        await this.saveState({
+          version: 1,
+          jobs: this.prune([...state.jobs, created]),
+        });
+        return created;
       }),
     );
   }

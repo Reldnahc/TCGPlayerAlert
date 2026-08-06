@@ -34,6 +34,7 @@ export interface PriceUpdateJob {
   readonly attempts: number;
   readonly nextAttemptAt?: string;
   readonly errorCode?: string;
+  readonly resubmittedFromJobId?: string;
 }
 
 interface PriceUpdateQueueState {
@@ -145,6 +146,57 @@ export class PriceUpdateQueueStore {
           jobs: state.jobs.map((job) => (job.id === jobId ? canceled : job)),
         });
         return canceled;
+      }),
+    );
+  }
+
+  resubmit(jobId: string): Promise<PriceUpdateJob> {
+    if (!/^[0-9a-f-]{36}$/iu.test(jobId)) {
+      throw new ConfigurationError(["The price-update job id is invalid."]);
+    }
+    return this.exclusive(async () =>
+      this.lease.runExclusive(async () => {
+        const state = await this.loadState();
+        const existing = state.jobs.find((job) => job.id === jobId);
+        if (existing === undefined) {
+          throw new ApplicationError(
+            "PROVIDER_ERROR",
+            "The price-update job was not found.",
+          );
+        }
+        if (existing.status !== "failed") {
+          throw new ApplicationError(
+            "REVIEW_REQUIRED",
+            "Only a failed price-update job can be resubmitted.",
+          );
+        }
+        if (state.jobs.some((job) => job.resubmittedFromJobId === jobId)) {
+          throw new ApplicationError(
+            "REVIEW_REQUIRED",
+            "This failed price-update job has already been resubmitted.",
+          );
+        }
+        const timestamp = this.now().toISOString();
+        const key = listingKey(existing.update);
+        const jobs = state.jobs.map((job) =>
+          job.status === "pending" && listingKey(job.update) === key
+            ? { ...job, status: "superseded" as const, updatedAt: timestamp }
+            : job,
+        );
+        const created: PriceUpdateJob = {
+          id: randomUUID(),
+          update: existing.update,
+          status: "pending",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          attempts: 0,
+          resubmittedFromJobId: jobId,
+        };
+        await this.saveState({
+          version: 1,
+          jobs: this.prune([...jobs, created]),
+        });
+        return created;
       }),
     );
   }
@@ -628,7 +680,10 @@ function parseQueueState(value: unknown): PriceUpdateQueueState {
       !statuses.has(status as PriceUpdateJobStatus) ||
       typeof job.createdAt !== "string" ||
       typeof job.updatedAt !== "string" ||
-      !Number.isInteger(job.attempts)
+      !Number.isInteger(job.attempts) ||
+      (job.resubmittedFromJobId !== undefined &&
+        (typeof job.resubmittedFromJobId !== "string" ||
+          !/^[0-9a-f-]{36}$/iu.test(job.resubmittedFromJobId)))
     ) {
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
@@ -654,6 +709,9 @@ function parseQueueState(value: unknown): PriceUpdateQueueState {
         : {}),
       ...(typeof job.errorCode === "string"
         ? { errorCode: job.errorCode }
+        : {}),
+      ...(typeof job.resubmittedFromJobId === "string"
+        ? { resubmittedFromJobId: job.resubmittedFromJobId }
         : {}),
     };
   });

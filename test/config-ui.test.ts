@@ -265,6 +265,13 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("!/^\\d+$/u.test(query)");
     expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
     expect(CONFIG_UI_JS).toContain("inventoryPrintingByProductId");
+    expect(CONFIG_UI_HTML).toContain('id="inventory-queue-pagination"');
+    expect(CONFIG_UI_HTML).toContain('id="queue-pagination"');
+    expect(CONFIG_UI_JS).toContain("const jobsPerPage = 10");
+    expect(CONFIG_UI_JS).toContain("function renderQueuePage(queueName)");
+    expect(CONFIG_UI_JS).toContain('text: "Retry"');
+    expect(CONFIG_UI_JS).toContain('action === "resubmit"');
+    expect(CONFIG_UI_JS).not.toContain("data.jobs.slice(0, 50)");
     expect(CONFIG_UI_JS).toContain('"pricingProfileId"');
     expect(CONFIG_UI_JS).toContain("updatePricingProfileRemovalState");
     expect(CONFIG_UI_JS).toContain('text: "+" + String(quantity)');
@@ -687,6 +694,98 @@ describe("configuration UI service", () => {
     }
     expect(jobsPanel).toContain('id="inventory-queue-jobs"');
     expect(jobsPanel).toContain('id="queue-jobs"');
+    expect(jobsPanel).toContain('id="inventory-queue-pagination"');
+    expect(jobsPanel).toContain('id="queue-pagination"');
+  });
+
+  it("resubmits failed price and inventory jobs through same-origin routes", async () => {
+    const fixture = await configurationFixture();
+    const priceQueue = new PriceUpdateQueueStore({
+      stateFile: join(dirname(fixture.path), "price-resubmit.json"),
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
+    const inventoryQueue = new InventoryAdditionQueueStore({
+      stateFile: join(dirname(fixture.path), "inventory-resubmit.json"),
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
+    const priceJob = (
+      await priceQueue.enqueue({
+        productId: 123,
+        productName: "Synthetic Card",
+        productConditionId: 456,
+        conditionId: 1,
+        channelId: 0,
+        categoryName: "Synthetic Game",
+        quantity: 1,
+        price: 2.5,
+        storePriceCustomId: null,
+        reserveQuantity: 0,
+      })
+    )[0];
+    const inventoryJob = (
+      await inventoryQueue.enqueue({
+        productId: 123,
+        productName: "Synthetic Card",
+        productConditionId: 456,
+        conditionId: 1,
+        channelId: 0,
+        categoryName: "Synthetic Game",
+        currentQuantity: 1,
+        addQuantity: 2,
+        price: 2.5,
+        storePriceCustomId: null,
+        reserveQuantity: 0,
+      })
+    )[0];
+    if (priceJob === undefined || inventoryJob === undefined) {
+      throw new Error("The queue fixture did not create jobs.");
+    }
+    await priceQueue.claimNext();
+    await priceQueue.finish(priceJob.id, "failed", "PROVIDER_ERROR");
+    await inventoryQueue.claimNext();
+    await inventoryQueue.finish(inventoryJob.id, "failed", "PROVIDER_ERROR");
+    server = await startConfigurationUi({
+      configPath: fixture.path,
+      port: 0,
+      service: fixture.service,
+      priceQueue,
+      inventoryQueue,
+    });
+    const serverUrl = server.url;
+    const resubmit = (path: string) =>
+      fetch(`${serverUrl}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: serverUrl,
+        },
+        body: "{}",
+      });
+
+    const priceResponse = await resubmit(
+      `/api/price-updates/${priceJob.id}/resubmit`,
+    );
+    const inventoryResponse = await resubmit(
+      `/api/inventory-additions/${inventoryJob.id}/resubmit`,
+    );
+    const duplicateResponse = await resubmit(
+      `/api/inventory-additions/${inventoryJob.id}/resubmit`,
+    );
+
+    expect(priceResponse.status).toBe(202);
+    expect(await priceResponse.json()).toMatchObject({
+      job: { status: "pending", resubmittedFromJobId: priceJob.id },
+    });
+    expect(inventoryResponse.status).toBe(202);
+    expect(await inventoryResponse.json()).toMatchObject({
+      job: { status: "pending", resubmittedFromJobId: inventoryJob.id },
+    });
+    expect(duplicateResponse.status).toBe(409);
+    expect(await inventoryQueue.snapshot()).toMatchObject({
+      counts: { failed: 1, pending: 1 },
+    });
   });
 
   it("shows the save banner only for unsaved persistent settings", () => {

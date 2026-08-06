@@ -1206,6 +1206,23 @@ async function handleRequest(
         workerRunning: inventoryWorkerRunning,
       });
     } else if (
+      request.method === "POST" &&
+      /^\/api\/inventory-additions\/[0-9a-f-]{36}\/resubmit$/iu.test(
+        url.pathname,
+      )
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (inventoryQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The inventory-addition queue is unavailable.",
+        });
+        return;
+      }
+      const jobId = url.pathname.split("/")[3] ?? "";
+      sendJson(response, 202, {
+        job: await inventoryQueue.resubmit(jobId),
+      });
+    } else if (
       request.method === "DELETE" &&
       /^\/api\/inventory-additions\/[0-9a-f-]{36}$/iu.test(url.pathname)
     ) {
@@ -1248,6 +1265,19 @@ async function handleRequest(
       sendJson(response, 202, {
         jobs: await priceQueue.enqueue(await readJsonBody(request)),
       });
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/price-updates\/[0-9a-f-]{36}\/resubmit$/iu.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (priceQueue === undefined) {
+        sendJson(response, 503, {
+          message: "The price-update queue is unavailable.",
+        });
+        return;
+      }
+      const jobId = url.pathname.split("/")[3] ?? "";
+      sendJson(response, 202, { job: await priceQueue.resubmit(jobId) });
     } else if (
       request.method === "DELETE" &&
       /^\/api\/price-updates\/[0-9a-f-]{36}$/iu.test(url.pathname)
