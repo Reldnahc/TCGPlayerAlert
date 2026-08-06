@@ -379,6 +379,20 @@ function listingBasis(
   return listing.price + (basis === "delivered" ? listing.shippingPrice : 0);
 }
 
+function isVerifiedDirectListing(listing: MarketplaceListing): boolean {
+  return (
+    listing.channelId === 1 &&
+    listing.directListing === true &&
+    listing.directProduct === true &&
+    listing.directSeller === true &&
+    Number.isSafeInteger(listing.directInventory) &&
+    (listing.directInventory ?? 0) > 0 &&
+    listing.listingType === "standard" &&
+    listing.sellerPrograms?.includes("DirectViewable") === true &&
+    listing.quantity > 0
+  );
+}
+
 interface SupportedSellerCluster {
   readonly listing: MarketplaceListing;
   readonly sellerCount: number;
@@ -523,7 +537,7 @@ export function calculateRepricingRow(
       (listing) =>
         listing.productId === own.listing.productId &&
         listing.sellerKey !== sellerKey &&
-        listing.channelId === 0 &&
+        (listing.channelId === 0 || isVerifiedDirectListing(listing)) &&
         listing.printing === own.listing.printing &&
         listing.language === own.listing.language &&
         conditions.includes(listing.condition) &&
@@ -925,9 +939,12 @@ function comparisonSampleIncomplete(
 function mergeComparisonProduct(
   sample: MarketplaceComparisonSample,
   product: MarketplaceProduct,
+  channelId: number,
 ): MarketplaceComparisonSample {
-  const eligibleListings = product.listings.filter(
-    (listing) => listing.channelId === 0,
+  const eligibleListings = product.listings.filter((listing) =>
+    channelId === 0
+      ? listing.channelId === 0
+      : isVerifiedDirectListing(listing),
   );
   const listings = [...sample.listings];
   const listingKeys = new Set(
@@ -943,8 +960,12 @@ function mergeComparisonProduct(
   }
   return {
     listings,
-    marketplaceTotalListings: product.totalListings,
-    marketplaceReturnedListings: eligibleListings.length,
+    marketplaceTotalListings:
+      channelId === 0 ? product.totalListings : sample.marketplaceTotalListings,
+    marketplaceReturnedListings:
+      channelId === 0
+        ? eligibleListings.length
+        : sample.marketplaceReturnedListings,
   };
 }
 
@@ -1303,22 +1324,25 @@ export class RepricingService {
         ...new Set(contexts.map((context) => context.product.productId)),
       ];
       for (const productIdChunk of chunks(productIds, 24)) {
-        const result = await this.client.searchMarketplaceProducts({
-          productIds: productIdChunk,
-          conditions: TCGPLAYER_CONDITION_ORDER,
-          printings: [printing],
-          languages: [language],
-          channelId: 0,
-          limit: 24,
-        });
-        for (const product of result.products) {
-          comparisons.set(
-            product.productId,
-            mergeComparisonProduct(
-              comparisons.get(product.productId) ?? emptyComparisonSample(),
-              product,
-            ),
-          );
+        for (const channelId of [0, 1]) {
+          const result = await this.client.searchMarketplaceProducts({
+            productIds: productIdChunk,
+            conditions: TCGPLAYER_CONDITION_ORDER,
+            printings: [printing],
+            languages: [language],
+            channelId,
+            limit: 24,
+          });
+          for (const product of result.products) {
+            comparisons.set(
+              product.productId,
+              mergeComparisonProduct(
+                comparisons.get(product.productId) ?? emptyComparisonSample(),
+                product,
+                channelId,
+              ),
+            );
+          }
         }
       }
     }
@@ -1400,22 +1424,25 @@ export class RepricingService {
             emptyComparisonSample(),
           ]),
         );
-        const result = await this.client.searchMarketplaceProducts({
-          productIds: productIdChunk,
-          conditions: group.conditions,
-          printings: [printing],
-          languages: [language],
-          channelId: 0,
-          limit: 24,
-        });
-        for (const product of result.products) {
-          samples.set(
-            product.productId,
-            mergeComparisonProduct(
-              samples.get(product.productId) ?? emptyComparisonSample(),
-              product,
-            ),
-          );
+        for (const channelId of [0, 1]) {
+          const result = await this.client.searchMarketplaceProducts({
+            productIds: productIdChunk,
+            conditions: group.conditions,
+            printings: [printing],
+            languages: [language],
+            channelId,
+            limit: 24,
+          });
+          for (const product of result.products) {
+            samples.set(
+              product.productId,
+              mergeComparisonProduct(
+                samples.get(product.productId) ?? emptyComparisonSample(),
+                product,
+                channelId,
+              ),
+            );
+          }
         }
         for (const context of group.contexts) {
           if (!productIdChunk.includes(context.product.productId)) continue;
