@@ -279,6 +279,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('kind: "warning"');
     expect(CONFIG_UI_JS).toContain('text: "Not queued: "');
     expect(CONFIG_UI_CSS).toContain(".catalog-inline-status.warning");
+    expect(CONFIG_UI_CSS).toContain(".catalog-inline-status-actions");
     expect(CONFIG_UI_HTML).toContain('id="inventory-queue-pagination"');
     expect(CONFIG_UI_HTML).toContain('id="queue-pagination"');
     expect(CONFIG_UI_JS).toContain("const jobsPerPage = 10");
@@ -300,8 +301,15 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("const availableLanguages = [...new Set(");
     expect(CONFIG_UI_JS).toContain("availableLanguages.length !== 1");
     expect(CONFIG_UI_JS).toContain(
-      '". List it as " + alternateLanguage + " instead?"',
+      "approvedAlternateLanguage !== alternateLanguage",
     );
+    expect(CONFIG_UI_JS).toContain(
+      "languageConfirmation: { language: alternateLanguage, addQuantity }",
+    );
+    expect(CONFIG_UI_JS).toContain(
+      'text: "List " + result.languageConfirmation.language',
+    );
+    expect(CONFIG_UI_JS).toContain('text: "Cancel"');
     expect(CONFIG_UI_JS).toContain("candidate.language === alternateLanguage");
     expect(CONFIG_UI_JS).toContain('" as " + sku.language');
     expect(CONFIG_UI_JS).toContain("if (!preview.queueable)");

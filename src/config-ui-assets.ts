@@ -439,10 +439,12 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .catalog-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-result-copy small { color: var(--muted); }
 .catalog-load-more { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px 0; color: var(--muted); font-size: .78rem; }
-.catalog-inline-status { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 10px 4px 2px; color: var(--muted); font-size: .82rem; font-weight: 700; }
+.catalog-inline-status { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); margin: 2px 5px 0; padding: 10px 4px 2px; color: var(--muted); font-size: .82rem; font-weight: 700; }
 .catalog-inline-status.success { color: #22613d; }
 .catalog-inline-status.warning { color: #845311; }
 .catalog-inline-status.error { color: var(--danger); }
+.catalog-inline-status-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.catalog-inline-status-actions button { padding: 7px 10px; }
 .quantity-dialog { width: min(420px, calc(100% - 32px)); border: 0; border-radius: 17px; padding: 0; box-shadow: 0 24px 70px rgba(12,26,18,.28); }
 .quantity-dialog::backdrop { background: rgba(12, 26, 18, .45); }
 .quantity-dialog-content { display: grid; gap: 18px; padding: 24px; }
@@ -1642,10 +1644,36 @@ export const CONFIG_UI_JS = String.raw`(() => {
       actions,
     ];
     if (loading || result) {
+      const statusChildren = [el("span", {
+        text: result?.text || "Pricing and adding card...",
+      })];
+      if (result?.languageConfirmation) {
+        const confirmLanguage = el("button", {
+          className: "primary-button dark-button",
+          type: "button",
+          text: "List " + result.languageConfirmation.language,
+        });
+        confirmLanguage.addEventListener("click", () => void queueCatalogProduct(
+          product,
+          result.languageConfirmation.addQuantity,
+          result.languageConfirmation.language,
+        ));
+        const cancelLanguage = el("button", {
+          className: "quiet-button",
+          type: "button",
+          text: "Cancel",
+        });
+        cancelLanguage.addEventListener("click", () => {
+          state.inventoryResultByProductId.delete(product.productId);
+          renderCatalogSearch();
+        });
+        statusChildren.push(el("div", {
+          className: "catalog-inline-status-actions",
+        }, [confirmLanguage, cancelLanguage]));
+      }
       children.push(el("div", {
         className: "catalog-inline-status" + (result ? " " + result.kind : ""),
-        text: result?.text || "Pricing and adding card...",
-      }));
+      }, statusChildren));
     }
     return el("div", {
       className: "catalog-result" + (foilSelected ? " foil" : ""),
@@ -1983,7 +2011,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     };
   }
 
-  async function queueCatalogProduct(product, addQuantity) {
+  async function queueCatalogProduct(product, addQuantity, approvedAlternateLanguage = null) {
     const productId = product.productId;
     if (state.inventoryAddingProductIds.has(productId)) return;
     const profile = activeMerchandiseProfile();
@@ -2039,15 +2067,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
           throw new Error("No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase() + " SKU exists for this product." + availability);
         }
         const alternateLanguage = availableLanguages[0];
-        const approved = window.confirm(
-          "No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase()
-            + " SKU exists for this product. The only matching language is " + alternateLanguage
-            + ". List it as " + alternateLanguage + " instead?",
-        );
-        if (!approved) {
+        if (approvedAlternateLanguage !== alternateLanguage) {
           state.inventoryResultByProductId.set(productId, {
             kind: "warning",
-            text: "Not queued: listing as " + alternateLanguage + " was not approved.",
+            text: "No " + profile.language + " " + condition + " " + printing.toLocaleLowerCase()
+              + " SKU exists. The only matching language is " + alternateLanguage + ".",
+            languageConfirmation: { language: alternateLanguage, addQuantity },
           });
           return;
         }
