@@ -652,6 +652,10 @@ describe("configuration UI service", () => {
   it("keeps dashboard automation controls compact and exposes order actions", () => {
     expect(CONFIG_UI_HTML).toContain('id="dashboard-automation-controls"');
     expect(CONFIG_UI_HTML).toContain('id="dashboard-order-rows"');
+    expect(CONFIG_UI_HTML).toContain('id="dashboard-ready-count"');
+    expect(CONFIG_UI_HTML).toContain('id="dashboard-product-total"');
+    expect(CONFIG_UI_HTML).toContain('id="dashboard-shipping-total"');
+    expect(CONFIG_UI_HTML).toContain('id="dashboard-order-total"');
     expect(CONFIG_UI_HTML).toContain('id="order-rows"');
     expect(CONFIG_UI_HTML).toContain(
       "<th>Products</th><th>Shipping</th><th>Total</th>",
@@ -669,7 +673,7 @@ describe("configuration UI service", () => {
       ".full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }",
     );
     expect(CONFIG_UI_HTML).toContain(
-      "<th>Total</th><th>Pirate Ship</th><th>Add tracking</th>",
+      '<th class="money-heading">Products</th><th class="money-heading">Shipping</th><th class="money-heading">Total</th><th class="dashboard-actions-column">Actions</th>',
     );
     expect(CONFIG_UI_HTML).not.toContain('id="dry-run"');
     expect(CONFIG_UI_JS).not.toContain('dashboardToggle("Dry run"');
@@ -678,6 +682,10 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('"Download packing slip"');
     expect(CONFIG_UI_JS).toContain('"Open in Pirate Ship"');
     expect(CONFIG_UI_JS).toContain('pirateShipButton(order, "ready-to-ship")');
+    expect(CONFIG_UI_JS).toContain(
+      "state.orderLists[scope] = readyToShipListFrom(state.orderLists.all)",
+    );
+    expect(CONFIG_UI_JS).toContain("list.orders.reduce((sum, order) => ({");
     expect(CONFIG_UI_JS).toContain('"Add tracking"');
     expect(CONFIG_UI_JS).toContain('"Mark shipped"');
     expect(CONFIG_UI_JS).toContain("rememberShippedOrder(result.orderNumber)");

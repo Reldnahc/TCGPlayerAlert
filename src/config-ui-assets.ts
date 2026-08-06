@@ -26,14 +26,23 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
           <section id="dashboard-automation-controls" class="panel dashboard-automation" aria-labelledby="dashboard-automation-title"></section>
 
           <div class="section-heading">
-            <div><h2 id="dashboard-orders-title">Ready to ship</h2></div>
+            <div>
+              <h2 id="dashboard-orders-title">Ready to ship</h2>
+              <p id="dashboard-orders-updated" class="section-note"></p>
+            </div>
             <button id="refresh-dashboard-orders" class="quiet-button" type="button">Refresh</button>
           </div>
           <section class="panel order-panel" aria-labelledby="dashboard-orders-title">
             <p id="dashboard-orders-message" class="order-message" aria-live="polite"></p>
+            <div class="dashboard-order-summary" aria-label="Ready-to-ship summary">
+              <div class="dashboard-order-stat"><span>Orders</span><strong id="dashboard-ready-count">—</strong></div>
+              <div class="dashboard-order-stat"><span>Products</span><strong id="dashboard-product-total">—</strong></div>
+              <div class="dashboard-order-stat"><span>Shipping</span><strong id="dashboard-shipping-total">—</strong></div>
+              <div class="dashboard-order-stat"><span>Total</span><strong id="dashboard-order-total">—</strong></div>
+            </div>
             <div class="order-table-wrap">
               <table class="order-table dashboard-order-table">
-                <thead><tr><th>Buyer</th><th>Order date</th><th>Shipping type</th><th>Total</th><th>Pirate Ship</th><th>Add tracking</th><th>Mark shipped</th></tr></thead>
+                <thead><tr><th>Order</th><th>Order date</th><th>Shipping type</th><th class="money-heading">Products</th><th class="money-heading">Shipping</th><th class="money-heading">Total</th><th class="dashboard-actions-column">Actions</th></tr></thead>
                 <tbody id="dashboard-order-rows"></tbody>
               </table>
             </div>
@@ -312,6 +321,8 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .switch-row input:checked + .switch::after { transform: translateX(20px); }
 .switch-row input:focus-visible + .switch { outline: 3px solid rgba(22,107,73,.25); outline-offset: 2px; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; margin: 40px 2px 15px; }
+.section-note { margin: 5px 0 0; color: var(--muted); font-size: .76rem; }
+.section-note:empty { display: none; }
 .dashboard-automation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; }
 .dashboard-toggle { padding: 20px 22px; }
 .dashboard-toggle + .dashboard-toggle { border-left: 1px solid var(--line); }
@@ -321,11 +332,17 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .order-message:empty { display: none; }
 .order-message.error { color: #93401c; background: #fff5f1; }
 .order-message.success { color: var(--green-dark); background: var(--green-soft); }
+.dashboard-order-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); background: #fbfcf7; }
+.dashboard-order-stat { display: grid; gap: 3px; padding: 15px 18px; }
+.dashboard-order-stat + .dashboard-order-stat { border-left: 1px solid var(--line); }
+.dashboard-order-stat span { color: var(--muted); font-size: .67rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.dashboard-order-stat strong { color: var(--green-dark); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
 .order-table-wrap { overflow: auto; }
 .order-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-.dashboard-order-table { min-width: 900px; }
+.dashboard-order-table { min-width: 1060px; }
 .full-order-table { min-width: 1320px; }
 .order-table th { padding: 11px 12px; background: #f1f3ed; color: var(--muted); text-align: left; font-size: .69rem; letter-spacing: .035em; text-transform: uppercase; white-space: nowrap; }
+.order-table .money-heading { text-align: right; }
 .order-table td { padding: 12px; border-top: 1px solid var(--line); vertical-align: middle; }
 .order-table .money-cell { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .order-table .date-cell { white-space: nowrap; }
@@ -336,6 +353,11 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .full-order-table .order-actions-column, .full-order-table .order-actions-cell { width: 300px; }
 .full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }
 .full-order-table .order-action { padding: 5px 7px; border-radius: 7px; font-size: .68rem; }
+.dashboard-order-copy { display: grid; gap: 3px; min-width: 190px; }
+.dashboard-order-copy small { color: var(--muted); font-size: .7rem; }
+.dashboard-order-table .dashboard-actions-column, .dashboard-order-table .dashboard-actions-cell { width: 310px; }
+.dashboard-order-actions { display: flex; justify-content: flex-end; gap: 5px; min-width: 290px; }
+.dashboard-order-actions .order-action { padding: 6px 8px; font-size: .69rem; }
 .order-action:hover { background: var(--green-soft); }
 .order-action:disabled { cursor: wait; opacity: .6; }
 .order-action.ship-action { border-color: #c9d8cf; background: var(--green-soft); }
@@ -518,6 +540,9 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .general-panel { grid-template-columns: 1fr; gap: 22px; }
   .dashboard-automation { grid-template-columns: 1fr; }
   .dashboard-toggle + .dashboard-toggle { border-left: 0; border-top: 1px solid var(--line); }
+  .dashboard-order-summary { grid-template-columns: 1fr 1fr; }
+  .dashboard-order-stat:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
+  .dashboard-order-stat:nth-child(4) { border-top: 1px solid var(--line); }
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
   .profile-fields { grid-template-columns: 1fr 1fr; }
@@ -1258,6 +1283,39 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
   }
 
+  function dateTimeText(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function isReadyToShip(order) {
+    return order.status.replaceAll(/[^a-z]/giu, "").toLocaleLowerCase() === "readytoship";
+  }
+
+  function readyToShipListFrom(list) {
+    return {
+      ...list,
+      orders: list.orders.filter(isReadyToShip),
+    };
+  }
+
+  function renderDashboardOrderSummary() {
+    const list = state.orderLists["ready-to-ship"];
+    const pending = list === null;
+    const totals = pending
+      ? null
+      : list.orders.reduce((sum, order) => ({
+          product: sum.product + Number(order.productAmount),
+          shipping: sum.shipping + Number(order.shippingAmount),
+          total: sum.total + Number(order.totalAmount),
+        }), { product: 0, shipping: 0, total: 0 });
+    document.querySelector("#dashboard-ready-count").textContent = pending ? "—" : String(list.orders.length);
+    document.querySelector("#dashboard-product-total").textContent = pending ? "—" : money(totals.product);
+    document.querySelector("#dashboard-shipping-total").textContent = pending ? "—" : money(totals.shipping);
+    document.querySelector("#dashboard-order-total").textContent = pending ? "—" : money(totals.total);
+    document.querySelector("#dashboard-orders-updated").textContent = pending ? "" : "Updated " + dateTimeText(list.fetchedAt);
+  }
+
   function trackingRow(order, scope, columns) {
     const input = el("input", {
       type: "text",
@@ -1333,14 +1391,22 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function dashboardOrderRows(order) {
     const tracking = trackingRow(order, "ready-to-ship", 7);
+    const actions = el("div", { className: "dashboard-order-actions" }, [
+      pirateShipButton(order, "ready-to-ship"),
+      trackingOpenButton(order, tracking),
+      markShippedButton(order, "ready-to-ship"),
+    ]);
     const row = el("tr", {}, [
-      el("td", { text: order.buyerName }),
+      el("td", {}, [el("div", { className: "dashboard-order-copy" }, [
+        el("strong", { text: order.buyerName }),
+        el("small", { text: "Order " + order.orderNumber }),
+      ])]),
       el("td", { className: "date-cell", text: dateText(order.orderDate) }),
       el("td", { text: order.shippingType }),
+      el("td", { className: "money-cell", text: money(order.productAmount) }),
+      el("td", { className: "money-cell", text: money(order.shippingAmount) }),
       el("td", { className: "money-cell", text: money(order.totalAmount) }),
-      el("td", {}, [pirateShipButton(order, "ready-to-ship")]),
-      el("td", {}, [trackingOpenButton(order, tracking)]),
-      el("td", {}, [markShippedButton(order, "ready-to-ship")]),
+      el("td", { className: "dashboard-actions-cell" }, [actions]),
     ]);
     return [row, tracking];
   }
@@ -1380,6 +1446,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function renderOrderList(scope) {
     const ui = orderUi(scope);
     const list = state.orderLists[scope];
+    if (scope === "ready-to-ship") renderDashboardOrderSummary();
     if (list === null) {
       ui.rows.replaceChildren(el("tr", {}, [
         el("td", { className: "empty-cell", colspan: String(ui.columns), text: state.orderLoading[scope] ? "Loading orders..." : "Orders have not been loaded." }),
@@ -1400,6 +1467,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
   async function loadOrders(scope, force = false) {
     if (state.orderLoading[scope]) return;
     if (!force && state.orderLists[scope] !== null) return;
+    if (!force && scope === "ready-to-ship" && state.orderLists.all !== null) {
+      state.orderLists[scope] = readyToShipListFrom(state.orderLists.all);
+      renderOrderList(scope);
+      return;
+    }
     state.orderLoading[scope] = true;
     showOrderMessage(scope, "");
     renderOrderList(scope);
@@ -1413,6 +1485,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Orders could not be loaded.");
       state.orderLists[scope] = applyKnownShipmentState(scope, data);
+      if (scope === "all" && state.orderLists["ready-to-ship"] === null) {
+        state.orderLists["ready-to-ship"] = readyToShipListFrom(state.orderLists.all);
+      }
     } catch (error) {
       showOrderMessage(scope, error instanceof Error ? error.message : "Orders could not be loaded.", "error");
     } finally {
