@@ -529,6 +529,42 @@ describe("smart repricing", () => {
     expect(row.reason).toContain("higher of market and lowest fallback");
   });
 
+  it("does not lower an existing listing from market price when seller details remain truncated", () => {
+    const ownListing = listing({ price: 70 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [],
+      sellerKey,
+      {
+        ...rules,
+        sparseMarketFallback: "higher-of-market-and-lowest",
+        ranges: [
+          {
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-incomplete-market-fallback",
+      { reportedQualifyingListings: 8, incomplete: true },
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 70,
+      qualifyingListings: 8,
+      comparisonSampleIncomplete: true,
+      queueable: false,
+    });
+    expect(row.reason).toContain("did not return enough seller details");
+  });
+
   it("uses the Sell now lowest-first fallback and then market when needed", () => {
     const sellNowRules: RepricingRules = {
       ...rules,
@@ -767,6 +803,151 @@ describe("smart repricing", () => {
     );
   });
 
+  it("recovers exact-condition listings when the broad marketplace sample is truncated", async () => {
+    const ownListing = listing({
+      productId: 111645,
+      productConditionId: 1116451,
+      conditionId: 1,
+      condition: "Near Mint",
+      printing: "Foil",
+      quantity: 1,
+      price: 70,
+    });
+    const ownProduct: MarketplaceProduct = {
+      ...product(ownListing),
+      productName: "Rishadan Port",
+      productLineName: "Magic: The Gathering",
+      setName: "Judge Promos",
+      marketPrice: 24.1,
+      totalListings: 9,
+    };
+    const broadListings = [
+      listing({
+        listingId: 20,
+        productId: 111645,
+        productConditionId: 1116455,
+        conditionId: 5,
+        condition: "Damaged",
+        printing: "Foil",
+        sellerKey: "damaged-seller",
+        price: 22.73,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 21,
+        productId: 111645,
+        productConditionId: 1116452,
+        conditionId: 2,
+        condition: "Lightly Played",
+        printing: "Foil",
+        sellerKey: "lp-seller",
+        price: 48.51,
+        shippingPrice: 1.49,
+      }),
+    ];
+    const nearMintListings = [
+      ownListing,
+      listing({
+        listingId: 30,
+        productId: 111645,
+        productConditionId: 1116451,
+        conditionId: 1,
+        condition: "Near Mint",
+        printing: "Foil",
+        sellerKey: "nm-seller-one",
+        price: 72.48,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 31,
+        productId: 111645,
+        productConditionId: 1116451,
+        conditionId: 1,
+        condition: "Near Mint",
+        printing: "Foil",
+        sellerKey: "nm-seller-two",
+        price: 72.49,
+        shippingPrice: 1.49,
+      }),
+    ];
+    const listSellerInventory = vi.fn(
+      (input: { readonly channelId?: number }) =>
+        Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
+    );
+    const searchMarketplaceProducts = vi.fn(
+      (input: {
+        readonly channelId?: number;
+        readonly conditions?: string[];
+      }) => {
+        if (input.channelId === 1) {
+          return Promise.resolve({ totalProducts: 0, products: [] });
+        }
+        const exactNearMint = input.conditions?.length === 1;
+        return Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...ownProduct,
+              totalListings: exactNearMint ? 9 : 16,
+              listings: exactNearMint ? nearMintListings : broadListings,
+            },
+          ],
+        });
+      },
+    );
+    const service = new RepricingService({
+      client: { listSellerInventory, searchMarketplaceProducts },
+      sellerKey,
+      now: () => new Date("2026-08-05T12:00:00.000Z"),
+    });
+    const conservativeRules: RepricingRules = {
+      ...rules,
+      sparseMarketFallback: "higher-of-market-and-lowest",
+      ranges: [
+        {
+          minimumListings: 3,
+          priceSource: "lowest",
+          percentage: 100,
+          gapThresholdPercent: 10,
+          gapAction: "use-next",
+          supportMode: "cluster",
+          minimumSellerSupport: 2,
+          supportWindowPercent: 5,
+        },
+      ],
+    };
+
+    const first = await service.preview(conservativeRules);
+    const second = await service.preview(conservativeRules);
+
+    expect(first.rows[0]).toMatchObject({
+      productName: "Rishadan Port",
+      currentPrice: 70,
+      proposedPrice: 70,
+      status: "unchanged",
+      qualifyingListings: 8,
+      distinctSellers: 2,
+      supportedClusterPrice: 72.48,
+      supportedClusterShipping: 1.49,
+      queueable: false,
+    });
+    expect(first.rows[0]?.reason).toContain("price increases are disabled");
+    expect(first.rows[0]?.sparseMarketFallbackApplied).toBeUndefined();
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        productIds: [111645],
+        conditions: ["Near Mint"],
+        printings: ["Foil"],
+        languages: ["English"],
+        channelId: 0,
+      }),
+    );
+    expect(second.marketplaceSnapshot.source).toBe("cache");
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+  });
+
   it("reuses one marketplace snapshot across profile calculations", async () => {
     const ownListing = listing();
     const competitor = listing({
@@ -792,6 +973,9 @@ describe("smart repricing", () => {
     const second = await service.preview({ ...rules, priceBasis: "item" });
 
     expect(first.marketplaceSnapshot).toMatchObject({ source: "fresh" });
+    expect(first.marketplaceSnapshot.expiresAt).toBe(
+      "2026-08-05T12:10:00.000Z",
+    );
     expect(second.marketplaceSnapshot).toEqual({
       ...first.marketplaceSnapshot,
       source: "cache",

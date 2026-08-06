@@ -188,7 +188,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
               <button id="edit-repricing-profiles" class="quiet-button" type="button">Edit profiles</button>
             </div>
             <div class="repricing-options">
-              <span id="repricing-snapshot-status">Marketplace data is cached for three minutes.</span>
+              <span id="repricing-snapshot-status">Marketplace data is cached for ten minutes.</span>
               <div class="repricing-refresh-actions">
                 <button id="repricing-preview" class="primary-button dark-button" type="button">Update preview</button>
                 <button id="repricing-force-refresh" class="quiet-button" type="button">Force marketplace refresh</button>
