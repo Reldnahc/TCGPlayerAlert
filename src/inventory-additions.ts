@@ -30,9 +30,6 @@ import { FileSyncLease, type SyncLease } from "./sync-lease.js";
 type UnknownRecord = Record<string, unknown>;
 
 const CATALOG_SEARCH_PAGE_SIZE = 24;
-const CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES = 3;
-const CATALOG_EXACT_SCAN_MAXIMUM_PAGES = 8;
-const CATALOG_SEARCH_MATCH_TARGET = 8;
 const CATALOG_SEARCH_CACHE_TTL_MS = 60_000;
 const CATALOG_SEARCH_CACHE_LIMIT = 100;
 
@@ -75,6 +72,7 @@ export interface CatalogSearchProduct extends CatalogProductSummary {
 
 export interface CatalogSearchResult {
   readonly totalProducts: number;
+  readonly sets: readonly { readonly name: string; readonly count: number }[];
   readonly products: readonly CatalogSearchProduct[];
   readonly nextOffset: number;
   readonly hasMore: boolean;
@@ -442,7 +440,7 @@ export class InventoryAdditionService {
     productLineName?: string,
     offset = 0,
     signal?: AbortSignal,
-    findExact = false,
+    setName?: string,
   ): Promise<CatalogSearchResult> {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
       throw new ConfigurationError([
@@ -454,60 +452,35 @@ export class InventoryAdditionService {
     const cacheKey = JSON.stringify([
       query.trim().toLocaleLowerCase("en-US"),
       productLineName?.trim().toLocaleLowerCase("en-US") ?? "",
+      setName?.trim().toLocaleLowerCase("en-US") ?? "",
       offset,
-      findExact,
     ]);
     const cached = this.catalogSearches.get(cacheKey);
     if (cached !== undefined) return cached.result;
-    const products: CatalogProductSummary[] = [];
-    let totalProducts = 0;
-    let nextOffset = offset;
-    const maximumPages = findExact
-      ? CATALOG_EXACT_SCAN_MAXIMUM_PAGES
-      : offset === 0
-        ? CATALOG_SEARCH_INITIAL_MAXIMUM_PAGES
-        : 1;
-    for (let page = 0; page < maximumPages; page += 1) {
-      const result = await this.client.searchCatalogProducts(
-        {
-          query,
-          ...(productLineName === undefined || productLineName.trim() === ""
-            ? {}
-            : { productLineName }),
-          offset: nextOffset,
-          limit: CATALOG_SEARCH_PAGE_SIZE,
-          includeFoilMarketPrices: true,
-        },
-        signal === undefined ? undefined : { signal },
-      );
-      totalProducts = Math.max(totalProducts, result.totalProducts);
-      products.push(...result.products);
-      nextOffset = Math.min(
-        nextOffset + CATALOG_SEARCH_PAGE_SIZE,
-        totalProducts,
-      );
-      if (result.products.length === 0 || nextOffset >= totalProducts) break;
-      const ranked = rankCatalogSearchProducts(products, query);
-      const exactCount = ranked.filter(
-        (product) => product.matchKind === "exact",
-      ).length;
-      const variantCount = ranked.filter(
-        (product) => product.matchKind === "variant",
-      ).length;
-      if (findExact && exactCount > 0) break;
-      if (
-        !findExact &&
-        (exactCount >= CATALOG_SEARCH_MATCH_TARGET ||
-          (exactCount === 0 && variantCount >= CATALOG_SEARCH_MATCH_TARGET))
-      ) {
-        break;
-      }
-    }
+    const result = await this.client.searchCatalogProducts(
+      {
+        query,
+        productTypeName: "Cards",
+        ...(productLineName === undefined || productLineName.trim() === ""
+          ? {}
+          : { productLineName }),
+        ...(setName === undefined || setName.trim() === "" ? {} : { setName }),
+        offset,
+        limit: CATALOG_SEARCH_PAGE_SIZE,
+        includeFoilMarketPrices: true,
+      },
+      signal === undefined ? undefined : { signal },
+    );
+    const nextOffset = Math.min(
+      offset + CATALOG_SEARCH_PAGE_SIZE,
+      result.totalProducts,
+    );
     const searchResult = {
-      totalProducts,
-      products: rankCatalogSearchProducts(products, query),
+      totalProducts: result.totalProducts,
+      sets: result.sets,
+      products: rankCatalogSearchProducts(result.products, query),
       nextOffset,
-      hasMore: nextOffset < totalProducts,
+      hasMore: nextOffset < result.totalProducts,
     };
     signal?.throwIfAborted();
     if (this.catalogSearches.size >= CATALOG_SEARCH_CACHE_LIMIT) {

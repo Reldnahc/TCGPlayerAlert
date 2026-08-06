@@ -157,6 +157,7 @@ export const CONFIG_UI_HTML = String.raw`<!doctype html>
             <div class="catalog-search-row">
               <label class="field"><span>Card name</span><input id="catalog-query" type="text" maxlength="200" placeholder="Search card name" /></label>
               <label class="field"><span>Product line (optional)</span><input id="catalog-product-line" type="text" list="catalog-product-lines" maxlength="100" placeholder="All product lines" /><datalist id="catalog-product-lines"></datalist></label>
+              <label class="field"><span>Set (optional)</span><select id="catalog-set" disabled><option value="">All sets</option></select></label>
               <button id="catalog-search" class="primary-button dark-button" type="button">Search catalog</button>
             </div>
             <p id="inventory-message" class="repricing-message"></p>
@@ -410,7 +411,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .repricing-range-remove { align-self: center; border: 0; background: transparent; color: #8c4630; font-weight: 800; }
 .inventory-profile-bar { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.7fr) auto; align-items: end; gap: 18px; padding: 16px 25px; border-bottom: 1px solid var(--line); background: #fbfcf7; }
 .inventory-profile-summary { align-self: center; margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
-.catalog-search-row { display: grid; grid-template-columns: 1.35fr 1fr auto; align-items: end; gap: 14px; padding: 16px 25px 20px; }
+.catalog-search-row { display: grid; grid-template-columns: 1.25fr .9fr 1fr auto; align-items: end; gap: 14px; padding: 16px 25px 20px; }
 .catalog-results { display: grid; gap: 16px; max-height: 560px; overflow: auto; padding: 0 25px 22px; }
 .catalog-section { display: grid; gap: 8px; }
 .catalog-section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 2px 2px 0; }
@@ -1658,14 +1659,6 @@ export const CONFIG_UI_JS = String.raw`(() => {
       sections.push(el("div", { className: "queue-empty", text: "No products matched this search and product line." }));
     }
     if (search.hasMore) {
-      if (exact.length === 0) {
-        const findExact = el("button", { id: "catalog-find-exact", className: "quiet-button", type: "button", text: "Find exact name" });
-        findExact.addEventListener("click", () => void searchCatalog(true, findExact, true));
-        sections.push(el("div", { className: "catalog-load-more" }, [
-          el("span", { text: "Scan later results until this exact card name appears." }),
-          findExact,
-        ]));
-      }
       const loadMore = el("button", { id: "catalog-load-more", className: "quiet-button", type: "button", text: "Load more" });
       loadMore.addEventListener("click", () => void searchCatalog(true, loadMore));
       sections.push(el("div", { className: "catalog-load-more" }, [
@@ -1676,14 +1669,30 @@ export const CONFIG_UI_JS = String.raw`(() => {
     results.replaceChildren(...sections);
     results.hidden = false;
     updateCatalogProductLineSuggestions(search.products, search.productLine);
+    updateCatalogSetOptions(search.sets, search.setName);
     message.className = "repricing-message success";
-    message.textContent = search.products.length + " results · " + exact.length + " exact";
+    message.textContent = search.products.length + " of " + search.totalProducts + " loaded · " + exact.length + " exact" + (!search.setName && search.hasMore && search.sets.length > 1 ? " · choose a set to narrow results" : "");
   }
 
-  async function searchCatalog(append = false, triggerButton, findExact = false) {
+  function updateCatalogSetOptions(sets, selectedSet) {
+    const select = document.querySelector("#catalog-set");
+    const options = [...sets].sort((left, right) => left.name.localeCompare(right.name)).map((set) =>
+      el("option", { value: set.name, text: set.name + " (" + set.count + ")" }),
+    );
+    select.replaceChildren(el("option", { value: "", text: "All sets" }), ...options);
+    select.value = selectedSet || "";
+    select.disabled = sets.length === 0;
+  }
+
+  function resetCatalogSetFilter() {
+    updateCatalogSetOptions([], "");
+  }
+
+  async function searchCatalog(append = false, triggerButton) {
     const current = state.catalogSearch;
     const query = append && current ? current.query : document.querySelector("#catalog-query").value.trim();
     const productLine = append && current ? current.productLine : document.querySelector("#catalog-product-line").value.trim();
+    const setName = append && current ? current.setName : document.querySelector("#catalog-set").value;
     const offset = append && current ? current.nextOffset : 0;
     const message = document.querySelector("#inventory-message");
     const results = document.querySelector("#catalog-results");
@@ -1697,7 +1706,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return;
     }
     const button = triggerButton || document.querySelector("#catalog-search");
-    const idleText = findExact ? "Find exact name" : append ? "Load more" : "Search catalog";
+    const idleText = append ? "Load more" : "Search catalog";
     const requestController = new AbortController();
     state.catalogSearchController = requestController;
     button.disabled = true;
@@ -1711,7 +1720,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     try {
       const parameters = new URLSearchParams({ q: query, offset: String(offset) });
       if (productLine) parameters.set("productLine", productLine);
-      if (findExact) parameters.set("findExact", "true");
+      if (setName) parameters.set("setName", setName);
       const response = await fetch("/api/catalog/search?" + parameters.toString(), {
         headers: { Accept: "application/json" },
         signal: requestController.signal,
@@ -1719,12 +1728,18 @@ export const CONFIG_UI_JS = String.raw`(() => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Catalog search failed.");
       if (requestToken !== state.catalogSearchToken) return;
+      const sameSearchFamily = current && current.query === query && current.productLine === productLine;
       const existing = append && current ? current.products : [];
       const loadedOrderStart = existing.reduce((maximum, product) => Math.max(maximum, product.loadedOrder), -1) + 1;
       const received = data.products.map((product, index) => ({ ...product, loadedOrder: loadedOrderStart + index }));
+      const sets = sameSearchFamily
+        ? [...new Map([...current.sets, ...data.sets].map((set) => [set.name, set])).values()]
+        : data.sets;
       state.catalogSearch = {
         query,
         productLine,
+        setName,
+        sets,
         totalProducts: data.totalProducts,
         nextOffset: data.nextOffset,
         hasMore: data.hasMore,
@@ -2359,6 +2374,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#refresh-inventory-queue").addEventListener("click", loadInventoryQueue);
   document.querySelector("#catalog-search").addEventListener("click", () => void searchCatalog());
   for (const selector of ["#catalog-query", "#catalog-product-line"]) {
+    document.querySelector(selector).addEventListener("input", resetCatalogSetFilter);
     document.querySelector(selector).addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2366,6 +2382,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       }
     });
   }
+  document.querySelector("#catalog-set").addEventListener("change", () => void searchCatalog());
   document.querySelector("#inventory-profile-select").addEventListener("change", (event) => {
     selectMerchandiseProfile(event.target.value);
   });

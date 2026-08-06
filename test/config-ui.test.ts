@@ -210,6 +210,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_HTML).toContain('id="repricing-profile-list"');
     expect(CONFIG_UI_HTML).not.toContain('id="repricing-minimum"');
     expect(CONFIG_UI_HTML).toContain('list="catalog-product-lines"');
+    expect(CONFIG_UI_HTML).toContain('id="catalog-set"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
     expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
     expect(
@@ -219,8 +220,9 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
     expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
     expect(CONFIG_UI_JS).toContain("state.catalogSearchController?.abort()");
-    expect(CONFIG_UI_JS).toContain('text: "Find exact name"');
-    expect(CONFIG_UI_JS).toContain('parameters.set("findExact", "true")');
+    expect(CONFIG_UI_JS).not.toContain('text: "Find exact name"');
+    expect(CONFIG_UI_JS).toContain('parameters.set("setName", setName)');
+    expect(CONFIG_UI_JS).toContain("function updateCatalogSetOptions(");
     expect(CONFIG_UI_JS).toContain(
       "compareCatalogRanks(left.matchRank, right.matchRank)",
     );
@@ -752,7 +754,11 @@ describe("configuration UI service", () => {
       sellerKey: "synthetic-seller",
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, products: [catalogSummary] }),
+          Promise.resolve({
+            totalProducts: 1,
+            sets: [{ name: "Synthetic Set", count: 1 }],
+            products: [catalogSummary],
+          }),
         getCatalogProduct: () => Promise.resolve(catalogProduct),
         searchMarketplaceProducts: () =>
           Promise.resolve({ totalProducts: 0, products: [] }),
@@ -823,8 +829,8 @@ describe("configuration UI service", () => {
     const invalidCatalogOffset = await fetch(
       `${server.url}/api/catalog/search?q=Synthetic&offset=-1`,
     );
-    const invalidExactSearch = await fetch(
-      `${server.url}/api/catalog/search?q=Synthetic&findExact=maybe`,
+    const invalidSetSearch = await fetch(
+      `${server.url}/api/catalog/search?q=Synthetic&setName=${"x".repeat(257)}`,
     );
     const catalogDetails = await fetch(
       `${server.url}/api/catalog/products/123`,
@@ -892,6 +898,7 @@ describe("configuration UI service", () => {
     expect(catalogSearch.status).toBe(200);
     expect(await catalogSearch.json()).toMatchObject({
       totalProducts: 1,
+      sets: [{ name: "Synthetic Set", count: 1 }],
       nextOffset: 1,
       hasMore: false,
       products: [
@@ -899,7 +906,7 @@ describe("configuration UI service", () => {
       ],
     });
     expect(invalidCatalogOffset.status).toBe(400);
-    expect(invalidExactSearch.status).toBe(400);
+    expect(invalidSetSearch.status).toBe(400);
     expect(catalogDetails.status).toBe(200);
     expect(await catalogDetails.json()).toMatchObject({ productId: 123 });
     expect(inventoryPreviewResponse.status).toBe(200);

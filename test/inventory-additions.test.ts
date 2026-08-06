@@ -119,7 +119,7 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
-  it("loads and globally ranks several catalog pages before returning", async () => {
+  it("loads and ranks one catalog page with set facets", async () => {
     const related = { ...product, productId: 1, productName: "Synthetic Box" };
     const variant = {
       ...product,
@@ -129,13 +129,12 @@ describe("inventory additions", () => {
     const exact = { ...product, productId: 3 };
     const searchCatalogProducts = vi.fn(
       (input: { offset?: number; productLineName?: string }) => {
-        const products =
-          input.offset === 0
-            ? [related]
-            : input.offset === 24
-              ? [variant]
-              : [exact, related];
-        return Promise.resolve({ totalProducts: 100, products });
+        void input;
+        return Promise.resolve({
+          totalProducts: 100,
+          sets: [{ name: "Synthetic Set", count: 3 }],
+          products: [related, variant, exact],
+        });
       },
     );
     const service = new InventoryAdditionService({
@@ -153,28 +152,16 @@ describe("inventory additions", () => {
       {
         query: "Synthetic Card",
         productLineName: "Synthetic Game",
+        productTypeName: "Cards",
         offset: 0,
-        limit: 24,
-        includeFoilMarketPrices: true,
-      },
-      {
-        query: "Synthetic Card",
-        productLineName: "Synthetic Game",
-        offset: 24,
-        limit: 24,
-        includeFoilMarketPrices: true,
-      },
-      {
-        query: "Synthetic Card",
-        productLineName: "Synthetic Game",
-        offset: 48,
         limit: 24,
         includeFoilMarketPrices: true,
       },
     ]);
     expect(result).toMatchObject({
       totalProducts: 100,
-      nextOffset: 72,
+      sets: [{ name: "Synthetic Set", count: 3 }],
+      nextOffset: 24,
       hasMore: true,
       products: [
         { productId: 3, matchKind: "exact" },
@@ -252,6 +239,7 @@ describe("inventory additions", () => {
         expect(options?.signal).toBe(signal);
         return Promise.resolve({
           totalProducts: 100,
+          sets: [],
           products: exactProducts,
         });
       },
@@ -282,6 +270,7 @@ describe("inventory additions", () => {
     const searchCatalogProducts = vi.fn((input: { offset?: number }) =>
       Promise.resolve({
         totalProducts: 200,
+        sets: [],
         products: [
           {
             ...product,
@@ -310,16 +299,16 @@ describe("inventory additions", () => {
     expect(result).toMatchObject({ nextOffset: 96, hasMore: true });
   });
 
-  it("scans a bounded later batch until an exact name is found", async () => {
-    const searchCatalogProducts = vi.fn((input: { offset?: number }) =>
+  it("applies a set filter without scanning additional pages", async () => {
+    const searchCatalogProducts = vi.fn((input: { setName?: string }) =>
       Promise.resolve({
-        totalProducts: 500,
+        totalProducts: 1,
+        sets: [{ name: "Synthetic Set", count: 1 }],
         products: [
           {
             ...product,
-            productId: input.offset ?? 1,
-            productName:
-              input.offset === 120 ? "Synthetic Card" : "Synthetic Box",
+            productId: 120,
+            setName: input.setName ?? "Synthetic Set",
           },
         ],
       }),
@@ -336,15 +325,18 @@ describe("inventory additions", () => {
     const result = await service.search(
       "Synthetic Card",
       undefined,
-      72,
+      0,
       undefined,
-      true,
+      "Synthetic Set",
     );
 
-    expect(
-      searchCatalogProducts.mock.calls.map(([input]) => input.offset),
-    ).toEqual([72, 96, 120]);
-    expect(result).toMatchObject({ nextOffset: 144, hasMore: true });
+    expect(searchCatalogProducts).toHaveBeenCalledOnce();
+    expect(searchCatalogProducts.mock.calls[0]?.[0]).toMatchObject({
+      productTypeName: "Cards",
+      setName: "Synthetic Set",
+      offset: 0,
+    });
+    expect(result).toMatchObject({ nextOffset: 1, hasMore: false });
     expect(result.products[0]).toMatchObject({
       productId: 120,
       matchKind: "exact",
@@ -381,7 +373,7 @@ describe("inventory additions", () => {
       now: () => new Date("2026-08-04T12:00:00.000Z"),
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, products: [product] }),
+          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
         getCatalogProduct: () => Promise.resolve(product),
         searchMarketplaceProducts,
       },
@@ -425,7 +417,7 @@ describe("inventory additions", () => {
       now: () => now,
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, products: [product] }),
+          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
         getCatalogProduct,
         searchMarketplaceProducts,
       },
@@ -491,7 +483,7 @@ describe("inventory additions", () => {
       sellerKey: "synthetic-seller",
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, products: [product] }),
+          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
         getCatalogProduct: () =>
           Promise.resolve({ ...product, marketPrice: 0.2 }),
         searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
@@ -524,7 +516,7 @@ describe("inventory additions", () => {
       sellerKey: "synthetic-seller",
       client: {
         searchCatalogProducts: () =>
-          Promise.resolve({ totalProducts: 1, products: [product] }),
+          Promise.resolve({ totalProducts: 1, sets: [], products: [product] }),
         getCatalogProduct: () => Promise.resolve(product),
         searchMarketplaceProducts: (input) =>
           Promise.resolve(

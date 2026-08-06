@@ -1124,11 +1124,9 @@ async function handleRequest(
         return;
       }
       const productLine = url.searchParams.get("productLine")?.trim();
-      const findExactText = url.searchParams.get("findExact") ?? "false";
-      if (findExactText !== "true" && findExactText !== "false") {
-        sendJson(response, 400, {
-          message: "findExact must be true or false.",
-        });
+      const setName = url.searchParams.get("setName")?.trim();
+      if (setName !== undefined && setName.length > 256) {
+        sendJson(response, 400, { message: "Set name is too long." });
         return;
       }
       const offsetText = url.searchParams.get("offset") ?? "0";
@@ -1144,7 +1142,7 @@ async function handleRequest(
           productLine === "" ? undefined : productLine,
           Number(offsetText),
           signal,
-          findExactText === "true",
+          setName === "" ? undefined : setName,
         ),
       );
       if (!response.destroyed) sendJson(response, 200, searchResult);
