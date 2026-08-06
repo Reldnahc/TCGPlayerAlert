@@ -398,6 +398,18 @@ function effectiveShippingPrice(
     : configuredShippingPrice;
 }
 
+function newListingPricingRules(rules: InventoryPricingRules): RepricingRules {
+  return {
+    ...rules,
+    allowPriceIncreases: true,
+    ranges: rules.ranges.map((range) =>
+      range.gapAction === "skip"
+        ? { ...range, gapAction: "use-next" as const }
+        : range,
+    ),
+  };
+}
+
 function calculateInventoryAdditionPrice(
   product: CatalogProductDetails,
   sku: CatalogProductSku,
@@ -408,6 +420,7 @@ function calculateInventoryAdditionPrice(
 ) {
   let shippingPrice = rules.estimatedShippingPrice;
   let result: ReturnType<typeof calculateRepricingRow> | undefined;
+  const pricingRules = newListingPricingRules(rules);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const ownListing: MarketplaceListing = {
       listingId: 0,
@@ -440,7 +453,7 @@ function calculateInventoryAdditionPrice(
       { product: marketplaceProduct, listing: ownListing },
       comparisonListings,
       sellerKey,
-      { ...rules, allowPriceIncreases: true },
+      pricingRules,
       "inventory-addition",
     );
     if (!result.queueable) return result;

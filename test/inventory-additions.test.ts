@@ -688,6 +688,60 @@ describe("inventory additions", () => {
     expect(preview.reason).toContain("uses 100% of the next listing");
   });
 
+  it("lists from the supported seller band when an inventory rule would wait", async () => {
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: (input) =>
+          Promise.resolve(
+            input.sellerKey === "synthetic-seller"
+              ? searchResult([])
+              : searchResult([
+                  listing({ sellerKey: "isolated", price: 30 }),
+                  listing({ sellerKey: "band-a", price: 32 }),
+                  listing({ sellerKey: "band-b", price: 33 }),
+                ]),
+          ),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules: additionPricingRules({
+        ranges: [
+          {
+            minimumListings: 3,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "skip",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      }),
+    });
+
+    expect(preview).toMatchObject({
+      proposedPrice: 32,
+      competitorPrice: 32,
+      queueable: true,
+      rules: { ranges: [{ gapAction: "skip" }] },
+    });
+    expect(preview.reason).toContain("supported by 2 sellers");
+  });
+
   it("lists with the profile's conservative fallback when no seller band exists", async () => {
     const service = new InventoryAdditionService({
       sellerKey: "synthetic-seller",
