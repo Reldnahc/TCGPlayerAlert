@@ -977,6 +977,40 @@ function needsComparisonRecovery(row: RepricingPreviewRow): boolean {
   );
 }
 
+function marketplaceSampleCanHideLowestListing(
+  context: SellerListingContext,
+  sample: MarketplaceComparisonSample,
+  sellerKey: string,
+  rules: RepricingRules,
+): boolean {
+  const conditions = allowedConditions(
+    context.listing.condition,
+    rules.conditionPolicy,
+  );
+  if (conditions === undefined) return false;
+  const qualifyingMarketplaceCompetitor = sample.listings.some(
+    (listing) =>
+      listing.channelId === 0 &&
+      listing.productId === context.product.productId &&
+      listing.sellerKey !== sellerKey &&
+      listing.printing === context.listing.printing &&
+      listing.language === context.listing.language &&
+      conditions.includes(listing.condition) &&
+      listing.quantity > 0 &&
+      listing.customData.customListingId === undefined,
+  );
+  if (qualifyingMarketplaceCompetitor) return false;
+
+  // TCGplayer embeds only a small lowest-price sample for each product. A broad
+  // all-condition query can fill that sample with worse conditions and the
+  // seller's own listing, while a higher-priced Direct record makes the row
+  // appear usable. Retry with the exact allowed conditions before trusting it.
+  return (
+    sample.marketplaceReturnedListings === 0 ||
+    sample.marketplaceTotalListings > sample.marketplaceReturnedListings
+  );
+}
+
 function chunks<T>(values: readonly T[], size: number): readonly T[][] {
   const result: T[][] = [];
   for (let index = 0; index < values.length; index += size) {
@@ -1054,7 +1088,15 @@ export class RepricingService {
               rules,
               "comparison-recovery-check",
             );
-            return needsComparisonRecovery(preliminary);
+            return (
+              needsComparisonRecovery(preliminary) ||
+              marketplaceSampleCanHideLowestListing(
+                context,
+                sample,
+                this.sellerKey,
+                rules,
+              )
+            );
           })(),
       ),
       rules,

@@ -1106,6 +1106,165 @@ describe("smart repricing", () => {
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
   });
 
+  it("does not let a Direct result mask marketplace listings hidden by worse conditions", async () => {
+    const ownListing = listing({
+      listingId: 10,
+      productId: 31833,
+      productConditionId: 318334,
+      conditionId: 4,
+      condition: "Heavily Played",
+      quantity: 4,
+      price: 1.93,
+      shippingPrice: 1.49,
+    });
+    const ownProduct: MarketplaceProduct = {
+      ...product(ownListing),
+      productName: "Synthetic Cascade Card",
+      setName: "Synthetic Multicolor Set",
+      marketPrice: 3.24,
+      totalListings: 5,
+    };
+    const damagedListings = [
+      listing({
+        listingId: 20,
+        productId: 31833,
+        productConditionId: 318335,
+        conditionId: 5,
+        condition: "Damaged",
+        sellerKey: "damaged-seller-one",
+        price: 1.8,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 21,
+        productId: 31833,
+        productConditionId: 318335,
+        conditionId: 5,
+        condition: "Damaged",
+        sellerKey: "damaged-seller-two",
+        price: 1.84,
+        shippingPrice: 1.49,
+      }),
+      ownListing,
+    ];
+    const exactMarketplaceListings = [
+      ownListing,
+      listing({
+        listingId: 30,
+        productId: 31833,
+        productConditionId: 318333,
+        conditionId: 3,
+        condition: "Moderately Played",
+        sellerKey: "marketplace-seller-one",
+        price: 1.94,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 31,
+        productId: 31833,
+        productConditionId: 318334,
+        conditionId: 4,
+        condition: "Heavily Played",
+        sellerKey: "marketplace-seller-two",
+        price: 1.97,
+        shippingPrice: 1.49,
+      }),
+    ];
+    const directListing = listing({
+      listingId: 40,
+      productId: 31833,
+      productConditionId: 318334,
+      conditionId: 4,
+      condition: "Heavily Played",
+      channelId: 1,
+      directListing: true,
+      sellerKey: "direct-seller",
+      price: 1.67,
+      shippingPrice: 3.99,
+    });
+    const listSellerInventory = vi.fn(
+      (input: { readonly channelId?: number }) =>
+        Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
+    );
+    const searchMarketplaceProducts = vi.fn(
+      (input: {
+        readonly channelId?: number;
+        readonly conditions?: readonly string[];
+      }) => {
+        const exactConditions = input.conditions?.length === 4;
+        if (input.channelId === 1) {
+          return Promise.resolve({
+            totalProducts: 1,
+            products: [
+              { ...ownProduct, totalListings: 1, listings: [directListing] },
+            ],
+          });
+        }
+        return Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...ownProduct,
+              totalListings: 5,
+              listings: exactConditions
+                ? exactMarketplaceListings
+                : damagedListings,
+            },
+          ],
+        });
+      },
+    );
+    const service = new RepricingService({
+      client: { listSellerInventory, searchMarketplaceProducts },
+      sellerKey,
+      now: () => new Date("2026-08-06T17:00:00.000Z"),
+    });
+    const sellNowRules: RepricingRules = {
+      ...rules,
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+      sparseMarketFallback: "lowest-then-market",
+      ranges: [
+        {
+          minimumListings: 0,
+          priceSource: "lowest",
+          percentage: 100,
+          gapThresholdPercent: 0,
+          gapAction: "follow-lowest",
+          supportMode: "cluster",
+          minimumSellerSupport: 1,
+          supportWindowPercent: 5,
+        },
+      ],
+    };
+
+    const preview = await service.preview(sellNowRules);
+
+    expect(preview.rows[0]).toMatchObject({
+      currentPrice: 1.93,
+      competitorPrice: 1.94,
+      competitorShipping: 1.49,
+      competitorCondition: "Moderately Played",
+      proposedPrice: 1.93,
+      status: "unchanged",
+      pricingSource: "lowest",
+    });
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        productIds: [31833],
+        conditions: [
+          "Near Mint",
+          "Lightly Played",
+          "Moderately Played",
+          "Heavily Played",
+        ],
+        channelId: 0,
+      }),
+    );
+  });
+
   it("reuses one marketplace snapshot across profile calculations", async () => {
     const ownListing = listing();
     const competitor = listing({
