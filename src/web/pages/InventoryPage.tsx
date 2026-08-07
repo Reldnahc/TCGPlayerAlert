@@ -1,4 +1,4 @@
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import type { PricingPreview } from "../contracts.js";
 import { uiApi } from "../api.js";
 import {
@@ -19,6 +19,44 @@ import { errorMessage, money, normalizedTokens } from "../utils.js";
 const PROFILE_KEY = "tcgplayer-alert.repricing-profile";
 
 type PreviewRow = PricingPreview["rows"][number];
+
+function InventoryLoading({
+  refreshing,
+  profileName,
+}: {
+  readonly refreshing: boolean;
+  readonly profileName: string;
+}) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = window.setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000)),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+  const title = refreshing
+    ? "Refreshing inventory preview"
+    : "Building inventory preview";
+  return (
+    <div class="inventory-loading">
+      <Spinner label={title} />
+      <div
+        class="inventory-loading__progress"
+        role="progressbar"
+        aria-label={title}
+      >
+        <span />
+      </div>
+      <p>
+        Reading inventory and the marketplace comparisons required by{" "}
+        {profileName}.
+      </p>
+      <small>{String(elapsedSeconds)}s elapsed</small>
+    </div>
+  );
+}
 
 function searchText(row: PreviewRow): string {
   return [
@@ -80,6 +118,7 @@ export function InventoryPage() {
   const [preview, setPreview] = useState<PricingPreview | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [query, setQuery] = useState("");
+  const [proposedOnly, setProposedOnly] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState<{
     readonly tone: "success" | "danger" | "warning";
@@ -91,11 +130,13 @@ export function InventoryPage() {
   const visibleRows = useMemo(() => {
     const tokens = normalizedTokens(query);
     return (
-      preview?.rows.filter((row) =>
-        tokens.every((token) => searchText(row).includes(token)),
+      preview?.rows.filter(
+        (row) =>
+          (!proposedOnly || row.queueable) &&
+          tokens.every((token) => searchText(row).includes(token)),
       ) ?? []
     );
-  }, [preview, query]);
+  }, [preview, proposedOnly, query]);
   const visibleReady = visibleRows.filter(
     (row) => row.queueable && !removals.has(row.id),
   );
@@ -296,6 +337,26 @@ export function InventoryPage() {
                   onInput={(event) => setQuery(event.currentTarget.value)}
                 />
               </Field>
+              <div
+                class="segmented inventory-view-filter"
+                role="group"
+                aria-label="Inventory rows"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!proposedOnly}
+                  onClick={() => setProposedOnly(false)}
+                >
+                  All listings
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={proposedOnly}
+                  onClick={() => setProposedOnly(true)}
+                >
+                  Proposed changes ({String(preview.counts.ready)})
+                </button>
+              </div>
               <span class="muted">
                 {visibleRows.length} of {preview.rows.length} listings
               </span>
@@ -311,7 +372,13 @@ export function InventoryPage() {
             </Toolbar>
             <div class="data-region inventory-table-region">
               {visibleRows.length === 0 ? (
-                <EmptyState title="No inventory matches this search" />
+                <EmptyState
+                  title={
+                    proposedOnly && query === ""
+                      ? "No price changes are proposed"
+                      : "No inventory matches these filters"
+                  }
+                />
               ) : (
                 <table class="data-table inventory-table">
                   <thead>
@@ -447,12 +514,9 @@ export function InventoryPage() {
         )}
         {busy === "preview" || busy === "refresh" ? (
           <div class="page-overlay">
-            <Spinner
-              label={
-                busy === "refresh"
-                  ? "Refreshing marketplace listings"
-                  : "Loading inventory"
-              }
+            <InventoryLoading
+              refreshing={busy === "refresh"}
+              profileName={activeProfile?.name ?? "the selected profile"}
             />
           </div>
         ) : null}

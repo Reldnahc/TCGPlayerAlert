@@ -369,6 +369,108 @@ describe("operator console", () => {
     );
   });
 
+  it("reports inventory loading progress and filters to proposed changes", async () => {
+    let resolvePreview: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/repricing/preview" && options?.method === "POST") {
+          return new Promise<Response>((resolve) => {
+            resolvePreview = resolve;
+          });
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Inventory" }));
+
+    await user.click(screen.getByRole("button", { name: "Update preview" }));
+
+    expect(
+      screen.getByRole("progressbar", { name: "Building inventory preview" }),
+    ).toBeTruthy();
+    expect(screen.getByText("0s elapsed")).toBeTruthy();
+    if (resolvePreview === undefined) {
+      throw new Error("Expected the inventory preview request to start.");
+    }
+    resolvePreview(
+      json({
+        id: "00000000-0000-4000-8000-000000000002",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        expiresAt: "2026-08-07T12:15:00.000Z",
+        rules: settings.repricingProfiles[0],
+        rows: [
+          {
+            id: "change-row",
+            productId: 1,
+            productConditionId: 11,
+            productName: "Price Change Card",
+            productLineName: "Magic: The Gathering",
+            setName: "Synthetic Set",
+            condition: "Near Mint",
+            printing: "Normal",
+            language: "English",
+            quantity: 1,
+            currentPrice: 2,
+            currentShipping: 1.49,
+            proposedPrice: 1.75,
+            marketPrice: 2,
+            minimumApplied: false,
+            status: "ready",
+            reason: "Uses the marketplace reference.",
+            queueable: true,
+            removable: true,
+          },
+          {
+            id: "stable-row",
+            productId: 2,
+            productConditionId: 22,
+            productName: "Stable Card",
+            productLineName: "Magic: The Gathering",
+            setName: "Synthetic Set",
+            condition: "Near Mint",
+            printing: "Normal",
+            language: "English",
+            quantity: 2,
+            currentPrice: 3,
+            currentShipping: 1.49,
+            proposedPrice: 3,
+            marketPrice: 3,
+            minimumApplied: false,
+            status: "unchanged",
+            reason: "The current price already matches.",
+            queueable: false,
+            removable: true,
+          },
+        ],
+        counts: { ready: 1, unchanged: 1, skipped: 0 },
+        totals: {
+          listingCount: 2,
+          totalQuantity: 3,
+          currentListingValue: 8,
+        },
+        marketplaceSnapshot: {
+          capturedAt: "2026-08-07T12:00:00.000Z",
+          expiresAt: "2026-08-07T12:10:00.000Z",
+          source: "fresh",
+        },
+      }),
+    );
+
+    expect(await screen.findByText("Price Change Card")).toBeTruthy();
+    expect(screen.getByText("Stable Card")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Proposed changes (1)" }),
+    );
+    expect(screen.getByText("Price Change Card")).toBeTruthy();
+    expect(screen.queryByText("Stable Card")).toBeNull();
+    expect(screen.getByText("1 of 2 listings")).toBeTruthy();
+  });
+
   it("shows read-only payout history and loads transaction details", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
