@@ -911,6 +911,11 @@
   background: var(--accent);
   animation: inventory-progress 1.2s ease-in-out infinite;
 }
+.inventory-loading__progress.is-determinate span {
+  inset-inline-start: 0;
+  animation: none;
+  transition: width 160ms ease-out;
+}
 .inventory-loading p,
 .inventory-loading small {
   margin: 0;

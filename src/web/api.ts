@@ -13,6 +13,7 @@ import type {
   PriceJob,
   PriceQueueResponse,
   PricingPreview,
+  PricingProgress,
   PricingRules,
   QueuedJob,
   QueuedJobs,
@@ -73,6 +74,126 @@ export async function requestJson<T>(
     );
   }
   return body as T;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function pricingProgress(value: unknown): PricingProgress {
+  const source = objectValue(value);
+  const phase = source?.phase;
+  const completed = source?.completed;
+  const total = source?.total;
+  const unit = source?.unit;
+  const detail = source?.detail;
+  if (
+    (phase !== "inventory" &&
+      phase !== "comparisons" &&
+      phase !== "exact-comparisons" &&
+      phase !== "finalizing") ||
+    !Number.isInteger(completed) ||
+    Number(completed) < 0 ||
+    (total !== undefined &&
+      (!Number.isInteger(total) ||
+        Number(total) < Number(completed) ||
+        Number(total) < 0)) ||
+    (unit !== "products" && unit !== "batches" && unit !== "listings") ||
+    typeof detail !== "string" ||
+    detail.length === 0
+  ) {
+    throw new UiApiError("Inventory progress was malformed.");
+  }
+  return {
+    phase,
+    completed: Number(completed),
+    ...(total === undefined ? {} : { total: Number(total) }),
+    unit,
+    detail,
+  };
+}
+
+async function streamingRepricingPreview(
+  rules: PricingRules,
+  forceRefresh: boolean,
+  onProgress: (progress: PricingProgress) => void,
+): Promise<PricingPreview> {
+  const response = await fetch(
+    `/api/repricing/preview${forceRefresh ? "?forceRefresh=true" : ""}`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/x-ndjson, application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(rules),
+    },
+  );
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/x-ndjson")) {
+    const body = await responseBody(response);
+    if (!response.ok) {
+      const code =
+        typeof body === "object" && body !== null && "code" in body
+          ? String(body.code)
+          : undefined;
+      throw new UiApiError(
+        apiMessage(body, `Request failed (${String(response.status)}).`),
+        code,
+      );
+    }
+    return body as PricingPreview;
+  }
+  if (!response.ok || response.body === null) {
+    throw new UiApiError(
+      `Inventory preview stream failed (${String(response.status)}).`,
+    );
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let preview: PricingPreview | undefined;
+  const handleLine = (line: string) => {
+    if (line.trim() === "") return;
+    let value: unknown;
+    try {
+      value = JSON.parse(line) as unknown;
+    } catch {
+      throw new UiApiError("Inventory progress was malformed.");
+    }
+    const event = objectValue(value);
+    if (event?.type === "progress") {
+      onProgress(pricingProgress(event.progress));
+      return;
+    }
+    if (event?.type === "complete") {
+      preview = event.preview as PricingPreview;
+      return;
+    }
+    if (event?.type === "error") {
+      throw new UiApiError(
+        apiMessage(event, "The inventory preview could not be created."),
+        typeof event.code === "string" ? event.code : undefined,
+      );
+    }
+    throw new UiApiError("Inventory progress was malformed.");
+  };
+  let streamDone = false;
+  while (!streamDone) {
+    const chunk = await reader.read();
+    streamDone = chunk.done;
+    buffered += decoder.decode(chunk.value, { stream: !chunk.done });
+    const lines = buffered.split("\n");
+    buffered = lines.pop() ?? "";
+    for (const line of lines) handleLine(line);
+  }
+  handleLine(buffered);
+  if (preview === undefined) {
+    throw new UiApiError("Inventory preview stream ended before completion.");
+  }
+  return preview;
 }
 
 export const uiApi = {
@@ -203,14 +324,9 @@ export const uiApi = {
   repricingPreview: (
     rules: PricingRules,
     forceRefresh: boolean,
+    onProgress: (progress: PricingProgress) => void,
   ): Promise<PricingPreview> =>
-    requestJson(
-      `/api/repricing/preview${forceRefresh ? "?forceRefresh=true" : ""}`,
-      {
-        method: "POST",
-        body: JSON.stringify(rules),
-      },
-    ),
+    streamingRepricingPreview(rules, forceRefresh, onProgress),
   queuePrices: (
     previewId: string,
     rowIds: readonly string[],

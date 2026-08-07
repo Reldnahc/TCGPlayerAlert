@@ -22,7 +22,11 @@ import type {
   PriceUpdateJob,
   PriceUpdateQueueSnapshot,
 } from "../price-update-queue.js";
-import type { RepricingPreview, RepricingRules } from "../repricing.js";
+import type {
+  RepricingPreview,
+  RepricingProgress,
+  RepricingRules,
+} from "../repricing.js";
 
 export type Settings = ConfigurationUiSettings;
 export type SettingsUpdate = ConfigurationUiUpdate;
@@ -43,6 +47,7 @@ export type AdditionPreview = InventoryAdditionPreview;
 export type InventoryJob = InventoryAdditionJob;
 export type PriceJob = PriceUpdateJob;
 export type PricingPreview = RepricingPreview;
+export type PricingProgress = RepricingProgress;
 export type PricingRules = RepricingRules;
 
 export interface InventoryQueueResponse extends InventoryAdditionQueueSnapshot {

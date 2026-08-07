@@ -3,6 +3,7 @@ import type {
   MarketplaceListing,
   MarketplaceProduct,
   SearchMarketplaceProductListingsResult,
+  SellerInventoryProgress,
   SellerInventoryRemoval,
   SellerPriceUpdate,
   TcgplayerSellerClient,
@@ -134,6 +135,17 @@ export interface RepricingPreview {
   };
 }
 
+export type RepricingProgressPhase =
+  "inventory" | "comparisons" | "exact-comparisons" | "finalizing";
+
+export interface RepricingProgress {
+  readonly phase: RepricingProgressPhase;
+  readonly completed: number;
+  readonly total?: number;
+  readonly unit: "products" | "batches" | "listings";
+  readonly detail: string;
+}
+
 interface SellerListingContext {
   readonly product: MarketplaceProduct;
   readonly listing: MarketplaceListing;
@@ -181,6 +193,8 @@ export interface RepricingServiceOptions {
 
 export interface RepricingPreviewOptions {
   readonly forceRefresh?: boolean;
+  readonly signal?: AbortSignal;
+  readonly onProgress?: (progress: RepricingProgress) => void;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
@@ -1152,6 +1166,8 @@ export class RepricingService {
     this.removeExpiredPreviews();
     const { snapshot, source } = await this.marketplaceSnapshot(
       options.forceRefresh === true,
+      options.onProgress,
+      options.signal,
     );
     const { inventory, secondaryInventory } = snapshot;
     const sellerListings: SellerListingContext[] = inventory.flatMap(
@@ -1178,13 +1194,25 @@ export class RepricingService {
       snapshot,
       comparableSellerListings,
       rules,
+      options.onProgress,
+      options.signal,
     );
     await this.recoverSuspiciousShippingComparisons(
       snapshot,
       comparableSellerListings,
       rules,
       sellerConditionCounts,
+      options.onProgress,
+      options.signal,
     );
+
+    options.onProgress?.({
+      phase: "finalizing",
+      completed: 0,
+      total: sellerListings.length,
+      unit: "listings",
+      detail: "Calculating proposed changes",
+    });
 
     const updates = new Map<string, SellerPriceUpdate>();
     const removals = new Map<string, SellerInventoryRemoval>();
@@ -1323,6 +1351,13 @@ export class RepricingService {
       updates,
       removals,
     });
+    options.onProgress?.({
+      phase: "finalizing",
+      completed: sellerListings.length,
+      total: sellerListings.length,
+      unit: "listings",
+      detail: "Calculating proposed changes",
+    });
     return {
       id: previewId,
       createdAt: createdAt.toISOString(),
@@ -1352,7 +1387,11 @@ export class RepricingService {
     };
   }
 
-  private async marketplaceSnapshot(forceRefresh: boolean): Promise<{
+  private async marketplaceSnapshot(
+    forceRefresh: boolean,
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<{
     readonly snapshot: MarketplaceSnapshot;
     readonly source: "fresh" | "cache" | "shared";
   }> {
@@ -1362,12 +1401,32 @@ export class RepricingService {
       this.marketplaceCache !== undefined &&
       this.marketplaceCache.expiresAt.getTime() > now
     ) {
+      const total =
+        this.marketplaceCache.inventory.length +
+        this.marketplaceCache.secondaryInventory.length;
+      onProgress?.({
+        phase: "inventory",
+        completed: total,
+        total,
+        unit: "products",
+        detail: "Using cached seller inventory",
+      });
       return { snapshot: this.marketplaceCache, source: "cache" };
     }
     if (this.marketplaceLoad !== undefined) {
-      return { snapshot: await this.marketplaceLoad, source: "shared" };
+      const snapshot = await this.marketplaceLoad;
+      const total =
+        snapshot.inventory.length + snapshot.secondaryInventory.length;
+      onProgress?.({
+        phase: "inventory",
+        completed: total,
+        total,
+        unit: "products",
+        detail: "Using the shared seller inventory load",
+      });
+      return { snapshot, source: "shared" };
     }
-    const load = this.loadMarketplaceSnapshot();
+    const load = this.loadMarketplaceSnapshot(onProgress, signal);
     this.marketplaceLoad = load;
     try {
       const snapshot = await load;
@@ -1378,16 +1437,51 @@ export class RepricingService {
     }
   }
 
-  private async loadMarketplaceSnapshot(): Promise<MarketplaceSnapshot> {
+  private async loadMarketplaceSnapshot(
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<MarketplaceSnapshot> {
+    const channelProgress = new Map<number, SellerInventoryProgress>();
+    const reportInventory = (progress: SellerInventoryProgress) => {
+      channelProgress.set(progress.channelId, progress);
+      const channels = [...channelProgress.values()];
+      const completed = channels.reduce(
+        (total, channel) => total + channel.productsLoaded,
+        0,
+      );
+      const total =
+        channelProgress.size < 2
+          ? undefined
+          : channels.reduce((sum, channel) => sum + channel.totalProducts, 0);
+      onProgress?.({
+        phase: "inventory",
+        completed,
+        ...(total === undefined ? {} : { total }),
+        unit: "products",
+        detail: "Loading seller inventory",
+      });
+    };
     const [inventory, secondaryInventory] = await Promise.all([
-      this.client.listSellerInventory({
-        sellerKey: this.sellerKey,
-        channelId: 0,
-      }),
-      this.client.listSellerInventory({
-        sellerKey: this.sellerKey,
-        channelId: 1,
-      }),
+      this.client.listSellerInventory(
+        {
+          sellerKey: this.sellerKey,
+          channelId: 0,
+        },
+        {
+          onProgress: reportInventory,
+          ...(signal === undefined ? {} : { signal }),
+        },
+      ),
+      this.client.listSellerInventory(
+        {
+          sellerKey: this.sellerKey,
+          channelId: 1,
+        },
+        {
+          onProgress: reportInventory,
+          ...(signal === undefined ? {} : { signal }),
+        },
+      ),
     ]);
     const capturedAt = this.now();
     return {
@@ -1406,12 +1500,20 @@ export class RepricingService {
     snapshot: MarketplaceSnapshot,
     contexts: readonly SellerListingContext[],
     rules: RepricingRules,
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (contexts.length === 0) return;
     const existingLoad = this.marketplaceRecoveryLoads.get(snapshot);
     if (existingLoad !== undefined) {
       await existingLoad;
-      return this.recoverSparseComparisons(snapshot, contexts, rules);
+      return this.recoverSparseComparisons(
+        snapshot,
+        contexts,
+        rules,
+        onProgress,
+        signal,
+      );
     }
     const groups = new Map<
       string,
@@ -1434,7 +1536,12 @@ export class RepricingService {
       groups.set(groupKey, group);
     }
     if (groups.size === 0) return;
-    const load = this.loadComparisonRecoveries(snapshot, groups);
+    const load = this.loadComparisonRecoveries(
+      snapshot,
+      groups,
+      onProgress,
+      signal,
+    );
     this.marketplaceRecoveryLoads.set(snapshot, load);
     try {
       await load;
@@ -1450,6 +1557,8 @@ export class RepricingService {
     contexts: readonly SellerListingContext[],
     rules: RepricingRules,
     sellerConditionCounts: ReadonlyMap<string, number>,
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (contexts.length === 0) return;
     const existingLoad = this.exactComparisonLoads.get(snapshot);
@@ -1460,6 +1569,8 @@ export class RepricingService {
         contexts,
         rules,
         sellerConditionCounts,
+        onProgress,
+        signal,
       );
     }
     const suspicious = new Map<
@@ -1504,10 +1615,18 @@ export class RepricingService {
       }
       return;
     }
+    let completed = 0;
+    onProgress?.({
+      phase: "exact-comparisons",
+      completed,
+      total: suspicious.size,
+      unit: "products",
+      detail: "Verifying exact marketplace listings",
+    });
     const load = Promise.all(
       [...suspicious].map(async ([recoveryKey, { context, conditions }]) => {
         try {
-          const result = await searchExact.call(this.client, {
+          const request = {
             productId: context.product.productId,
             conditions,
             printings: [context.listing.printing],
@@ -1517,14 +1636,28 @@ export class RepricingService {
             offset: 0,
             limit: 50,
             sort: "price+shipping",
-          });
+          } as const;
+          const result =
+            signal === undefined
+              ? await searchExact.call(this.client, request)
+              : await searchExact.call(this.client, request, { signal });
           snapshot.comparisonRecoveries.set(
             recoveryKey,
             exactComparisonSample(result),
           );
           snapshot.exactComparisonFailures.delete(recoveryKey);
-        } catch {
+        } catch (error) {
+          if (signal?.aborted === true) throw error;
           snapshot.exactComparisonFailures.add(recoveryKey);
+        } finally {
+          completed += 1;
+          onProgress?.({
+            phase: "exact-comparisons",
+            completed,
+            total: suspicious.size,
+            unit: "products",
+            detail: "Verifying exact marketplace listings",
+          });
         }
       }),
     ).then(() => undefined);
@@ -1547,7 +1680,23 @@ export class RepricingService {
         readonly contexts: readonly SellerListingContext[];
       }
     >,
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
+    const total = [...groups.values()].reduce((count, group) => {
+      const productCount = new Set(
+        group.contexts.map((context) => context.product.productId),
+      ).size;
+      return count + Math.ceil(productCount / 24) * 2;
+    }, 0);
+    let completed = 0;
+    onProgress?.({
+      phase: "comparisons",
+      completed,
+      total,
+      unit: "batches",
+      detail: "Loading marketplace comparison batches",
+    });
     for (const [groupKey, group] of groups) {
       const [printing, language] = JSON.parse(groupKey) as [string, string];
       const productIds = [
@@ -1561,13 +1710,27 @@ export class RepricingService {
           ]),
         );
         for (const channelId of [0, 1]) {
-          const result = await this.client.searchMarketplaceProducts({
+          const request = {
             productIds: productIdChunk,
             conditions: group.conditions,
             printings: [printing],
             languages: [language],
             channelId,
             limit: 24,
+          };
+          const result =
+            signal === undefined
+              ? await this.client.searchMarketplaceProducts(request)
+              : await this.client.searchMarketplaceProducts(request, {
+                  signal,
+                });
+          completed += 1;
+          onProgress?.({
+            phase: "comparisons",
+            completed,
+            total,
+            unit: "batches",
+            detail: "Loading marketplace comparison batches",
           });
           for (const product of result.products) {
             samples.set(

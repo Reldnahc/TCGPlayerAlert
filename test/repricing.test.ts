@@ -7,6 +7,7 @@ import {
   calculateRepricingRow,
   parseRepricingRules,
   RepricingService,
+  type RepricingProgress,
   type RepricingRules,
 } from "../src/repricing.js";
 
@@ -1000,8 +1001,26 @@ describe("smart repricing", () => {
       price: 2,
     });
     const listSellerInventory = vi.fn(
-      (input: { readonly channelId?: number }) =>
-        Promise.resolve(input.channelId === 0 ? [product(ownListing)] : []),
+      (
+        input: { readonly channelId?: number },
+        options?: {
+          readonly onProgress?: (progress: {
+            readonly channelId: number;
+            readonly pagesLoaded: number;
+            readonly productsLoaded: number;
+            readonly totalProducts: number;
+          }) => void;
+        },
+      ) => {
+        const products = input.channelId === 0 ? [product(ownListing)] : [];
+        options?.onProgress?.({
+          channelId: input.channelId ?? 0,
+          pagesLoaded: 1,
+          productsLoaded: products.length,
+          totalProducts: products.length,
+        });
+        return Promise.resolve(products);
+      },
     );
     const searchMarketplaceProducts = vi.fn().mockResolvedValue({
       totalProducts: 1,
@@ -1020,7 +1039,10 @@ describe("smart repricing", () => {
       id: () => `id-${String(++nextId)}`,
     });
 
-    const preview = await service.preview(rules);
+    const progress: RepricingProgress[] = [];
+    const preview = await service.preview(rules, {
+      onProgress: (update) => progress.push(update),
+    });
     const row = preview.rows[0];
     if (row === undefined) throw new Error("Missing preview row");
     const removal = service.takeRemoval(preview.id, row.id);
@@ -1050,6 +1072,38 @@ describe("smart repricing", () => {
     });
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProductListings).not.toHaveBeenCalled();
+    expect(progress).toEqual(
+      expect.arrayContaining([
+        {
+          phase: "inventory",
+          completed: 1,
+          total: 1,
+          unit: "products",
+          detail: "Loading seller inventory",
+        },
+        {
+          phase: "comparisons",
+          completed: 0,
+          total: 2,
+          unit: "batches",
+          detail: "Loading marketplace comparison batches",
+        },
+        {
+          phase: "comparisons",
+          completed: 2,
+          total: 2,
+          unit: "batches",
+          detail: "Loading marketplace comparison batches",
+        },
+        {
+          phase: "finalizing",
+          completed: 1,
+          total: 1,
+          unit: "listings",
+          detail: "Calculating proposed changes",
+        },
+      ]),
+    );
     expect(updates).toEqual([
       expect.objectContaining({
         productConditionId: 1003,

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
-import type { PricingPreview } from "../contracts.js";
+import { useMemo, useState } from "preact/hooks";
+import type { PricingPreview, PricingProgress } from "../contracts.js";
 import { uiApi } from "../api.js";
 import {
   Button,
@@ -23,37 +23,46 @@ type PreviewRow = PricingPreview["rows"][number];
 function InventoryLoading({
   refreshing,
   profileName,
+  progress,
 }: {
   readonly refreshing: boolean;
   readonly profileName: string;
+  readonly progress: PricingProgress | null;
 }) {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  useEffect(() => {
-    const startedAt = Date.now();
-    const timer = window.setInterval(
-      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000)),
-      1_000,
-    );
-    return () => window.clearInterval(timer);
-  }, []);
   const title = refreshing
     ? "Refreshing inventory preview"
     : "Building inventory preview";
+  const determinate = progress?.total !== undefined;
+  const percent =
+    progress?.total === undefined
+      ? 0
+      : progress.total === 0
+        ? 100
+        : Math.min(100, (progress.completed / progress.total) * 100);
   return (
     <div class="inventory-loading">
       <Spinner label={title} />
       <div
-        class="inventory-loading__progress"
+        class={`inventory-loading__progress${determinate ? " is-determinate" : ""}`}
         role="progressbar"
         aria-label={title}
+        aria-valuemin={determinate ? 0 : undefined}
+        aria-valuemax={progress?.total}
+        aria-valuenow={determinate ? progress.completed : undefined}
       >
-        <span />
+        <span style={determinate ? { width: `${String(percent)}%` } : {}} />
       </div>
       <p>
-        Reading inventory and the marketplace comparisons required by{" "}
-        {profileName}.
+        {progress?.detail ??
+          `Starting the inventory reads required by ${profileName}.`}
       </p>
-      <small>{String(elapsedSeconds)}s elapsed</small>
+      <small>
+        {progress === null
+          ? `Profile: ${profileName}`
+          : progress.total === undefined
+            ? `${String(progress.completed)} ${progress.unit} loaded`
+            : `${String(progress.completed)} / ${String(progress.total)} ${progress.unit}`}
+      </small>
     </div>
   );
 }
@@ -119,6 +128,7 @@ export function InventoryPage() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [query, setQuery] = useState("");
   const [proposedOnly, setProposedOnly] = useState(false);
+  const [progress, setProgress] = useState<PricingProgress | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState<{
     readonly tone: "success" | "danger" | "warning";
@@ -153,6 +163,7 @@ export function InventoryPage() {
   async function loadPreview(force: boolean) {
     if (activeProfile === undefined || busy !== "") return;
     setBusy(force ? "refresh" : "preview");
+    setProgress(null);
     setMessage(null);
     try {
       const result = await uiApi.repricingPreview(
@@ -167,6 +178,7 @@ export function InventoryPage() {
           ranges: activeProfile.ranges,
         },
         force,
+        setProgress,
       );
       setPreview(result);
       setSelected(
@@ -517,6 +529,7 @@ export function InventoryPage() {
             <InventoryLoading
               refreshing={busy === "refresh"}
               profileName={activeProfile?.name ?? "the selected profile"}
+              progress={progress}
             />
           </div>
         ) : null}

@@ -37,7 +37,7 @@ import {
   discoverInstalledPrinters,
   type PrinterDiscoveryResult,
 } from "./printer-discovery.js";
-import type { RepricingService } from "./repricing.js";
+import type { RepricingProgress, RepricingService } from "./repricing.js";
 import type {
   ManualPrintActionType,
   OrderManagementService,
@@ -1278,13 +1278,26 @@ async function handleRequest(
         });
         return;
       }
-      sendJson(
-        response,
-        200,
-        await repricingService.preview(await readJsonBody(request), {
-          forceRefresh: url.searchParams.get("forceRefresh") === "true",
-        }),
-      );
+      const rules = await readJsonBody(request);
+      const forceRefresh = url.searchParams.get("forceRefresh") === "true";
+      if (
+        request.headers.accept
+          ?.toLowerCase()
+          .includes("application/x-ndjson") === true
+      ) {
+        await streamRepricingPreview(
+          request,
+          response,
+          repricingService,
+          rules,
+          forceRefresh,
+        );
+      } else {
+        const result = await withRequestAbort(request, response, (signal) =>
+          repricingService.preview(rules, { forceRefresh, signal }),
+        );
+        if (!response.destroyed) sendJson(response, 200, result);
+      }
     } else if (
       request.method === "POST" &&
       /^\/api\/repricing\/previews\/[0-9a-f-]{36}\/queue$/iu.test(url.pathname)
@@ -1544,6 +1557,52 @@ async function handleRequest(
       });
     }
   }
+}
+
+async function streamRepricingPreview(
+  request: IncomingMessage,
+  response: ServerResponse,
+  repricingService: RepricingService,
+  rules: unknown,
+  forceRefresh: boolean,
+): Promise<void> {
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  response.setHeader("Cache-Control", "no-store");
+  response.flushHeaders();
+  const write = (value: unknown) => {
+    if (!response.destroyed) response.write(`${JSON.stringify(value)}\n`);
+  };
+  try {
+    const preview = await withRequestAbort(request, response, (signal) =>
+      repricingService.preview(rules, {
+        forceRefresh,
+        signal,
+        onProgress: (progress: RepricingProgress) =>
+          write({ type: "progress", progress }),
+      }),
+    );
+    write({ type: "complete", preview });
+  } catch (error) {
+    if (request.destroyed || response.destroyed) return;
+    write({ type: "error", ...streamError(error) });
+  } finally {
+    if (!response.destroyed) response.end();
+  }
+}
+
+function streamError(error: unknown): {
+  readonly message: string;
+  readonly issues?: readonly string[];
+  readonly code?: string;
+} {
+  if (error instanceof ConfigurationError) {
+    return { message: "Settings are invalid.", issues: error.issues };
+  }
+  if (error instanceof Error && "code" in error) {
+    return { message: error.message, code: String(error.code) };
+  }
+  return { message: "The inventory preview could not be created." };
 }
 
 async function withRequestAbort<T>(

@@ -10,6 +10,7 @@ import {
   type ConfigurationUiServer,
   type FeedbackManagementService,
   type PaymentManagementService,
+  type RepricingService,
 } from "../src/index.js";
 
 const discovery = () =>
@@ -191,6 +192,65 @@ describe("configuration UI", () => {
     expect(forbidden.status).toBe(403);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ pollIntervalMinutes: 17 });
+  });
+
+  it("streams concrete repricing progress before the completed preview", async () => {
+    const current = await fixture();
+    const preview = vi.fn(
+      (
+        _rules: unknown,
+        options: {
+          readonly onProgress?: (progress: unknown) => void;
+        },
+      ) => {
+        options.onProgress?.({
+          phase: "inventory",
+          completed: 200,
+          total: 400,
+          unit: "products",
+          detail: "Loading seller inventory",
+        });
+        return Promise.resolve({ id: "synthetic-preview" });
+      },
+    );
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      repricingService: { preview } as unknown as RepricingService,
+    });
+
+    const response = await fetch(`${server.url}/api/repricing/preview`, {
+      method: "POST",
+      headers: {
+        Accept: "application/x-ndjson",
+        "Content-Type": "application/json",
+        Origin: server.url,
+      },
+      body: "{}",
+    });
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as unknown);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain(
+      "application/x-ndjson",
+    );
+    expect(events).toEqual([
+      {
+        type: "progress",
+        progress: {
+          phase: "inventory",
+          completed: 200,
+          total: 400,
+          unit: "products",
+          detail: "Loading seller inventory",
+        },
+      },
+      { type: "complete", preview: { id: "synthetic-preview" } },
+    ]);
   });
 
   it("serves paginated read-only payments and payout details", async () => {

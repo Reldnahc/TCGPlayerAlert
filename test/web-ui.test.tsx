@@ -370,14 +370,33 @@ describe("operator console", () => {
   });
 
   it("reports inventory loading progress and filters to proposed changes", async () => {
-    let resolvePreview: ((response: Response) => void) | undefined;
+    let emitPreviewEvent:
+      | ((value: unknown, options?: { readonly close?: boolean }) => void)
+      | undefined;
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
         if (path === "/api/repricing/preview" && options?.method === "POST") {
-          return new Promise<Response>((resolve) => {
-            resolvePreview = resolve;
-          });
+          const encoder = new TextEncoder();
+          return Promise.resolve(
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  emitPreviewEvent = (value, eventOptions) => {
+                    controller.enqueue(
+                      encoder.encode(`${JSON.stringify(value)}\n`),
+                    );
+                    if (eventOptions?.close === true) controller.close();
+                  };
+                },
+              }),
+              {
+                headers: {
+                  "Content-Type": "application/x-ndjson; charset=utf-8",
+                },
+              },
+            ),
+          );
         }
         return baseFetch(input, options);
       },
@@ -393,72 +412,91 @@ describe("operator console", () => {
     expect(
       screen.getByRole("progressbar", { name: "Building inventory preview" }),
     ).toBeTruthy();
-    expect(screen.getByText("0s elapsed")).toBeTruthy();
-    if (resolvePreview === undefined) {
+    if (emitPreviewEvent === undefined) {
       throw new Error("Expected the inventory preview request to start.");
     }
-    resolvePreview(
-      json({
-        id: "00000000-0000-4000-8000-000000000002",
-        createdAt: "2026-08-07T12:00:00.000Z",
-        expiresAt: "2026-08-07T12:15:00.000Z",
-        rules: settings.repricingProfiles[0],
-        rows: [
-          {
-            id: "change-row",
-            productId: 1,
-            productConditionId: 11,
-            productName: "Price Change Card",
-            productLineName: "Magic: The Gathering",
-            setName: "Synthetic Set",
-            condition: "Near Mint",
-            printing: "Normal",
-            language: "English",
-            quantity: 1,
-            currentPrice: 2,
-            currentShipping: 1.49,
-            proposedPrice: 1.75,
-            marketPrice: 2,
-            minimumApplied: false,
-            status: "ready",
-            reason: "Uses the marketplace reference.",
-            queueable: true,
-            removable: true,
+    emitPreviewEvent({
+      type: "progress",
+      progress: {
+        phase: "inventory",
+        completed: 200,
+        total: 400,
+        unit: "products",
+        detail: "Loading seller inventory",
+      },
+    });
+    expect(await screen.findByText("200 / 400 products")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Building inventory preview" })
+        .getAttribute("aria-valuenow"),
+    ).toBe("200");
+    emitPreviewEvent(
+      {
+        type: "complete",
+        preview: {
+          id: "00000000-0000-4000-8000-000000000002",
+          createdAt: "2026-08-07T12:00:00.000Z",
+          expiresAt: "2026-08-07T12:15:00.000Z",
+          rules: settings.repricingProfiles[0],
+          rows: [
+            {
+              id: "change-row",
+              productId: 1,
+              productConditionId: 11,
+              productName: "Price Change Card",
+              productLineName: "Magic: The Gathering",
+              setName: "Synthetic Set",
+              condition: "Near Mint",
+              printing: "Normal",
+              language: "English",
+              quantity: 1,
+              currentPrice: 2,
+              currentShipping: 1.49,
+              proposedPrice: 1.75,
+              marketPrice: 2,
+              minimumApplied: false,
+              status: "ready",
+              reason: "Uses the marketplace reference.",
+              queueable: true,
+              removable: true,
+            },
+            {
+              id: "stable-row",
+              productId: 2,
+              productConditionId: 22,
+              productName: "Stable Card",
+              productLineName: "Magic: The Gathering",
+              setName: "Synthetic Set",
+              condition: "Near Mint",
+              printing: "Normal",
+              language: "English",
+              quantity: 2,
+              currentPrice: 3,
+              currentShipping: 1.49,
+              proposedPrice: 3,
+              marketPrice: 3,
+              minimumApplied: false,
+              status: "unchanged",
+              reason: "The current price already matches.",
+              queueable: false,
+              removable: true,
+            },
+          ],
+          counts: { ready: 1, unchanged: 1, skipped: 0 },
+          totals: {
+            listingCount: 2,
+            totalQuantity: 3,
+            currentListingValue: 8,
           },
-          {
-            id: "stable-row",
-            productId: 2,
-            productConditionId: 22,
-            productName: "Stable Card",
-            productLineName: "Magic: The Gathering",
-            setName: "Synthetic Set",
-            condition: "Near Mint",
-            printing: "Normal",
-            language: "English",
-            quantity: 2,
-            currentPrice: 3,
-            currentShipping: 1.49,
-            proposedPrice: 3,
-            marketPrice: 3,
-            minimumApplied: false,
-            status: "unchanged",
-            reason: "The current price already matches.",
-            queueable: false,
-            removable: true,
+          marketplaceSnapshot: {
+            capturedAt: "2026-08-07T12:00:00.000Z",
+            expiresAt: "2026-08-07T12:10:00.000Z",
+            source: "fresh",
           },
-        ],
-        counts: { ready: 1, unchanged: 1, skipped: 0 },
-        totals: {
-          listingCount: 2,
-          totalQuantity: 3,
-          currentListingValue: 8,
         },
-        marketplaceSnapshot: {
-          capturedAt: "2026-08-07T12:00:00.000Z",
-          expiresAt: "2026-08-07T12:10:00.000Z",
-          source: "fresh",
-        },
-      }),
+      },
+      { close: true },
     );
 
     expect(await screen.findByText("Price Change Card")).toBeTruthy();
