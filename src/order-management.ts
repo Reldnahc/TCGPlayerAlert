@@ -1,6 +1,8 @@
-import type {
-  SellerOrderSearchSummary,
-  TcgplayerSellerClient,
+import {
+  SellerOrderStatus,
+  type SellerOrderStatus as SellerOrderStatusCode,
+  type SellerOrderSearchSummary,
+  type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
 
@@ -13,7 +15,8 @@ export interface ManagedOrderSummary {
   readonly buyerName: string;
   readonly orderDate: string;
   readonly status: string;
-  readonly readyToShip: boolean;
+  readonly statusCode: SellerOrderStatusCode;
+  readonly canMarkShipped: boolean;
   readonly shippingType: string;
   readonly productAmount: number;
   readonly shippingAmount: number;
@@ -134,7 +137,7 @@ export class OrderManagementService {
           sellerKey: this.sellerKey,
           searchRange: "LastThreeMonths",
           ...(scope === "ready-to-ship"
-            ? { statuses: ["ReadyToShip" as const] }
+            ? { statuses: [SellerOrderStatus.ReadyToShip] }
             : {}),
           sort: [{ field: "orderDate", direction: "descending" }],
           offset,
@@ -336,19 +339,13 @@ function toManagedOrder(order: SellerOrderSearchSummary): ManagedOrderSummary {
     buyerName: order.buyerName,
     orderDate: order.orderDate,
     status: order.orderStatus,
-    readyToShip: isReadyToShipStatus(order.orderStatus),
+    statusCode: order.orderStatusCode,
+    canMarkShipped: order.orderStatusCode === SellerOrderStatus.ReadyToShip,
     shippingType: order.shippingType,
     productAmount: order.productAmount,
     shippingAmount: order.shippingAmount,
     totalAmount: order.totalAmount,
   };
-}
-
-function isReadyToShipStatus(status: string): boolean {
-  // Order search accepts the compact filter token but currently returns the
-  // spaced display label. Preserve the returned status and derive capability
-  // only from these two observed provider values.
-  return status === "ReadyToShip" || status === "Ready to Ship";
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

@@ -6,6 +6,7 @@ const firstOrder = {
   orderDate: "2026-08-01T12:00:00.000Z",
   orderChannel: "Marketplace",
   orderStatus: "Ready to Ship",
+  orderStatusCode: "ReadyToShip" as const,
   buyerName: "Synthetic Buyer",
   shippingType: "Standard",
   productAmount: 12,
@@ -19,6 +20,7 @@ const secondOrder = {
   ...firstOrder,
   orderNumber: "synthetic-order-2",
   orderStatus: "Shipped - In Transit",
+  orderStatusCode: "Shipped" as const,
   buyerName: "Example Customer",
 };
 
@@ -31,6 +33,7 @@ function client() {
         order: {
           createdAt: firstOrder.orderDate,
           status: firstOrder.orderStatus,
+          statusCode: firstOrder.orderStatusCode,
           orderChannel: firstOrder.orderChannel,
           orderFulfillment: firstOrder.orderFulfillment,
           orderNumber: firstOrder.orderNumber,
@@ -130,7 +133,8 @@ describe("order management", () => {
           buyerName: firstOrder.buyerName,
           orderDate: firstOrder.orderDate,
           status: firstOrder.orderStatus,
-          readyToShip: true,
+          statusCode: "ReadyToShip",
+          canMarkShipped: true,
           shippingType: firstOrder.shippingType,
           productAmount: 12,
           shippingAmount: 1.49,
@@ -139,7 +143,8 @@ describe("order management", () => {
         expect.objectContaining({
           orderNumber: secondOrder.orderNumber,
           status: "Shipped - In Transit",
-          readyToShip: false,
+          statusCode: "Shipped",
+          canMarkShipped: false,
         }),
       ],
     });
@@ -272,7 +277,8 @@ describe("order management", () => {
         expect.objectContaining({
           orderNumber: firstOrder.orderNumber,
           status: "Ready to Ship",
-          readyToShip: true,
+          statusCode: "ReadyToShip",
+          canMarkShipped: true,
         }),
       ],
     });

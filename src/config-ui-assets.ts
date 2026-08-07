@@ -1303,14 +1303,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
     return Number.isNaN(date.getTime()) ? "" : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
   }
 
-  function isReadyToShip(order) {
-    return order.readyToShip === true;
+  function canMarkOrderShipped(order) {
+    return order.canMarkShipped === true;
   }
 
   function readyToShipListFrom(list) {
     return {
       ...list,
-      orders: list.orders.filter(isReadyToShip),
+      orders: list.orders.filter(canMarkOrderShipped),
     };
   }
 
@@ -1387,7 +1387,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function markShippedButton(order, scope) {
-    const canMarkShipped = isReadyToShip(order);
+    const canMarkShipped = canMarkOrderShipped(order);
     const button = orderButton("Mark shipped", async (button) => {
       if (!window.confirm("Mark order " + order.orderNumber + " as shipped?")) return;
       await runOrderMutation(

@@ -1,5 +1,6 @@
 import {
   createTcgplayerSellerClient,
+  SellerOrderStatus,
   type TcgplayerSellerClientOptions,
 } from "tcgplayer-private-api";
 import type {
@@ -43,7 +44,7 @@ export class TcgplayerOrderProvider implements OrderProvider {
       const response = await this.client.searchOrders(
         {
           sellerKey: this.options.sellerKey,
-          statuses: ["ReadyToShip"],
+          statuses: [SellerOrderStatus.ReadyToShip],
           offset,
           limit: this.options.pageSize,
           sort: [{ field: "orderDate", direction: "ascending" }],
@@ -51,6 +52,12 @@ export class TcgplayerOrderProvider implements OrderProvider {
         signal === undefined ? undefined : { signal },
       );
       for (const order of response.orders) {
+        if (order.orderStatusCode !== SellerOrderStatus.ReadyToShip) {
+          throw new ApplicationError(
+            "PROVIDER_ERROR",
+            "TCGplayer returned a non-ready order in the ready-to-ship queue.",
+          );
+        }
         discovered.set(order.orderNumber, {
           id: order.orderNumber,
           status: order.orderStatus,

@@ -10,6 +10,7 @@ function summary(orderNumber: string) {
     orderDate: "2026-01-02T03:04:05.000Z",
     orderChannel: "Marketplace",
     orderStatus: "ReadyToShip",
+    orderStatusCode: "ReadyToShip" as const,
     buyerName: "Example Buyer",
     shippingType: "Standard",
     productAmount: 12.5,
@@ -24,6 +25,7 @@ function detail(orderNumber: string) {
   return {
     createdAt: "2026-01-02T03:04:05.000Z",
     status: "ReadyToShip",
+    statusCode: "ReadyToShip" as const,
     orderChannel: "Marketplace",
     orderFulfillment: "Seller",
     orderNumber,
@@ -106,6 +108,35 @@ describe("TCGplayer application adapter", () => {
       { from: 0, size: 1 },
       { from: 1, size: 1 },
     ]);
+  });
+
+  it("rejects a non-ready status returned in the ready-to-ship queue", async () => {
+    const provider = new TcgplayerOrderProvider({
+      authCookie: "synthetic-cookie",
+      sellerKey: "synthetic-seller",
+      pageSize: 100,
+      maximumPages: 5,
+      timezoneOffsetMinutes: 360,
+      requestDelayMs: 0,
+      fetch: () =>
+        Promise.resolve(
+          jsonResponse({
+            totalOrders: 1,
+            orders: [
+              {
+                ...summary(firstOrder),
+                orderStatus: "Shipped - In Transit",
+              },
+            ],
+          }),
+        ),
+    });
+
+    await expect(provider.discoverReadyToShip()).rejects.toMatchObject({
+      code: "PROVIDER_ERROR",
+      message:
+        "TCGplayer returned a non-ready order in the ready-to-ship queue.",
+    });
   });
 
   it("normalizes a confirmed private order into the domain", async () => {
