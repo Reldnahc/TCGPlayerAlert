@@ -284,6 +284,9 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("rerenderCatalogProduct(productId);");
     expect(CONFIG_UI_JS).toContain("function applyInventorySearchFilter()");
     expect(CONFIG_UI_JS).toContain(
+      '" · pricing uses " + money(row.competitorPricingShipping) + " shipping"',
+    );
+    expect(CONFIG_UI_JS).toContain(
       'document.querySelectorAll("#repricing-rows > tr[data-row-id]")',
     );
     expect(CONFIG_UI_JS).toContain(

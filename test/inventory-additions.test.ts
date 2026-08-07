@@ -612,7 +612,7 @@ describe("inventory additions", () => {
     });
   });
 
-  it("uses TCGplayer's under-$5 shipping minimum for delivered-price comparisons", async () => {
+  it("normalizes competitor and seller shipping for sub-$5 delivered-price comparisons", async () => {
     const service = new InventoryAdditionService({
       sellerKey: "synthetic-seller",
       client: {
@@ -644,12 +644,15 @@ describe("inventory additions", () => {
     });
 
     expect(preview).toMatchObject({
-      proposedPrice: 2.5,
+      proposedPrice: 2,
       effectiveShippingPrice: 1.49,
-      proposedDeliveredPrice: 3.99,
+      proposedDeliveredPrice: 3.49,
       competitorShipping: 1.99,
       queueable: true,
     });
+    expect(preview.reason).toContain(
+      "Sub-$5 marketplace shipping is normalized to $1.49 for pricing.",
+    );
   });
 
   it("uses the pricing profile's gap rule when pricing a new listing", async () => {

@@ -70,6 +70,8 @@ export interface RepricingPreviewRow {
   readonly proposedPrice: number;
   readonly competitorPrice?: number;
   readonly competitorShipping?: number;
+  /** Shipping used for pricing when it differs from TCGplayer's displayed amount. */
+  readonly competitorPricingShipping?: number;
   readonly competitorCondition?: string;
   readonly marketPrice?: number;
   readonly lowestPrice?: number;
@@ -371,11 +373,38 @@ function roundCurrency(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+const TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD = 5;
+const TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING = 1.49;
+
+function listingShippingForPricing(
+  listing: MarketplaceListing,
+  basis: RepricingPriceBasis,
+): number {
+  if (basis === "item") return 0;
+  return listing.channelId === 0 &&
+    listing.price < TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD
+    ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+    : listing.shippingPrice;
+}
+
 function listingBasis(
   listing: MarketplaceListing,
   basis: RepricingPriceBasis,
 ): number {
-  return listing.price + (basis === "delivered" ? listing.shippingPrice : 0);
+  return listing.price + listingShippingForPricing(listing, basis);
+}
+
+function ownShippingForPricing(
+  ownListing: MarketplaceListing,
+  referenceListing: MarketplaceListing,
+  basis: RepricingPriceBasis,
+): number {
+  if (basis === "item") return 0;
+  return ownListing.channelId === 0 &&
+    referenceListing.channelId === 0 &&
+    referenceListing.price < TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD
+    ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+    : ownListing.shippingPrice;
 }
 
 function isVerifiedDirectListing(listing: MarketplaceListing): boolean {
@@ -608,12 +637,17 @@ export function calculateRepricingRow(
     (range.priceSource === "market" && marketPrice === undefined);
   const sparseMarketFallbackRequired =
     insufficientListings || unsupportedSellerBand || selectedSourceUnavailable;
+  const lowestEquivalentItemPrice =
+    lowest === undefined || lowestBasis === undefined
+      ? undefined
+      : lowestBasis -
+        ownShippingForPricing(own.listing, lowest, rules.priceBasis);
   const fallbackReference =
     sparseMarketFallbackRequired && sparseMarketFallback !== "skip"
       ? sparseMarketReference(
           sparseMarketFallback,
           lowest,
-          lowestBasis,
+          lowestEquivalentItemPrice,
           marketPrice,
         )
       : undefined;
@@ -797,10 +831,18 @@ export function calculateRepricingRow(
       "No price reference was available for the selected pricing range.",
     );
   }
+  const competitorPricingShipping =
+    referenceListing !== undefined &&
+    rules.priceBasis === "delivered" &&
+    referenceListing.channelId === 0 &&
+    referenceListing.price < TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD &&
+    referenceListing.shippingPrice !== TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+      ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+      : undefined;
   const rawTarget =
     (sourcePrice * range.percentage) / 100 -
     (referenceListing !== undefined && rules.priceBasis === "delivered"
-      ? own.listing.shippingPrice
+      ? ownShippingForPricing(own.listing, referenceListing, rules.priceBasis)
       : 0) -
     rules.adjustmentCents / 100;
   const minimumApplied = rawTarget < rules.minimumPrice;
@@ -812,6 +854,9 @@ export function calculateRepricingRow(
       : {
           competitorPrice: referenceListing.price,
           competitorShipping: referenceListing.shippingPrice,
+          ...(competitorPricingShipping === undefined
+            ? {}
+            : { competitorPricingShipping }),
           competitorCondition: referenceListing.condition,
         }),
     ...(useNext ? { gapActionApplied: "use-next" as const } : {}),
@@ -821,7 +866,7 @@ export function calculateRepricingRow(
     pricingSource,
     minimumApplied,
   };
-  const strategyReason = sparseMarketFallbackApplied
+  const strategy = sparseMarketFallbackApplied
     ? `Seller support was insufficient, so this profile uses its ${sparseMarketFallback.replaceAll("-", " ")} fallback and prices from the ${fallbackReference.source === "market" ? "market price" : "lowest qualifying listing"}.`
     : useNext
       ? supportMode === "cluster"
@@ -830,6 +875,10 @@ export function calculateRepricingRow(
       : range.priceSource === "market"
         ? `Uses ${String(range.percentage)}% of market price.`
         : `Uses ${String(range.percentage)}% of the lowest qualifying listing.`;
+  const strategyReason =
+    competitorPricingShipping !== undefined && referenceListing !== undefined
+      ? `${strategy} Sub-$5 marketplace shipping is normalized to $${competitorPricingShipping.toFixed(2)} for pricing.`
+      : strategy;
   if (target === own.listing.price) {
     return {
       ...base,

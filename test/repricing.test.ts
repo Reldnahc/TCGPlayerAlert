@@ -290,6 +290,93 @@ describe("smart repricing", () => {
     });
   });
 
+  it("normalizes high marketplace shipping when pricing a sub-$5 card", () => {
+    const ownListing = listing({
+      conditionId: 2,
+      condition: "Lightly Played",
+      price: 0.47,
+      shippingPrice: 1.49,
+    });
+    const competitors = [
+      listing({
+        listingId: 2,
+        conditionId: 2,
+        condition: "Lightly Played",
+        sellerKey: "competitor-a",
+        sellerName: "Store A",
+        price: 1.21,
+        shippingPrice: 3.99,
+      }),
+      listing({
+        listingId: 3,
+        conditionId: 2,
+        condition: "Lightly Played",
+        sellerKey: "competitor-b",
+        sellerName: "Store B",
+        price: 1.23,
+        shippingPrice: 3.99,
+      }),
+    ];
+
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      competitors,
+      sellerKey,
+      {
+        ...rules,
+        adjustmentCents: 1,
+        allowPriceIncreases: true,
+        ranges: [
+          {
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 100,
+            gapAction: "follow-lowest",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-normalized-shipping",
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      proposedPrice: 1.2,
+      lowestPrice: 1.21,
+      lowestShipping: 3.99,
+      competitorPrice: 1.21,
+      competitorShipping: 3.99,
+      competitorPricingShipping: 1.49,
+      lowestSellerSupport: 2,
+      qualifyingListings: 2,
+    });
+    expect(row.reason).toContain(
+      "Sub-$5 marketplace shipping is normalized to $1.49 for pricing.",
+    );
+
+    const itemPriceRow = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      competitors,
+      sellerKey,
+      {
+        ...rules,
+        priceBasis: "item",
+        adjustmentCents: 1,
+        allowPriceIncreases: true,
+      },
+      "row-item-price-shipping",
+    );
+    expect(itemPriceRow).toMatchObject({
+      proposedPrice: 1.2,
+      competitorPrice: 1.21,
+      competitorShipping: 3.99,
+    });
+    expect(itemPriceRow.competitorPricingShipping).toBeUndefined();
+    expect(itemPriceRow.reason).not.toContain("shipping is normalized");
+  });
+
   it("does not raise an already-lower price unless explicitly enabled", () => {
     const ownListing = listing({ price: 1 });
     const competitor = listing({ sellerKey: "competitor", price: 2 });
@@ -470,10 +557,10 @@ describe("smart repricing", () => {
       proposedPrice: 4,
       lowestPrice: 2,
       nextLowestPrice: 4,
-      gapPercent: 100,
       gapActionApplied: "use-next",
       pricingSource: "next-lowest",
     });
+    expect(row.gapPercent).toBeCloseTo(57.31, 2);
   });
 
   it("prices from the cheapest band supported by distinct sellers", () => {
@@ -790,7 +877,7 @@ describe("smart repricing", () => {
     expect(row.reason).toContain("supported price band");
   });
 
-  it("applies gap thresholds proportionally at ordinary card prices", () => {
+  it("applies gap thresholds to normalized delivered prices", () => {
     const proportionalRules: RepricingRules = {
       ...rules,
       ranges: [
@@ -804,7 +891,7 @@ describe("smart repricing", () => {
       ],
     };
     const scenarios = [
-      { low: 2, next: 2.2, expected: 2.2 },
+      { low: 2, next: 2.2, expected: 2 },
       { low: 5, next: 5.5, expected: 5.5 },
       { low: 5, next: 5.49, expected: 5 },
     ];
@@ -859,10 +946,10 @@ describe("smart repricing", () => {
     expect(row).toMatchObject({
       status: "skipped",
       proposedPrice: 6,
-      gapPercent: 100,
       gapActionApplied: "skip",
       queueable: false,
     });
+    expect(row.gapPercent).toBeCloseTo(57.31, 2);
   });
 
   it("builds a server-held preview and returns only selected safe updates", async () => {

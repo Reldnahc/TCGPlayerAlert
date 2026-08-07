@@ -2458,9 +2458,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
         + (row.supportedClusterPrice === undefined
           ? " · no supported band"
           : " · band " + money(row.supportedClusterPrice) + (row.supportedClusterShipping > 0 ? " + " + money(row.supportedClusterShipping) + " shipping" : "") + " (" + row.supportedClusterSellerCount + " sellers)");
+    const pricingShippingDetail = row.competitorPricingShipping === undefined
+      ? ""
+      : " · pricing uses " + money(row.competitorPricingShipping) + " shipping";
     const lowest = row.lowestPrice === undefined
       ? "—" + comparableCount
-      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + (row.gapPercent === undefined || row.gapPercent === 0 ? "" : " · " + row.gapPercent.toFixed(1) + "% to reference") + supportDetail + comparableCount;
+      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + pricingShippingDetail + (row.gapPercent === undefined || row.gapPercent === 0 ? "" : " · " + row.gapPercent.toFixed(1) + "% to reference") + supportDetail + comparableCount;
     const proposed = el("td", {}, [
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);
