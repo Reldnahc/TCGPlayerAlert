@@ -135,7 +135,6 @@ interface StoredPreview {
 interface MarketplaceSnapshot {
   readonly inventory: readonly MarketplaceProduct[];
   readonly secondaryInventory: readonly MarketplaceProduct[];
-  readonly comparisons: ReadonlyMap<number, MarketplaceComparisonSample>;
   readonly comparisonRecoveries: Map<string, MarketplaceComparisonSample>;
   readonly capturedAt: Date;
   readonly expiresAt: Date;
@@ -882,14 +881,6 @@ function skippedRow(
   };
 }
 
-function comparisonGroupKey(listing: MarketplaceListing): string | undefined {
-  return TCGPLAYER_CONDITION_ORDER.includes(
-    listing.condition as (typeof TCGPLAYER_CONDITION_ORDER)[number],
-  )
-    ? JSON.stringify([listing.printing, listing.language])
-    : undefined;
-}
-
 function comparisonRecoveryKey(
   context: SellerListingContext,
   conditions: readonly string[],
@@ -969,50 +960,6 @@ function mergeComparisonProduct(
   };
 }
 
-function needsComparisonRecovery(row: RepricingPreviewRow): boolean {
-  return (
-    row.sparseMarketFallbackApplied !== undefined ||
-    (row.status === "skipped" &&
-      (row.qualifyingListings !== undefined ||
-        (row.supportMode === "cluster" &&
-          row.supportedClusterPrice === undefined)))
-  );
-}
-
-function marketplaceSampleCanHideLowestListing(
-  context: SellerListingContext,
-  sample: MarketplaceComparisonSample,
-  sellerKey: string,
-  rules: RepricingRules,
-): boolean {
-  const conditions = allowedConditions(
-    context.listing.condition,
-    rules.conditionPolicy,
-  );
-  if (conditions === undefined) return false;
-  const qualifyingMarketplaceCompetitor = sample.listings.some(
-    (listing) =>
-      listing.channelId === 0 &&
-      listing.productId === context.product.productId &&
-      listing.sellerKey !== sellerKey &&
-      listing.printing === context.listing.printing &&
-      listing.language === context.listing.language &&
-      conditions.includes(listing.condition) &&
-      listing.quantity > 0 &&
-      listing.customData.customListingId === undefined,
-  );
-  if (qualifyingMarketplaceCompetitor) return false;
-
-  // TCGplayer embeds only a small lowest-price sample for each product. A broad
-  // all-condition query can fill that sample with worse conditions and the
-  // seller's own listing. Retry with the exact allowed conditions before
-  // concluding that no qualifying marketplace competitor exists.
-  return (
-    sample.marketplaceReturnedListings === 0 ||
-    sample.marketplaceTotalListings > sample.marketplaceReturnedListings
-  );
-}
-
 function chunks<T>(values: readonly T[], size: number): readonly T[][] {
   const result: T[][] = [];
   for (let index = 0; index < values.length; index += size) {
@@ -1055,7 +1002,7 @@ export class RepricingService {
     const { snapshot, source } = await this.marketplaceSnapshot(
       options.forceRefresh === true,
     );
-    const { inventory, secondaryInventory, comparisons } = snapshot;
+    const { inventory, secondaryInventory } = snapshot;
     const sellerListings: SellerListingContext[] = inventory.flatMap(
       (product) =>
         product.listings
@@ -1076,30 +1023,7 @@ export class RepricingService {
     await this.recoverSparseComparisons(
       snapshot,
       sellerListings.filter(
-        (context) =>
-          !secondarySkus.has(context.listing.productConditionId) &&
-          (() => {
-            const sample =
-              comparisons.get(context.product.productId) ??
-              emptyComparisonSample();
-            if (!comparisonSampleIncomplete(sample)) return false;
-            const preliminary = calculateRepricingRow(
-              context,
-              sample.listings,
-              this.sellerKey,
-              rules,
-              "comparison-recovery-check",
-            );
-            return (
-              needsComparisonRecovery(preliminary) ||
-              marketplaceSampleCanHideLowestListing(
-                context,
-                sample,
-                this.sellerKey,
-                rules,
-              )
-            );
-          })(),
+        (context) => !secondarySkus.has(context.listing.productConditionId),
       ),
       rules,
     );
@@ -1133,16 +1057,13 @@ export class RepricingService {
               context.listing.condition,
               rules.conditionPolicy,
             );
-            const broadSample =
-              comparisons.get(context.product.productId) ??
-              emptyComparisonSample();
             const recoveredSample =
               conditions === undefined
                 ? undefined
                 : snapshot.comparisonRecoveries.get(
                     comparisonRecoveryKey(context, conditions),
                   );
-            const sample = recoveredSample ?? broadSample;
+            const sample = recoveredSample ?? emptyComparisonSample();
             const ownMatchingListings =
               conditions === undefined
                 ? 0
@@ -1303,54 +1224,10 @@ export class RepricingService {
         channelId: 1,
       }),
     ]);
-    const sellerListings: SellerListingContext[] = inventory.flatMap(
-      (product) =>
-        product.listings
-          .filter((listing) => listing.sellerKey === this.sellerKey)
-          .map((listing) => ({ product, listing })),
-    );
-    const groups = new Map<string, SellerListingContext[]>();
-    for (const context of sellerListings) {
-      const key = comparisonGroupKey(context.listing);
-      if (key === undefined) continue;
-      const group = groups.get(key) ?? [];
-      group.push(context);
-      groups.set(key, group);
-    }
-    const comparisons = new Map<number, MarketplaceComparisonSample>();
-    for (const [key, contexts] of groups) {
-      const [printing, language] = JSON.parse(key) as [string, string];
-      const productIds = [
-        ...new Set(contexts.map((context) => context.product.productId)),
-      ];
-      for (const productIdChunk of chunks(productIds, 24)) {
-        for (const channelId of [0, 1]) {
-          const result = await this.client.searchMarketplaceProducts({
-            productIds: productIdChunk,
-            conditions: TCGPLAYER_CONDITION_ORDER,
-            printings: [printing],
-            languages: [language],
-            channelId,
-            limit: 24,
-          });
-          for (const product of result.products) {
-            comparisons.set(
-              product.productId,
-              mergeComparisonProduct(
-                comparisons.get(product.productId) ?? emptyComparisonSample(),
-                product,
-                channelId,
-              ),
-            );
-          }
-        }
-      }
-    }
     const capturedAt = this.now();
     return {
       inventory,
       secondaryInventory,
-      comparisons,
       comparisonRecoveries: new Map(),
       capturedAt,
       expiresAt: new Date(

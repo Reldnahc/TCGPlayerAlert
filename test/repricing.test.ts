@@ -902,13 +902,7 @@ describe("smart repricing", () => {
 
     expect(searchMarketplaceProducts).toHaveBeenCalledWith({
       productIds: [100],
-      conditions: [
-        "Near Mint",
-        "Lightly Played",
-        "Moderately Played",
-        "Heavily Played",
-        "Damaged",
-      ],
+      conditions: ["Near Mint", "Lightly Played", "Moderately Played"],
       printings: ["Normal"],
       languages: ["English"],
       channelId: 0,
@@ -916,13 +910,7 @@ describe("smart repricing", () => {
     });
     expect(searchMarketplaceProducts).toHaveBeenCalledWith({
       productIds: [100],
-      conditions: [
-        "Near Mint",
-        "Lightly Played",
-        "Moderately Played",
-        "Heavily Played",
-        "Damaged",
-      ],
+      conditions: ["Near Mint", "Lightly Played", "Moderately Played"],
       printings: ["Normal"],
       languages: ["English"],
       channelId: 1,
@@ -1177,9 +1165,9 @@ describe("smart repricing", () => {
     });
     expect(first.rows[0]?.reason).toContain("price increases are disabled");
     expect(first.rows[0]?.sparseMarketFallbackApplied).toBeUndefined();
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
-      3,
+      1,
       expect.objectContaining({
         productIds: [111645],
         conditions: ["Near Mint"],
@@ -1189,7 +1177,7 @@ describe("smart repricing", () => {
       }),
     );
     expect(second.marketplaceSnapshot.source).toBe("cache");
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
   });
 
   it("recovers marketplace listings hidden by worse conditions", async () => {
@@ -1340,9 +1328,9 @@ describe("smart repricing", () => {
       status: "unchanged",
       pricingSource: "lowest",
     });
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
-      3,
+      1,
       expect.objectContaining({
         productIds: [31833],
         conditions: [
@@ -1351,6 +1339,142 @@ describe("smart repricing", () => {
           "Moderately Played",
           "Heavily Played",
         ],
+        channelId: 0,
+      }),
+    );
+  });
+
+  it("recovers a cheaper exact-condition listing hidden behind a qualifying broad result", async () => {
+    const ownListing = listing({
+      listingId: 10,
+      productId: 179491,
+      productConditionId: 3904364,
+      conditionId: 1,
+      condition: "Near Mint",
+      quantity: 1,
+      price: 4.48,
+      shippingPrice: 1.49,
+    });
+    const ownProduct: MarketplaceProduct = {
+      ...product(ownListing),
+      productName: "Synthetic Premium Creature",
+      setName: "Synthetic Masters Set",
+      marketPrice: 6.26,
+      totalListings: 67,
+    };
+    const expensiveMarketplaceListing = listing({
+      listingId: 20,
+      productId: 179491,
+      productConditionId: 3904364,
+      conditionId: 1,
+      condition: "Near Mint",
+      sellerKey: "expensive-marketplace-seller",
+      price: 7.27,
+      shippingPrice: 3.99,
+    });
+    const hiddenMarketplaceListing = listing({
+      listingId: 21,
+      productId: 179491,
+      productConditionId: 3904364,
+      conditionId: 1,
+      condition: "Near Mint",
+      sellerKey: "hidden-marketplace-seller",
+      price: 5.98,
+      shippingPrice: 0,
+    });
+    const directListing = listing({
+      listingId: 30,
+      productId: 179491,
+      productConditionId: 3904364,
+      conditionId: 1,
+      condition: "Near Mint",
+      channelId: 1,
+      directListing: true,
+      directInventory: 23,
+      directProduct: true,
+      directSeller: true,
+      listingType: "standard",
+      sellerPrograms: ["Direct", "DirectViewable"],
+      sellerKey: "direct-seller",
+      price: 5.7,
+      shippingPrice: 3.99,
+    });
+    const listSellerInventory = vi.fn(
+      (input: { readonly channelId?: number }) =>
+        Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
+    );
+    const searchMarketplaceProducts = vi.fn(
+      (input: {
+        readonly channelId?: number;
+        readonly conditions?: readonly string[];
+      }) => {
+        const exactNearMint = input.conditions?.length === 1;
+        if (input.channelId === 1) {
+          return Promise.resolve({
+            totalProducts: 1,
+            products: [
+              { ...ownProduct, totalListings: 17, listings: [directListing] },
+            ],
+          });
+        }
+        return Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...ownProduct,
+              totalListings: 67,
+              listings: exactNearMint
+                ? [
+                    ownListing,
+                    hiddenMarketplaceListing,
+                    expensiveMarketplaceListing,
+                  ]
+                : [ownListing, expensiveMarketplaceListing],
+            },
+          ],
+        });
+      },
+    );
+    const service = new RepricingService({
+      client: { listSellerInventory, searchMarketplaceProducts },
+      sellerKey,
+      now: () => new Date("2026-08-06T20:00:00.000Z"),
+    });
+    const sellNowRules: RepricingRules = {
+      ...rules,
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+      sparseMarketFallback: "lowest-then-market",
+      ranges: [
+        {
+          minimumListings: 0,
+          priceSource: "lowest",
+          percentage: 100,
+          gapThresholdPercent: 0,
+          gapAction: "follow-lowest",
+          supportMode: "cluster",
+          minimumSellerSupport: 1,
+          supportWindowPercent: 5,
+        },
+      ],
+    };
+
+    const preview = await service.preview(sellNowRules);
+
+    expect(preview.rows[0]).toMatchObject({
+      currentPrice: 4.48,
+      competitorPrice: 5.98,
+      competitorShipping: 0,
+      proposedPrice: 4.48,
+      status: "unchanged",
+      pricingSource: "lowest",
+    });
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        productIds: [179491],
+        conditions: ["Near Mint"],
         channelId: 0,
       }),
     );
