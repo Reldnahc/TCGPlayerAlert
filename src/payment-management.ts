@@ -1,6 +1,10 @@
 import {
   SellerPayoutStatus,
+  type LegacySellerPayment,
+  type ListLegacySellerPaymentsResult,
+  type ListLegacyUpcomingSellerPaymentsResult,
   type ListSellerPayoutsResult,
+  type SellerPaymentExperience,
   type SellerPayoutDetail,
   type SellerPayoutStatus as SellerPayoutStatusCode,
   type SellerUnpaidBalance,
@@ -8,7 +12,8 @@ import {
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
 
-export interface ManagedPaymentsPage {
+export interface ManagedMoneyMovementPaymentsPage {
+  readonly experience: "money-movement";
   readonly totalPayouts: number;
   readonly page: number;
   readonly pageSize: number;
@@ -16,6 +21,18 @@ export interface ManagedPaymentsPage {
   readonly unpaidBalance: SellerUnpaidBalance;
   readonly fetchedAt: string;
 }
+
+export interface ManagedLegacyPaymentsPage {
+  readonly experience: "legacy";
+  readonly page: number;
+  readonly totalPages: number;
+  readonly upcomingPayments: readonly LegacySellerPayment[];
+  readonly pastPayments: readonly LegacySellerPayment[];
+  readonly fetchedAt: string;
+}
+
+export type ManagedPaymentsPage =
+  ManagedMoneyMovementPaymentsPage | ManagedLegacyPaymentsPage;
 
 export interface ManagedPaymentsPageInput {
   readonly page?: number;
@@ -26,7 +43,12 @@ export interface ManagedPaymentsPageInput {
 
 type PaymentManagementClient = Pick<
   TcgplayerSellerClient,
-  "listSellerPayouts" | "getSellerPayout" | "getSellerUnpaidBalance"
+  | "getSellerPaymentExperience"
+  | "listLegacySellerPayments"
+  | "listLegacyUpcomingSellerPayments"
+  | "listSellerPayouts"
+  | "getSellerPayout"
+  | "getSellerUnpaidBalance"
 >;
 
 export interface PaymentManagementServiceOptions {
@@ -54,12 +76,18 @@ export class PaymentManagementService {
   private readonly cacheMilliseconds: number;
   private readonly detailCacheMilliseconds: number;
   private readonly now: () => Date;
+  private experienceCache?: Cached<SellerPaymentExperience>;
   private readonly pageCache = new Map<
     string,
     Cached<ListSellerPayoutsResult>
   >();
+  private readonly legacyPageCache = new Map<
+    number,
+    Cached<ListLegacySellerPaymentsResult>
+  >();
   private readonly detailCache = new Map<string, Cached<SellerPayoutDetail>>();
   private unpaidBalanceCache?: Cached<SellerUnpaidBalance>;
+  private legacyUpcomingCache?: Cached<ListLegacyUpcomingSellerPaymentsResult>;
 
   constructor(options: PaymentManagementServiceOptions) {
     this.client = options.client;
@@ -95,9 +123,34 @@ export class PaymentManagementService {
         "Payment status is invalid.",
       );
     }
-    const payoutPage = await this.loadPayoutPage(page, input);
-    const unpaidBalance = await this.loadUnpaidBalance(input);
+    const experience = await this.loadExperience(input);
+    if (experience === "legacy") {
+      if (input.status !== undefined) {
+        throw new ApplicationError(
+          "CONFIGURATION_ERROR",
+          "Payment status filters are unavailable for legacy payments.",
+        );
+      }
+      const [history, upcoming] = await Promise.all([
+        this.loadLegacyPage(page, input),
+        this.loadLegacyUpcoming(input),
+      ]);
+      return {
+        experience,
+        page: history.page,
+        totalPages: history.totalPages,
+        upcomingPayments: upcoming.payments,
+        pastPayments: history.payments,
+        fetchedAt: this.now().toISOString(),
+      };
+    }
+
+    const [payoutPage, unpaidBalance] = await Promise.all([
+      this.loadPayoutPage(page, input),
+      this.loadUnpaidBalance(input),
+    ]);
     return {
+      experience,
       ...payoutPage,
       unpaidBalance,
       fetchedAt: this.now().toISOString(),
@@ -109,6 +162,13 @@ export class PaymentManagementService {
     options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
   ): Promise<SellerPayoutDetail> {
     const normalized = requiredText(referenceId, "Payout reference", 256);
+    const experience = await this.loadExperience(options);
+    if (experience === "legacy") {
+      throw new ApplicationError(
+        "PROVIDER_ERROR",
+        "Transaction-level payout details are unavailable for legacy payments.",
+      );
+    }
     const now = this.now().getTime();
     const cached = this.detailCache.get(normalized);
     if (
@@ -126,6 +186,74 @@ export class PaymentManagementService {
       value,
       expiresAt: this.now().getTime() + this.detailCacheMilliseconds,
     });
+    return value;
+  }
+
+  private async loadExperience(input: {
+    readonly force?: boolean;
+    readonly signal?: AbortSignal;
+  }): Promise<SellerPaymentExperience> {
+    const now = this.now().getTime();
+    if (
+      input.force !== true &&
+      this.experienceCache !== undefined &&
+      this.experienceCache.expiresAt > now
+    ) {
+      return this.experienceCache.value;
+    }
+    const value = await this.client.getSellerPaymentExperience(
+      { sellerKey: this.sellerKey },
+      input.signal === undefined ? undefined : { signal: input.signal },
+    );
+    this.experienceCache = {
+      value,
+      expiresAt: this.now().getTime() + this.cacheMilliseconds,
+    };
+    return value;
+  }
+
+  private async loadLegacyPage(
+    page: number,
+    input: ManagedPaymentsPageInput,
+  ): Promise<ListLegacySellerPaymentsResult> {
+    const now = this.now().getTime();
+    const cached = this.legacyPageCache.get(page);
+    if (
+      input.force !== true &&
+      cached !== undefined &&
+      cached.expiresAt > now
+    ) {
+      return cached.value;
+    }
+    const value = await this.client.listLegacySellerPayments(
+      { page },
+      input.signal === undefined ? undefined : { signal: input.signal },
+    );
+    this.legacyPageCache.set(page, {
+      value,
+      expiresAt: this.now().getTime() + this.cacheMilliseconds,
+    });
+    return value;
+  }
+
+  private async loadLegacyUpcoming(
+    input: ManagedPaymentsPageInput,
+  ): Promise<ListLegacyUpcomingSellerPaymentsResult> {
+    const now = this.now().getTime();
+    if (
+      input.force !== true &&
+      this.legacyUpcomingCache !== undefined &&
+      this.legacyUpcomingCache.expiresAt > now
+    ) {
+      return this.legacyUpcomingCache.value;
+    }
+    const value = await this.client.listLegacyUpcomingSellerPayments(
+      input.signal === undefined ? undefined : { signal: input.signal },
+    );
+    this.legacyUpcomingCache = {
+      value,
+      expiresAt: this.now().getTime() + this.cacheMilliseconds,
+    };
     return value;
   }
 

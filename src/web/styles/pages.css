@@ -69,6 +69,20 @@
 .payments-table tbody tr.is-selected > td {
   background: var(--bg-selected);
 }
+.legacy-payments-layout {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+.legacy-payments-table-region {
+  min-height: 150px;
+  flex: 1 1 0;
+}
+.legacy-payments-table {
+  min-width: 1180px;
+}
 .payment-detail {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -689,6 +703,9 @@
 }
 @media (max-width: 1180px) {
   .payments-layout {
+    overflow: auto;
+  }
+  .legacy-payments-layout {
     overflow: auto;
   }
   .payments-workspace {

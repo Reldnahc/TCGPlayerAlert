@@ -10,9 +10,9 @@ Operators need payout visibility without returning to Seller Portal for routine 
 
 ## Decision
 
-- Consume payout history, one payout's displayed transactions, and the current unpaid balance with its displayed upcoming transactions only through the public `tcgplayer-private-api` contract.
+- Detect the account-selected legacy or Money Movement payment experience through the public `tcgplayer-private-api` contract. Legacy mode consumes only the displayed estimated-future and past-payment tables; Money Movement mode consumes payout history, one payout's displayed transactions, and the current unpaid balance with its displayed upcoming transactions.
 - Keep the browser behind loopback application routes. Seller credentials and the private package remain server-side.
-- Cache payout pages and unpaid balance data in memory for one minute and payout details for five minutes. Explicit Refresh requests bypass the relevant cache.
+- Cache the payment-experience result, payment pages, and upcoming payment data in memory for one minute and Money Movement payout details for five minutes. Explicit Refresh requests bypass the relevant cache.
 - Do not persist payment data or include it in logs, workflow state, jobs, or configuration.
 - Do not request or expose payment instruments, masked bank details, payment setup, provider accounts, holds, invoices, or administrative data.
 - Do not add payout approval, rejection, retry, or any other payment mutation to either the application or its browser API.
@@ -21,4 +21,4 @@ Operators need payout visibility without returning to Seller Portal for routine 
 
 ## Consequences
 
-The Payments page provides useful reporting with bounded API use and no money-moving capability. Its payout summaries cover the currently loaded payout page, while the unpaid balance and searchable upcoming-transactions view share one dedicated read and cache entry. Private endpoint drift fails through the package's response validation. Features such as payment setup, bank-account management, issuing refunds, and payout administration require separate authorization and design review rather than expansion of this workspace.
+The Payments page provides useful reporting with bounded API use and no money-moving capability. Legacy sellers receive the same summary columns shown in Seller Portal rather than empty results from an unassigned Money Movement account. Newer Money Movement sellers retain payout details and the searchable upcoming-transactions view. Private endpoint drift fails through the package's response validation. Features such as payment setup, bank-account management, issuing refunds, and payout administration require separate authorization and design review rather than expansion of this workspace.

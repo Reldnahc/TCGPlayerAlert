@@ -50,7 +50,16 @@ type PaymentPanelSelection =
   | { readonly kind: "payout"; readonly referenceId: string }
   | { readonly kind: "upcoming" }
   | null;
-type PaymentTransaction = PaymentsData["unpaidBalance"]["transactions"][number];
+type MoneyMovementPaymentsData = Extract<
+  PaymentsData,
+  { readonly experience: "money-movement" }
+>;
+type LegacyPaymentsData = Extract<
+  PaymentsData,
+  { readonly experience: "legacy" }
+>;
+type PaymentTransaction =
+  MoneyMovementPaymentsData["unpaidBalance"]["transactions"][number];
 
 export function PaymentsPage() {
   const [page, setPage] = useState(1);
@@ -97,36 +106,55 @@ export function PaymentsPage() {
     }
   }
 
+  const moneyMovementData = data?.experience === "money-movement" ? data : null;
   const nextPayout = useMemo(
     () =>
-      data?.payouts
+      moneyMovementData?.payouts
         .filter((payout) => CURRENT_PAYOUT_STATUSES.has(payout.status))
         .sort((left, right) =>
           (left.holdUntil ?? left.createdAt).localeCompare(
             right.holdUntil ?? right.createdAt,
           ),
         )[0],
-    [data],
+    [moneyMovementData],
   );
   const previousPayout = useMemo(
     () =>
-      data?.payouts
+      moneyMovementData?.payouts
         .filter((payout) => PREVIOUS_PAYOUT_STATUSES.has(payout.status))
         .sort((left, right) =>
           right.createdAt.localeCompare(left.createdAt),
         )[0],
-    [data],
+    [moneyMovementData],
   );
   const selectedReference =
     selection?.kind === "payout" ? selection.referenceId : "";
   const previousReference = previousPayout?.referenceId ?? undefined;
   const nextReference = nextPayout?.referenceId ?? undefined;
-  const unpaidTransactions = data?.unpaidBalance.transactions ?? [];
+  const unpaidTransactions =
+    moneyMovementData?.unpaidBalance.transactions ?? [];
   const unpaidAsOf = newestTransactionDate(unpaidTransactions);
   const totalPages =
-    data === null
+    moneyMovementData === null
       ? 1
-      : Math.max(1, Math.ceil(data.totalPayouts / data.pageSize));
+      : Math.max(
+          1,
+          Math.ceil(
+            moneyMovementData.totalPayouts / moneyMovementData.pageSize,
+          ),
+        );
+
+  if (data?.experience === "legacy") {
+    return (
+      <LegacyPaymentsWorkspace
+        data={data}
+        loading={loading}
+        error={error}
+        onRefresh={() => void load(true)}
+        onPage={setPage}
+      />
+    );
+  }
 
   return (
     <main class="page">
@@ -137,7 +165,7 @@ export function PaymentsPage() {
           <>
             <a
               class="button button--secondary"
-              href={sellerPortalPaymentsUrl}
+              href={sellerPortalPaymentsUrl("money-movement")}
               target="_blank"
               rel="noreferrer"
             >
@@ -350,6 +378,201 @@ export function PaymentsPage() {
       </div>
     </main>
   );
+}
+
+function LegacyPaymentsWorkspace({
+  data,
+  loading,
+  error,
+  onRefresh,
+  onPage,
+}: {
+  readonly data: LegacyPaymentsData;
+  readonly loading: boolean;
+  readonly error: string;
+  readonly onRefresh: () => void;
+  readonly onPage: (page: number) => void;
+}) {
+  const upcoming = [...data.upcomingPayments].sort((left, right) =>
+    left.estimatedArrivalDate.localeCompare(right.estimatedArrivalDate),
+  );
+  const nextPayment = upcoming[0];
+  const upcomingTotal = upcoming.reduce(
+    (total, payment) => total + payment.amount,
+    0,
+  );
+  return (
+    <main class="page">
+      <PageHeader
+        title="Payments"
+        description="Read-only upcoming and completed payments"
+        actions={
+          <>
+            <a
+              class="button button--secondary"
+              href={sellerPortalPaymentsUrl("legacy")}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Seller Portal
+            </a>
+            <Button icon="refresh" busy={loading} onClick={onRefresh}>
+              Refresh
+            </Button>
+          </>
+        }
+      />
+      <div class="page-body legacy-payments-layout">
+        <div class="metric-strip payments-metrics">
+          <Metric
+            label="Next payment"
+            value={moneyFromCents(nextPayment?.amount)}
+            detail={
+              nextPayment === undefined
+                ? "No payment scheduled"
+                : `Estimated ${calendarDate(nextPayment.estimatedArrivalDate)}`
+            }
+          />
+          <Metric
+            label="Upcoming total"
+            value={moneyFromCents(upcomingTotal)}
+            detail={`${String(upcoming.length)} scheduled payment${upcoming.length === 1 ? "" : "s"}`}
+          />
+          <Metric
+            label="Upcoming orders"
+            value={String(
+              upcoming.reduce(
+                (total, payment) => total + payment.ordersCount,
+                0,
+              ),
+            )}
+          />
+          <Metric
+            label="History rows"
+            value={String(data.pastPayments.length)}
+            detail={`Page ${String(data.page)} of ${String(data.totalPages)}`}
+          />
+        </div>
+        <Toolbar>
+          <strong>Estimated future payments</strong>
+          <span class="toolbar__spacer" />
+          <span class="muted">Updated {dateTime(data.fetchedAt)}</span>
+        </Toolbar>
+        {error === "" ? null : <Notice tone="danger">{error}</Notice>}
+        <LegacyPaymentsTable
+          payments={upcoming}
+          emptyTitle="No upcoming payments"
+        />
+        <Toolbar>
+          <strong>Past payment history</strong>
+          <span class="toolbar__spacer" />
+          <span class="muted">
+            Page {String(data.page)} of {String(data.totalPages)}
+          </span>
+        </Toolbar>
+        <LegacyPaymentsTable
+          payments={data.pastPayments}
+          emptyTitle="No past payments"
+        />
+        <div class="payment-pagination">
+          <Button
+            icon="chevron-left"
+            disabled={data.page <= 1 || loading}
+            onClick={() => onPage(Math.max(1, data.page - 1))}
+          >
+            Previous
+          </Button>
+          <span>
+            Page {String(data.page)} of {String(data.totalPages)}
+          </span>
+          <Button
+            icon="chevron-right"
+            disabled={data.page >= data.totalPages || loading}
+            onClick={() => onPage(data.page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function LegacyPaymentsTable({
+  payments,
+  emptyTitle,
+}: {
+  readonly payments: LegacyPaymentsData["pastPayments"];
+  readonly emptyTitle: string;
+}) {
+  return (
+    <div class="data-region legacy-payments-table-region">
+      {payments.length === 0 ? (
+        <EmptyState title={emptyTitle} />
+      ) : (
+        <table class="data-table legacy-payments-table">
+          <thead>
+            <tr>
+              <th>Estimated arrival</th>
+              <th>Initiated</th>
+              <th class="align-right">Orders</th>
+              <th class="align-right">Sales (+)</th>
+              <th class="align-right">Fees (-)</th>
+              <th class="align-right">Refunds (-)</th>
+              <th class="align-right">Refunded fees (+)</th>
+              <th class="align-right">Adjustments</th>
+              <th class="align-right">Payment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payments.map((payment, index) => (
+              <tr
+                key={`${payment.estimatedArrivalDate}:${payment.initiatedDate}:${String(index)}`}
+              >
+                <td>{calendarDate(payment.estimatedArrivalDate)}</td>
+                <td>{calendarDate(payment.initiatedDate)}</td>
+                <td class="align-right numeric">{payment.ordersCount}</td>
+                <td class="align-right numeric">
+                  {moneyFromCents(payment.totalSales)}
+                </td>
+                <td class="align-right numeric">
+                  {moneyFromCents(payment.totalFees)}
+                </td>
+                <td class="align-right numeric">
+                  {moneyFromCents(payment.refundedOrders)}
+                </td>
+                <td class="align-right numeric">
+                  {moneyFromCents(payment.refundedFees)}
+                </td>
+                <td class="align-right numeric">
+                  {moneyFromCents(payment.adjustments)}
+                </td>
+                <td class="align-right numeric">
+                  <strong>{moneyFromCents(payment.amount)}</strong>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function calendarDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (match === null) return value;
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  );
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year:
+      date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
 }
 
 function UpcomingPaymentsPanel({

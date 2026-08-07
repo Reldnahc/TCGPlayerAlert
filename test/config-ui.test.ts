@@ -194,6 +194,7 @@ describe("configuration UI", () => {
     const current = await fixture();
     const list = vi.fn(() =>
       Promise.resolve({
+        experience: "money-movement" as const,
         totalPayouts: 26,
         page: 2,
         pageSize: 25,

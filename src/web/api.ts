@@ -224,5 +224,10 @@ export function sellerPortalOrderUrl(orderNumber: string): string {
   return `https://sellerportal.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}`;
 }
 
-export const sellerPortalPaymentsUrl =
-  "https://sellerportal.tcgplayer.com/payments";
+export function sellerPortalPaymentsUrl(
+  experience: PaymentsPage["experience"],
+): string {
+  return experience === "legacy"
+    ? "https://store.tcgplayer.com/admin/payment/sellerpayment"
+    : "https://sellerportal.tcgplayer.com/payments";
+}

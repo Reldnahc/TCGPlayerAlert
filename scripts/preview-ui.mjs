@@ -481,6 +481,7 @@ const server = await startConfigurationUi({
   paymentService: {
     list: ({ page = 1 }) =>
       Promise.resolve({
+        experience: "money-movement",
         totalPayouts: payouts.length,
         page,
         pageSize: 25,

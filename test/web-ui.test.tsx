@@ -114,6 +114,7 @@ function baseFetch(
   if (path.startsWith("/api/payments"))
     return Promise.resolve(
       json({
+        experience: "money-movement",
         totalPayouts: 0,
         page: 1,
         pageSize: 25,
@@ -280,6 +281,7 @@ describe("operator console", () => {
         if (path === "/api/payments?page=1")
           return Promise.resolve(
             json({
+              experience: "money-movement",
               totalPayouts: 1,
               page: 1,
               pageSize: 25,
@@ -355,6 +357,83 @@ describe("operator console", () => {
       fetchMock.mock.calls
         .filter(([input]) => requestPath(input).startsWith("/api/payments"))
         .every(([, options]) => options?.method === undefined),
+    ).toBe(true);
+  });
+
+  it("shows the legacy estimated future payments and past payment history", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path.startsWith("/api/payments?page=")) {
+          const page = Number(
+            new URL(path, "http://localhost").searchParams.get("page"),
+          );
+          return Promise.resolve(
+            json({
+              experience: "legacy",
+              page,
+              totalPages: 2,
+              upcomingPayments: [
+                {
+                  estimatedArrivalDate: "2026-08-15",
+                  initiatedDate: "2026-08-13",
+                  ordersCount: 2,
+                  totalSales: 6_000,
+                  totalFees: 300,
+                  refundedOrders: 0,
+                  refundedFees: 0,
+                  adjustments: 0,
+                  amount: 5_700,
+                },
+              ],
+              pastPayments: [
+                {
+                  estimatedArrivalDate: "2026-08-12",
+                  initiatedDate: "2026-08-10",
+                  ordersCount: 4,
+                  totalSales: 13_000,
+                  totalFees: 655,
+                  refundedOrders: 0,
+                  refundedFees: 0,
+                  adjustments: 0,
+                  amount: 12_345,
+                },
+              ],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+
+    await user.click(screen.getByRole("link", { name: "Payments" }));
+
+    expect(await screen.findByText("Estimated future payments")).toBeTruthy();
+    expect(screen.getByText("Past payment history")).toBeTruthy();
+    expect(screen.getAllByText("$57.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("$123.45")).toBeTruthy();
+    expect(screen.queryByLabelText("Payout status")).toBeNull();
+    expect(
+      screen
+        .getByRole("link", { name: "Open Seller Portal" })
+        .getAttribute("href"),
+    ).toBe("https://store.tcgplayer.com/admin/payment/sellerpayment");
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      await screen.findByText("Page 2 of 2", {
+        selector: ".payment-pagination span",
+      }),
+    ).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => requestPath(input) === "/api/payments?page=2",
+      ),
     ).toBe(true);
   });
 });

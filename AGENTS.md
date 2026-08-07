@@ -37,7 +37,7 @@ Keep these concerns separated even if the first version runs as one process:
 - **Order discovery:** complete pagination of the authoritative ready-to-ship queue, first-run baseline behavior, and reconciliation against durable state.
 - **Optional event acceleration:** future provider adapters may interpret notifications and request an immediate sync, but may not directly create authoritative orders or dispatch actions.
 - **TCGplayer access:** an application-facing adapter around the separately versioned `tcgplayer-private-api` client. Private endpoint details do not belong in this repository.
-- **Payments:** cached, read-only payout and unpaid-balance presentation normalized behind an application service; never expose payment instruments or add payout mutation controls.
+- **Payments:** cached, read-only legacy or Money Movement payment presentation normalized behind an application service; never expose payment instruments or add payout mutation controls.
 - **Domain and orchestration:** provider-neutral orders, documents, events, rules, idempotency, retries, and workflow state.
 - **Rules:** declarative conditions and action selection, with validation and explainable evaluation results.
 - **Actions:** plugins that consume domain data or documents and produce side effects.
