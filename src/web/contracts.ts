@@ -1,4 +1,5 @@
 import type { CatalogProductDetails } from "tcgplayer-private-api";
+import type { SellerPayoutDetail } from "tcgplayer-private-api";
 import type {
   ConfigurationUiSettings,
   ConfigurationUiUpdate,
@@ -15,6 +16,7 @@ import type {
   ManagedOrderSummary,
   PirateShipPreparation,
 } from "../order-management.js";
+import type { ManagedPaymentsPage } from "../payment-management.js";
 import type {
   PriceUpdateJob,
   PriceUpdateQueueSnapshot,
@@ -31,6 +33,8 @@ export interface ShipmentResult {
   readonly outcome: "applied" | "already-applied";
 }
 export type PirateShipResult = PirateShipPreparation;
+export type PaymentsPage = ManagedPaymentsPage;
+export type PaymentDetail = SellerPayoutDetail;
 export type CatalogSearch = CatalogSearchResult;
 export type CatalogProduct = CatalogProductDetails;
 export type AdditionPreview = InventoryAdditionPreview;

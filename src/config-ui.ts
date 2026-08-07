@@ -13,6 +13,10 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import {
+  SellerPayoutStatus,
+  type SellerPayoutStatus as SellerPayoutStatusCode,
+} from "tcgplayer-private-api";
 import type {
   ActionConfig,
   AppConfig,
@@ -38,6 +42,11 @@ import type {
   ManualPrintActionType,
   OrderManagementService,
 } from "./order-management.js";
+import type { PaymentManagementService } from "./payment-management.js";
+
+const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
+  Object.values(SellerPayoutStatus),
+);
 
 interface OutputSettingsBase {
   readonly actionId: string;
@@ -230,6 +239,7 @@ export interface StartConfigurationUiOptions {
   readonly inventoryWorkerRunning?: boolean;
   readonly inventoryService?: InventoryAdditionService;
   readonly orderService?: OrderManagementService;
+  readonly paymentService?: PaymentManagementService;
   readonly executePrintTest?: ConfigurationPrintTest;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
@@ -270,6 +280,7 @@ export async function startConfigurationUi(
       options.inventoryWorkerRunning === true,
       options.inventoryService,
       options.orderService,
+      options.paymentService,
       options.executePrintTest,
       webAssets,
     );
@@ -946,6 +957,7 @@ async function handleRequest(
   inventoryWorkerRunning: boolean,
   inventoryService: InventoryAdditionService | undefined,
   orderService: OrderManagementService | undefined,
+  paymentService: PaymentManagementService | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
   webAssets: ConfigurationUiAssets,
 ): Promise<void> {
@@ -984,6 +996,68 @@ async function handleRequest(
       const scope = status === "ready-to-ship" ? "ready-to-ship" : "all";
       const result = await withRequestAbort(request, response, (signal) =>
         orderService.listOrders(scope, {
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (request.method === "GET" && url.pathname === "/api/payments") {
+      if (paymentService === undefined) {
+        sendJson(response, 503, {
+          message: "Payment history is unavailable.",
+        });
+        return;
+      }
+      const pageValue = url.searchParams.get("page");
+      const page = pageValue === null ? 1 : Number(pageValue);
+      if (!Number.isInteger(page) || page < 1 || page > 1_000_000) {
+        sendJson(response, 400, {
+          message: "The payment page is invalid.",
+        });
+        return;
+      }
+      const statusValue = url.searchParams.get("status");
+      if (
+        statusValue !== null &&
+        !SELLER_PAYOUT_STATUSES.has(statusValue as SellerPayoutStatusCode)
+      ) {
+        sendJson(response, 400, {
+          message: "The payment status filter is invalid.",
+        });
+        return;
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        paymentService.list({
+          page,
+          ...(statusValue === null
+            ? {}
+            : { status: statusValue as SellerPayoutStatusCode }),
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
+      /^\/api\/payments\/[^/]{1,768}$/u.test(url.pathname)
+    ) {
+      if (paymentService === undefined) {
+        sendJson(response, 503, {
+          message: "Payment history is unavailable.",
+        });
+        return;
+      }
+      const referenceId = decodeURIComponent(
+        url.pathname.slice("/api/payments/".length),
+      );
+      if (!safeText(referenceId) || referenceId.length > 256) {
+        sendJson(response, 400, {
+          message: "The payout reference is invalid.",
+        });
+        return;
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        paymentService.get(referenceId, {
           force: url.searchParams.get("refresh") === "1",
           signal,
         }),

@@ -8,6 +8,7 @@ import { DashboardPage } from "./pages/DashboardPage.js";
 import { InventoryPage } from "./pages/InventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
+import { PaymentsPage } from "./pages/PaymentsPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { OrdersProvider } from "./state/OrdersContext.js";
 import { SettingsProvider, useSettings } from "./state/SettingsContext.js";
@@ -86,6 +87,7 @@ function Console() {
     const pages: Readonly<Record<RouteId, () => JSX.Element | null>> = {
       dashboard: DashboardPage,
       orders: OrdersPage,
+      payments: PaymentsPage,
       "add-cards": AddCardsPage,
       inventory: InventoryPage,
       settings: SettingsPage,

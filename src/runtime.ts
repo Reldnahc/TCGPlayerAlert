@@ -23,6 +23,7 @@ import {
   OrderManagementService,
   type ManualPrintActionType,
 } from "./order-management.js";
+import { PaymentManagementService } from "./payment-management.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -233,6 +234,24 @@ export function createOrderManagementService(
         signal,
       );
     },
+  });
+}
+
+export function createPaymentManagementService(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): PaymentManagementService {
+  const authCookie = secretFromEnvironment(
+    config.provider.authCookieEnv,
+    environment,
+  );
+  const sellerKey = secretFromEnvironment(
+    config.provider.sellerKeyEnv,
+    environment,
+  );
+  return new PaymentManagementService({
+    client: createTcgplayerSellerClient({ session: { authCookie } }),
+    sellerKey,
   });
 }
 

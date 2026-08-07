@@ -2,7 +2,13 @@ import type { ComponentChildren } from "preact";
 import { Icon, type IconName } from "./Icon.js";
 
 export type RouteId =
-  "dashboard" | "orders" | "add-cards" | "inventory" | "settings" | "jobs";
+  | "dashboard"
+  | "orders"
+  | "payments"
+  | "add-cards"
+  | "inventory"
+  | "settings"
+  | "jobs";
 
 export const routes: readonly {
   readonly id: RouteId;
@@ -11,6 +17,7 @@ export const routes: readonly {
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "orders", label: "Orders", icon: "orders" },
+  { id: "payments", label: "Payments", icon: "payments" },
   { id: "add-cards", label: "Add cards", icon: "add" },
   { id: "inventory", label: "Inventory", icon: "inventory" },
   { id: "settings", label: "Settings", icon: "settings" },

@@ -6,6 +6,8 @@ import type {
   InventoryJob,
   InventoryQueueResponse,
   OrderList,
+  PaymentDetail,
+  PaymentsPage,
   PirateShipResult,
   PriceJob,
   PriceQueueResponse,
@@ -93,6 +95,20 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(`/api/orders?${query.toString()}`);
   },
+  payments: (
+    page: number,
+    status: string,
+    force = false,
+  ): Promise<PaymentsPage> => {
+    const query = new URLSearchParams({ page: String(page) });
+    if (status !== "") query.set("status", status);
+    if (force) query.set("refresh", "1");
+    return requestJson(`/api/payments?${query.toString()}`);
+  },
+  payment: (referenceId: string, force = false): Promise<PaymentDetail> =>
+    requestJson(
+      `/api/payments/${encodeURIComponent(referenceId)}${force ? "?refresh=1" : ""}`,
+    ),
   printOrder: (orderNumber: string, actionType: string): Promise<void> =>
     requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/print`, {
       method: "POST",
@@ -207,3 +223,6 @@ export function packingSlipUrl(orderNumber: string): string {
 export function sellerPortalOrderUrl(orderNumber: string): string {
   return `https://sellerportal.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}`;
 }
+
+export const sellerPortalPaymentsUrl =
+  "https://sellerportal.tcgplayer.com/payments";

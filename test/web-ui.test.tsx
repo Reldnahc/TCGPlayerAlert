@@ -111,6 +111,17 @@ function baseFetch(
     return Promise.resolve(
       json({ orders: [], fetchedAt: "2026-08-07T12:00:00.000Z" }),
     );
+  if (path.startsWith("/api/payments"))
+    return Promise.resolve(
+      json({
+        totalPayouts: 0,
+        page: 1,
+        pageSize: 25,
+        payouts: [],
+        unpaidBalance: { totalBalance: 0, transactions: [] },
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
   throw new Error(`Unexpected request: ${path}`);
 }
 
@@ -235,5 +246,83 @@ describe("operator console", () => {
       "/api/inventory-additions/preview",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("shows read-only payout history and loads transaction details", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/payments/SYNTHETIC-PAYOUT-1")
+          return Promise.resolve(
+            json({
+              payoutId: "synthetic-payout",
+              referenceId: "SYNTHETIC-PAYOUT-1",
+              createdAt: "2026-08-01T12:00:00.000Z",
+              lastSentAt: "2026-08-04T12:00:00.000Z",
+              amount: 12_345,
+              status: "Succeeded",
+              totalSales: 13_000,
+              totalRefunds: 0,
+              totalFees: -655,
+              totalAdjustments: 0,
+              transactions: [
+                {
+                  createdAt: "2026-08-01T12:00:00.000Z",
+                  type: "SettleOrder",
+                  orderNumber: "SYNTHETIC-ORDER-1",
+                  amount: 13_000,
+                  feeAmount: -655,
+                  netAmount: 12_345,
+                },
+              ],
+            }),
+          );
+        if (path === "/api/payments?page=1")
+          return Promise.resolve(
+            json({
+              totalPayouts: 1,
+              page: 1,
+              pageSize: 25,
+              payouts: [
+                {
+                  payoutId: "synthetic-payout",
+                  referenceId: "SYNTHETIC-PAYOUT-1",
+                  createdAt: "2026-08-01T12:00:00.000Z",
+                  lastSentAt: "2026-08-04T12:00:00.000Z",
+                  amount: 12_345,
+                  ordersCount: 3,
+                  status: "Succeeded",
+                },
+              ],
+              unpaidBalance: { totalBalance: 2_500, transactions: [] },
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+
+    await user.click(screen.getByRole("link", { name: "Payments" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Payments" }),
+    ).toBeTruthy();
+    expect(screen.getByText("$25.00")).toBeTruthy();
+    expect(screen.getAllByText("$123.45").length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "View" }));
+    expect(await screen.findByText("Payout SYNTHETIC-PAYOUT-1")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "SYNTHETIC-ORDER-1" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/bank|payment account/iu)).toBeNull();
+    expect(
+      fetchMock.mock.calls
+        .filter(([input]) => requestPath(input).startsWith("/api/payments"))
+        .every(([, options]) => options?.method === undefined),
+    ).toBe(true);
   });
 });

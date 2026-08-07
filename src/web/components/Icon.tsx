@@ -3,6 +3,7 @@ import type { JSX } from "preact";
 export type IconName =
   | "dashboard"
   | "orders"
+  | "payments"
   | "add"
   | "inventory"
   | "settings"
@@ -33,6 +34,12 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <path d="M6 3h12v18H6z" />
       <path d="M9 7h6M9 11h6M9 15h4" />
+    </>
+  ),
+  payments: (
+    <>
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="M3 10h18M7 15h4" />
     </>
   ),
   add: (

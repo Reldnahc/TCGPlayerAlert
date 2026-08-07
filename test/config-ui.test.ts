@@ -8,6 +8,7 @@ import {
   startConfigurationUi,
   type AppConfig,
   type ConfigurationUiServer,
+  type PaymentManagementService,
 } from "../src/index.js";
 
 const discovery = () =>
@@ -187,6 +188,71 @@ describe("configuration UI", () => {
     expect(forbidden.status).toBe(403);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ pollIntervalMinutes: 17 });
+  });
+
+  it("serves paginated read-only payments and payout details", async () => {
+    const current = await fixture();
+    const list = vi.fn(() =>
+      Promise.resolve({
+        totalPayouts: 26,
+        page: 2,
+        pageSize: 25,
+        payouts: [],
+        unpaidBalance: { totalBalance: 1_250, transactions: [] },
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+    const get = vi.fn((referenceId: string) =>
+      Promise.resolve({
+        payoutId: "synthetic-payout",
+        referenceId,
+        createdAt: "2026-08-01T12:00:00.000Z",
+        amount: 10_000,
+        status: "Succeeded",
+        totalSales: 11_000,
+        totalRefunds: 0,
+        totalFees: -1_000,
+        totalAdjustments: 0,
+        transactions: [],
+      }),
+    );
+    const paymentService = { list, get } as unknown as PaymentManagementService;
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      paymentService,
+    });
+
+    const page = await fetch(
+      `${server.url}/api/payments?page=2&status=Succeeded&refresh=1`,
+    );
+    const detail = await fetch(
+      `${server.url}/api/payments/SYNTHETIC%20PAYOUT%2F1`,
+    );
+    const invalid = await fetch(`${server.url}/api/payments?status=Invented`);
+
+    expect(page.status).toBe(200);
+    expect(await page.json()).toMatchObject({
+      totalPayouts: 26,
+      unpaidBalance: { totalBalance: 1_250 },
+    });
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 2,
+        status: "Succeeded",
+        force: true,
+      }),
+    );
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({
+      referenceId: "SYNTHETIC PAYOUT/1",
+    });
+    expect(get).toHaveBeenCalledWith(
+      "SYNTHETIC PAYOUT/1",
+      expect.objectContaining({ force: false }),
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it("prints synthetic output using the submitted unsaved printer settings", async () => {

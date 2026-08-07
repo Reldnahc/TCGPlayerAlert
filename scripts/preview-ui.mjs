@@ -54,6 +54,27 @@ const orders = [
   },
 ];
 
+const payouts = [
+  {
+    payoutId: "synthetic-payout-1",
+    referenceId: "SYNTHETIC-PAYOUT-1",
+    createdAt: "2026-08-04T12:00:00.000Z",
+    lastSentAt: "2026-08-06T12:00:00.000Z",
+    amount: 9_842,
+    ordersCount: 7,
+    status: "Succeeded",
+  },
+  {
+    payoutId: "synthetic-payout-2",
+    referenceId: "SYNTHETIC-PAYOUT-2",
+    createdAt: "2026-08-07T12:00:00.000Z",
+    holdUntil: "2026-08-11T12:00:00.000Z",
+    amount: 5_615,
+    ordersCount: 4,
+    status: "Committed",
+  },
+];
+
 const catalogProduct = {
   productId: 123456,
   imageUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123456.jpg",
@@ -456,6 +477,43 @@ const server = await startConfigurationUi({
       Promise.resolve({ orderNumber, carrier: "USPS", outcome: "applied" }),
     markShipped: (orderNumber) =>
       Promise.resolve({ orderNumber, outcome: "applied" }),
+  },
+  paymentService: {
+    list: ({ page = 1 }) =>
+      Promise.resolve({
+        totalPayouts: payouts.length,
+        page,
+        pageSize: 25,
+        payouts,
+        unpaidBalance: {
+          totalBalance: 3_274,
+          transactions: [],
+        },
+        fetchedAt: now,
+      }),
+    get: (referenceId) =>
+      Promise.resolve({
+        payoutId: `detail-${referenceId}`,
+        referenceId,
+        createdAt: "2026-08-04T12:00:00.000Z",
+        lastSentAt: "2026-08-06T12:00:00.000Z",
+        amount: 9_842,
+        status: "Succeeded",
+        totalSales: 10_800,
+        totalRefunds: 0,
+        totalFees: -958,
+        totalAdjustments: 0,
+        transactions: [
+          {
+            createdAt: "2026-08-03T12:00:00.000Z",
+            type: "SettleOrder",
+            orderNumber: orders[0].orderNumber,
+            amount: 3_024,
+            feeAmount: -268,
+            netAmount: 2_756,
+          },
+        ],
+      }),
   },
   executePrintTest: () => Promise.resolve(),
 });

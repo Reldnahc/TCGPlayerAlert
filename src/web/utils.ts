@@ -7,6 +7,10 @@ export function money(value: number | undefined): string {
       }).format(value);
 }
 
+export function moneyFromCents(value: number | undefined): string {
+  return money(value === undefined ? undefined : value / 100);
+}
+
 export function compactDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())

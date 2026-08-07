@@ -46,6 +46,7 @@ export {
   createInventoryAdditionQueue,
   createInventoryAdditionService,
   createOrderManagementService,
+  createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
@@ -56,6 +57,8 @@ export {
 } from "./runtime.js";
 export { OrderManagementService } from "./order-management.js";
 export type * from "./order-management.js";
+export { PaymentManagementService } from "./payment-management.js";
+export type * from "./payment-management.js";
 export {
   createTcgplayerInventoryAdditionExecutor,
   InventoryAdditionQueueStore,

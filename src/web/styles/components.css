@@ -276,18 +276,25 @@
 .status--ready,
 .status--applied,
 .status--submitted,
-.status--success {
+.status--success,
+.status--succeeded {
   color: #096442;
   border-color: #9ed1bc;
   background: #e8f6f0;
 }
 .status--pending,
-.status--applying {
+.status--applying,
+.status--staged,
+.status--committed,
+.status--intransit,
+.status--retrying {
   color: #75510b;
   border-color: #e1c98b;
   background: #fff7dd;
 }
 .status--failed,
+.status--rejected,
+.status--inreview,
 .status--review-required,
 .status--skipped {
   color: #9a2b22;
