@@ -48,14 +48,6 @@ function product(ownListing: MarketplaceListing): MarketplaceProduct {
   };
 }
 
-function listingPage(
-  listings: readonly MarketplaceListing[],
-  totalListings: number = listings.length,
-  productId: number = listings[0]?.productId ?? 100,
-) {
-  return { productId, totalListings, listings };
-}
-
 const rules: RepricingRules = {
   minimumPrice: 0.5,
   conditionPolicy: "same-or-better",
@@ -383,82 +375,6 @@ describe("smart repricing", () => {
     });
     expect(itemPriceRow.competitorPricingShipping).toBeUndefined();
     expect(itemPriceRow.reason).not.toContain("shipping is normalized");
-  });
-
-  it("uses the real lowest standard listing instead of a promoted product row", () => {
-    const ownListing = listing({
-      productId: 212043,
-      productConditionId: 2120432,
-      conditionId: 2,
-      condition: "Lightly Played",
-      price: 0.47,
-      shippingPrice: 1.49,
-    });
-    const ownProduct = {
-      ...product(ownListing),
-      productName: "Synthetic Showcase Card",
-      marketPrice: 1.21,
-    };
-    const row = calculateRepricingRow(
-      { product: ownProduct, listing: ownListing },
-      [
-        listing({
-          listingId: 2,
-          productId: 212043,
-          productConditionId: 2120431,
-          conditionId: 1,
-          condition: "Near Mint",
-          listingType: "custom",
-          sellerKey: "custom-seller",
-          price: 0.75,
-          shippingPrice: 1.49,
-        }),
-        listing({
-          listingId: 3,
-          productId: 212043,
-          productConditionId: 2120431,
-          conditionId: 1,
-          condition: "Near Mint",
-          listingType: "standard",
-          sellerKey: "actual-low-seller",
-          price: 0.87,
-          shippingPrice: 1.49,
-        }),
-        listing({
-          listingId: 4,
-          productId: 212043,
-          productConditionId: 2120432,
-          conditionId: 2,
-          condition: "Lightly Played",
-          listingType: "standard",
-          sellerKey: "second-seller",
-          price: 0.99,
-          shippingPrice: 1.49,
-        }),
-        listing({
-          listingId: 5,
-          productId: 212043,
-          productConditionId: 2120431,
-          conditionId: 1,
-          condition: "Near Mint",
-          listingType: "standard",
-          sellerKey: "promoted-seller",
-          price: 1.44,
-          shippingPrice: 3.99,
-        }),
-      ],
-      sellerKey,
-      { ...rules, adjustmentCents: 1, allowPriceIncreases: true },
-      "row-actual-product-listings",
-    );
-
-    expect(row).toMatchObject({
-      status: "ready",
-      competitorPrice: 0.87,
-      competitorShipping: 1.49,
-      proposedPrice: 0.86,
-      qualifyingListings: 3,
-    });
   });
 
   it("does not raise an already-lower price unless explicitly enabled", () => {
@@ -860,13 +776,13 @@ describe("smart repricing", () => {
         ],
       },
       "row-incomplete-market-fallback",
-      { incomplete: true },
+      { reportedQualifyingListings: 8, incomplete: true },
     );
 
     expect(row).toMatchObject({
       status: "skipped",
       proposedPrice: 70,
-      qualifyingListings: 0,
+      qualifyingListings: 8,
       comparisonSampleIncomplete: true,
       queueable: false,
     });
@@ -1047,12 +963,13 @@ describe("smart repricing", () => {
       (input: { readonly channelId?: number }) =>
         Promise.resolve(input.channelId === 0 ? [product(ownListing)] : []),
     );
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(listingPage([competitor]));
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
     let nextId = 0;
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => new Date("2026-08-03T12:00:00.000Z"),
       id: () => `id-${String(++nextId)}`,
@@ -1070,18 +987,23 @@ describe("smart repricing", () => {
       currentListingValue: 6,
     });
 
-    expect(searchMarketplaceProductListings).toHaveBeenCalledWith({
-      productId: 100,
+    expect(searchMarketplaceProducts).toHaveBeenCalledWith({
+      productIds: [100],
       conditions: ["Near Mint", "Lightly Played", "Moderately Played"],
       printings: ["Normal"],
       languages: ["English"],
-      channelIds: [0, 1],
-      listingTypes: ["standard"],
-      offset: 0,
-      limit: 50,
-      sort: "price",
+      channelId: 0,
+      limit: 24,
     });
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
+    expect(searchMarketplaceProducts).toHaveBeenCalledWith({
+      productIds: [100],
+      conditions: ["Near Mint", "Lightly Played", "Moderately Played"],
+      printings: ["Normal"],
+      languages: ["English"],
+      channelId: 1,
+      limit: 24,
+    });
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
     expect(updates).toEqual([
       expect.objectContaining({
         productConditionId: 1003,
@@ -1126,22 +1048,26 @@ describe("smart repricing", () => {
       client: {
         listSellerInventory: (input) =>
           Promise.resolve(input.channelId === 0 ? ownProducts : []),
-        searchMarketplaceProductListings: (input) => {
-          const ownProduct = productsById.get(input.productId);
-          if (ownProduct === undefined) {
-            return Promise.resolve(listingPage([], 0, input.productId));
-          }
-          const competitor = listing({
-            listingId: 50_000 + input.productId,
-            productId: input.productId,
-            productConditionId:
-              ownProduct.listings[0]?.productConditionId ?? input.productId,
-            sellerKey: `competitor-${String(input.productId)}`,
-            sellerName: "Synthetic Competitor",
-            quantity: 1,
-            price: 2,
+        searchMarketplaceProducts: (input) => {
+          const products = (input.productIds ?? []).flatMap((productId) => {
+            const ownProduct = productsById.get(productId);
+            if (ownProduct === undefined) return [];
+            const competitor = listing({
+              listingId: 50_000 + productId,
+              productId,
+              productConditionId:
+                ownProduct.listings[0]?.productConditionId ?? productId,
+              sellerKey: `competitor-${String(productId)}`,
+              sellerName: "Synthetic Competitor",
+              quantity: 1,
+              price: 2,
+            });
+            return [{ ...ownProduct, listings: [competitor] }];
           });
-          return Promise.resolve(listingPage([competitor]));
+          return Promise.resolve({
+            totalProducts: products.length,
+            products,
+          });
         },
       },
       sellerKey,
@@ -1172,8 +1098,11 @@ describe("smart repricing", () => {
           Promise.resolve([
             product(input.channelId === 1 ? secondaryListing : ownListing),
           ]),
-        searchMarketplaceProductListings: () =>
-          Promise.resolve(listingPage([competitor])),
+        searchMarketplaceProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            products: [product(competitor)],
+          }),
       },
       sellerKey,
       now: () => new Date("2026-08-03T12:00:00.000Z"),
@@ -1193,7 +1122,7 @@ describe("smart repricing", () => {
     );
   });
 
-  it("loads the complete exact-condition listing page instead of a product spotlight sample", async () => {
+  it("recovers exact-condition listings when the broad marketplace sample is truncated", async () => {
     const ownListing = listing({
       productId: 111645,
       productConditionId: 1116451,
@@ -1211,31 +1140,82 @@ describe("smart repricing", () => {
       marketPrice: 24.1,
       totalListings: 9,
     };
+    const broadListings = [
+      listing({
+        listingId: 20,
+        productId: 111645,
+        productConditionId: 1116455,
+        conditionId: 5,
+        condition: "Damaged",
+        printing: "Foil",
+        sellerKey: "damaged-seller",
+        price: 22.73,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 21,
+        productId: 111645,
+        productConditionId: 1116452,
+        conditionId: 2,
+        condition: "Lightly Played",
+        printing: "Foil",
+        sellerKey: "lp-seller",
+        price: 48.51,
+        shippingPrice: 1.49,
+      }),
+    ];
     const nearMintListings = [
       ownListing,
-      ...Array.from({ length: 8 }, (_, index) =>
-        listing({
-          listingId: 30 + index,
-          productId: 111645,
-          productConditionId: 1116451,
-          conditionId: 1,
-          condition: "Near Mint",
-          printing: "Foil",
-          sellerKey: `nm-seller-${String(index + 1)}`,
-          price: 72.48 + index / 100,
-          shippingPrice: 1.49,
-        }),
-      ),
+      listing({
+        listingId: 30,
+        productId: 111645,
+        productConditionId: 1116451,
+        conditionId: 1,
+        condition: "Near Mint",
+        printing: "Foil",
+        sellerKey: "nm-seller-one",
+        price: 72.48,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 31,
+        productId: 111645,
+        productConditionId: 1116451,
+        conditionId: 1,
+        condition: "Near Mint",
+        printing: "Foil",
+        sellerKey: "nm-seller-two",
+        price: 72.49,
+        shippingPrice: 1.49,
+      }),
     ];
     const listSellerInventory = vi.fn(
       (input: { readonly channelId?: number }) =>
         Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
     );
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(listingPage(nearMintListings));
+    const searchMarketplaceProducts = vi.fn(
+      (input: {
+        readonly channelId?: number;
+        readonly conditions?: string[];
+      }) => {
+        if (input.channelId === 1) {
+          return Promise.resolve({ totalProducts: 0, products: [] });
+        }
+        const exactNearMint = input.conditions?.length === 1;
+        return Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...ownProduct,
+              totalListings: exactNearMint ? 9 : 16,
+              listings: exactNearMint ? nearMintListings : broadListings,
+            },
+          ],
+        });
+      },
+    );
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => new Date("2026-08-05T12:00:00.000Z"),
     });
@@ -1265,105 +1245,26 @@ describe("smart repricing", () => {
       proposedPrice: 70,
       status: "unchanged",
       qualifyingListings: 8,
-      distinctSellers: 8,
+      distinctSellers: 2,
       supportedClusterPrice: 72.48,
       supportedClusterShipping: 1.49,
       queueable: false,
     });
     expect(first.rows[0]?.reason).toContain("price increases are disabled");
     expect(first.rows[0]?.sparseMarketFallbackApplied).toBeUndefined();
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
-    expect(searchMarketplaceProductListings).toHaveBeenNthCalledWith(
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        productId: 111645,
+        productIds: [111645],
         conditions: ["Near Mint"],
         printings: ["Foil"],
         languages: ["English"],
-        channelIds: [0, 1],
-        listingTypes: ["standard"],
-        sort: "price",
+        channelId: 0,
       }),
     );
     expect(second.marketplaceSnapshot.source).toBe("cache");
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
-  });
-
-  it("loads another listing page only when the profile still needs seller support", async () => {
-    const ownListing = listing({
-      productId: 200,
-      productConditionId: 2001,
-      conditionId: 1,
-      condition: "Near Mint",
-      price: 5,
-      shippingPrice: 1.49,
-    });
-    const ownProduct = { ...product(ownListing), marketPrice: 6 };
-    const firstCompetitor = listing({
-      listingId: 2,
-      productId: 200,
-      productConditionId: 2001,
-      conditionId: 1,
-      condition: "Near Mint",
-      sellerKey: "first-competitor",
-      price: 4,
-      shippingPrice: 1.49,
-    });
-    const secondCompetitor = listing({
-      listingId: 3,
-      productId: 200,
-      productConditionId: 2001,
-      conditionId: 1,
-      condition: "Near Mint",
-      sellerKey: "second-competitor",
-      price: 4.1,
-      shippingPrice: 1.49,
-    });
-    const searchMarketplaceProductListings = vi.fn(
-      ({ offset }: { readonly offset?: number }) =>
-        Promise.resolve(
-          offset === 0
-            ? listingPage([ownListing, firstCompetitor], 3, 200)
-            : listingPage([secondCompetitor], 3, 200),
-        ),
-    );
-    const service = new RepricingService({
-      client: {
-        listSellerInventory: ({ channelId }) =>
-          Promise.resolve(channelId === 0 ? [ownProduct] : []),
-        searchMarketplaceProductListings,
-      },
-      sellerKey,
-    });
-    const preview = await service.preview({
-      ...rules,
-      allowPriceIncreases: true,
-      ranges: [
-        {
-          minimumListings: 2,
-          priceSource: "lowest",
-          percentage: 100,
-          gapThresholdPercent: 10,
-          gapAction: "use-next",
-          supportMode: "cluster",
-          minimumSellerSupport: 2,
-          supportWindowPercent: 5,
-        },
-      ],
-    });
-
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProductListings).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ offset: 2 }),
-    );
-    expect(preview.rows[0]).toMatchObject({
-      competitorPrice: 4,
-      qualifyingListings: 2,
-      distinctSellers: 2,
-      proposedPrice: 4,
-      status: "ready",
-    });
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
   });
 
   it("recovers marketplace listings hidden by worse conditions", async () => {
@@ -1384,6 +1285,29 @@ describe("smart repricing", () => {
       marketPrice: 3.24,
       totalListings: 5,
     };
+    const damagedListings = [
+      listing({
+        listingId: 20,
+        productId: 31833,
+        productConditionId: 318335,
+        conditionId: 5,
+        condition: "Damaged",
+        sellerKey: "damaged-seller-one",
+        price: 1.8,
+        shippingPrice: 1.49,
+      }),
+      listing({
+        listingId: 21,
+        productId: 31833,
+        productConditionId: 318335,
+        conditionId: 5,
+        condition: "Damaged",
+        sellerKey: "damaged-seller-two",
+        price: 1.84,
+        shippingPrice: 1.49,
+      }),
+      ownListing,
+    ];
     const exactMarketplaceListings = [
       ownListing,
       listing({
@@ -1428,13 +1352,36 @@ describe("smart repricing", () => {
       (input: { readonly channelId?: number }) =>
         Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
     );
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(
-        listingPage([...exactMarketplaceListings, directListing]),
-      );
+    const searchMarketplaceProducts = vi.fn(
+      (input: {
+        readonly channelId?: number;
+        readonly conditions?: readonly string[];
+      }) => {
+        const exactConditions = input.conditions?.length === 4;
+        if (input.channelId === 1) {
+          return Promise.resolve({
+            totalProducts: 1,
+            products: [
+              { ...ownProduct, totalListings: 1, listings: [directListing] },
+            ],
+          });
+        }
+        return Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...ownProduct,
+              totalListings: 5,
+              listings: exactConditions
+                ? exactMarketplaceListings
+                : damagedListings,
+            },
+          ],
+        });
+      },
+    );
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => new Date("2026-08-06T17:00:00.000Z"),
     });
@@ -1468,18 +1415,18 @@ describe("smart repricing", () => {
       status: "unchanged",
       pricingSource: "lowest",
     });
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
-    expect(searchMarketplaceProductListings).toHaveBeenNthCalledWith(
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        productId: 31833,
+        productIds: [31833],
         conditions: [
           "Near Mint",
           "Lightly Played",
           "Moderately Played",
           "Heavily Played",
         ],
-        channelIds: [0, 1],
+        channelId: 0,
       }),
     );
   });
@@ -1543,18 +1490,40 @@ describe("smart repricing", () => {
       (input: { readonly channelId?: number }) =>
         Promise.resolve(input.channelId === 0 ? [ownProduct] : []),
     );
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(
-        listingPage([
-          ownListing,
-          hiddenMarketplaceListing,
-          expensiveMarketplaceListing,
-          directListing,
-        ]),
-      );
+    const searchMarketplaceProducts = vi.fn(
+      (input: {
+        readonly channelId?: number;
+        readonly conditions?: readonly string[];
+      }) => {
+        const exactNearMint = input.conditions?.length === 1;
+        if (input.channelId === 1) {
+          return Promise.resolve({
+            totalProducts: 1,
+            products: [
+              { ...ownProduct, totalListings: 17, listings: [directListing] },
+            ],
+          });
+        }
+        return Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...ownProduct,
+              totalListings: 67,
+              listings: exactNearMint
+                ? [
+                    ownListing,
+                    hiddenMarketplaceListing,
+                    expensiveMarketplaceListing,
+                  ]
+                : [ownListing, expensiveMarketplaceListing],
+            },
+          ],
+        });
+      },
+    );
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => new Date("2026-08-06T20:00:00.000Z"),
     });
@@ -1587,13 +1556,13 @@ describe("smart repricing", () => {
       status: "unchanged",
       pricingSource: "lowest",
     });
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
-    expect(searchMarketplaceProductListings).toHaveBeenNthCalledWith(
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        productId: 179491,
+        productIds: [179491],
         conditions: ["Near Mint"],
-        channelIds: [0, 1],
+        channelId: 0,
       }),
     );
   });
@@ -1609,11 +1578,12 @@ describe("smart repricing", () => {
       (input: { readonly channelId?: number }) =>
         Promise.resolve(input.channelId === 0 ? [product(ownListing)] : []),
     );
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(listingPage([competitor]));
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => new Date("2026-08-05T12:00:00.000Z"),
     });
@@ -1630,7 +1600,7 @@ describe("smart repricing", () => {
       source: "cache",
     });
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
 
     const row = second.rows[0];
     if (row === undefined) throw new Error("Missing cached preview row");
@@ -1639,7 +1609,7 @@ describe("smart repricing", () => {
 
     expect(afterQueue.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(4);
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
   });
 
   it("reloads an expired or explicitly refreshed marketplace snapshot", async () => {
@@ -1657,12 +1627,13 @@ describe("smart repricing", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([product(ownListing)])
       .mockResolvedValueOnce([]);
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(listingPage([competitor]));
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
     let now = new Date("2026-08-05T12:00:00.000Z");
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => now,
       marketplaceCacheLifetimeMs: 180_000,
@@ -1676,7 +1647,7 @@ describe("smart repricing", () => {
     expect(expired.marketplaceSnapshot.source).toBe("fresh");
     expect(forced.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(6);
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(3);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(6);
   });
 
   it("coalesces simultaneous marketplace snapshot loads", async () => {
@@ -1696,11 +1667,12 @@ describe("smart repricing", () => {
         return input.channelId === 0 ? [product(ownListing)] : [];
       },
     );
-    const searchMarketplaceProductListings = vi
-      .fn()
-      .mockResolvedValue(listingPage([competitor]));
+    const searchMarketplaceProducts = vi.fn().mockResolvedValue({
+      totalProducts: 1,
+      products: [product(competitor)],
+    });
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProductListings },
+      client: { listSellerInventory, searchMarketplaceProducts },
       sellerKey,
       now: () => new Date("2026-08-05T12:00:00.000Z"),
     });
@@ -1715,6 +1687,6 @@ describe("smart repricing", () => {
       second.marketplaceSnapshot.source,
     ]).toEqual(["fresh", "shared"]);
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
   });
 });

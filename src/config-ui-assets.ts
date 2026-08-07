@@ -2451,7 +2451,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     });
     const comparableCount = row.qualifyingListings === undefined
       ? ""
-      : " · " + row.qualifyingListings + (row.comparisonSampleIncomplete ? " loaded" : "") + " comparable" + (row.qualifyingListings === 1 ? "" : "s") + (row.comparisonSampleIncomplete ? " · more available" : "");
+      : " · " + row.qualifyingListings + " comparable" + (row.qualifyingListings === 1 ? "" : "s");
     const supportDetail = row.supportMode !== "cluster"
       ? ""
       : " · " + row.lowestSellerSupport + " seller" + (row.lowestSellerSupport === 1 ? "" : "s") + " near low"
