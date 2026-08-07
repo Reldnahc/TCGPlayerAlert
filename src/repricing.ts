@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   MarketplaceListing,
   MarketplaceProduct,
+  SearchMarketplaceProductListingsResult,
   SellerInventoryRemoval,
   SellerPriceUpdate,
   TcgplayerSellerClient,
@@ -149,14 +150,13 @@ interface MarketplaceComparisonSample {
 }
 
 interface RepricingComparisonEvidence {
-  readonly reportedQualifyingListings?: number;
   readonly incomplete?: boolean;
 }
 
 export interface RepricingServiceOptions {
   readonly client: Pick<
     TcgplayerSellerClient,
-    "listSellerInventory" | "searchMarketplaceProducts"
+    "listSellerInventory" | "searchMarketplaceProductListings"
   >;
   readonly sellerKey: string;
   readonly now?: () => Date;
@@ -421,6 +421,37 @@ function isVerifiedDirectListing(listing: MarketplaceListing): boolean {
   );
 }
 
+function comparisonCandidates(
+  own: SellerListingContext,
+  comparisonListings: readonly MarketplaceListing[],
+  sellerKey: string,
+  rules: RepricingRules,
+  conditions: readonly string[],
+): readonly MarketplaceListing[] {
+  return comparisonListings
+    .filter(
+      (listing) =>
+        listing.productId === own.listing.productId &&
+        listing.sellerKey !== sellerKey &&
+        (listing.channelId === 0 || isVerifiedDirectListing(listing)) &&
+        (listing.listingType === undefined ||
+          listing.listingType === "standard") &&
+        listing.printing === own.listing.printing &&
+        listing.language === own.listing.language &&
+        conditions.includes(listing.condition) &&
+        listing.quantity > 0 &&
+        listing.customData.customListingId === undefined,
+    )
+    .sort((left, right) => {
+      const priceDifference =
+        listingBasis(left, rules.priceBasis) -
+        listingBasis(right, rules.priceBasis);
+      return priceDifference === 0
+        ? left.productConditionId - right.productConditionId
+        : priceDifference;
+    });
+}
+
 interface SupportedSellerCluster {
   readonly listing: MarketplaceListing;
   readonly sellerCount: number;
@@ -560,26 +591,13 @@ export function calculateRepricingRow(
   if (conditions === undefined) {
     return skippedRow(base, "This listing uses an unsupported condition.");
   }
-  const candidates = comparisonListings
-    .filter(
-      (listing) =>
-        listing.productId === own.listing.productId &&
-        listing.sellerKey !== sellerKey &&
-        (listing.channelId === 0 || isVerifiedDirectListing(listing)) &&
-        listing.printing === own.listing.printing &&
-        listing.language === own.listing.language &&
-        conditions.includes(listing.condition) &&
-        listing.quantity > 0 &&
-        listing.customData.customListingId === undefined,
-    )
-    .sort((left, right) => {
-      const priceDifference =
-        listingBasis(left, rules.priceBasis) -
-        listingBasis(right, rules.priceBasis);
-      return priceDifference === 0
-        ? left.productConditionId - right.productConditionId
-        : priceDifference;
-    });
+  const candidates = comparisonCandidates(
+    own,
+    comparisonListings,
+    sellerKey,
+    rules,
+    conditions,
+  );
   const lowest = candidates[0];
   const nextLowest = candidates[1];
   const sellerListings = cheapestListingsBySeller(candidates);
@@ -623,10 +641,7 @@ export function calculateRepricingRow(
       ? undefined
       : ((gapReferenceBasis - lowestBasis) / lowestBasis) * 100;
   const sparseMarketFallback = rules.sparseMarketFallback ?? "skip";
-  const qualifyingListingCount = Math.max(
-    candidates.length,
-    evidence.reportedQualifyingListings ?? 0,
-  );
+  const qualifyingListingCount = candidates.length;
   const insufficientListings = qualifyingListingCount < minimumListings;
   const unsupportedSellerBand =
     supportMode === "cluster" &&
@@ -942,15 +957,6 @@ function comparisonRecoveryKey(
   ]);
 }
 
-function sellerConditionKey(context: SellerListingContext): string {
-  return JSON.stringify([
-    context.product.productId,
-    context.listing.printing,
-    context.listing.language,
-    context.listing.condition,
-  ]);
-}
-
 function comparisonRecoveryGroupKey(
   context: SellerListingContext,
   conditions: readonly string[],
@@ -976,23 +982,17 @@ function comparisonSampleIncomplete(
   return sample.marketplaceTotalListings > sample.marketplaceReturnedListings;
 }
 
-function mergeComparisonProduct(
+function mergeComparisonPage(
   sample: MarketplaceComparisonSample,
-  product: MarketplaceProduct,
-  channelId: number,
+  result: SearchMarketplaceProductListingsResult,
 ): MarketplaceComparisonSample {
-  const eligibleListings = product.listings.filter((listing) =>
-    channelId === 0
-      ? listing.channelId === 0
-      : isVerifiedDirectListing(listing),
-  );
   const listings = [...sample.listings];
   const listingKeys = new Set(
     listings.map(
       (listing) => `${String(listing.listingId)}:${String(listing.channelId)}`,
     ),
   );
-  for (const listing of eligibleListings) {
+  for (const listing of result.listings) {
     const listingKey = `${String(listing.listingId)}:${String(listing.channelId)}`;
     if (listingKeys.has(listingKey)) continue;
     listingKeys.add(listingKey);
@@ -1000,21 +1000,49 @@ function mergeComparisonProduct(
   }
   return {
     listings,
-    marketplaceTotalListings:
-      channelId === 0 ? product.totalListings : sample.marketplaceTotalListings,
+    marketplaceTotalListings: result.totalListings,
     marketplaceReturnedListings:
-      channelId === 0
-        ? eligibleListings.length
-        : sample.marketplaceReturnedListings,
+      sample.marketplaceReturnedListings + result.listings.length,
   };
 }
 
-function chunks<T>(values: readonly T[], size: number): readonly T[][] {
-  const result: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    result.push(values.slice(index, index + size));
+function comparisonSampleSatisfiesRules(
+  context: SellerListingContext,
+  sample: MarketplaceComparisonSample,
+  sellerKey: string,
+  rules: RepricingRules,
+  conditions: readonly string[],
+): boolean {
+  if (!comparisonSampleIncomplete(sample)) return true;
+  const candidates = comparisonCandidates(
+    context,
+    sample.listings,
+    sellerKey,
+    rules,
+    conditions,
+  );
+  const lowest = candidates[0];
+  const marketPrice =
+    context.product.marketPrice > 0 ? context.product.marketPrice : undefined;
+  const reference =
+    lowest === undefined ? marketPrice : listingBasis(lowest, rules.priceBasis);
+  if (reference === undefined) return false;
+  const range = matchingRange(reference, rules.ranges);
+  if (candidates.length < (range.minimumListings ?? 0)) return false;
+  if (range.priceSource === "lowest" && lowest === undefined) return false;
+  if (range.gapAction === "follow-lowest") return true;
+  const sellerListings = cheapestListingsBySeller(candidates);
+  if ((range.supportMode ?? "adjacent") === "adjacent") {
+    return candidates.length >= 2;
   }
-  return result;
+  return (
+    cheapestSupportedCluster(
+      sellerListings,
+      rules.priceBasis,
+      range.supportWindowPercent ?? 5,
+      range.minimumSellerSupport ?? 2,
+    ) !== undefined
+  );
 }
 
 export class RepricingService {
@@ -1063,12 +1091,6 @@ export class RepricingService {
         product.listings.map((listing) => listing.productConditionId),
       ),
     );
-    const sellerConditionCounts = new Map<string, number>();
-    for (const context of sellerListings) {
-      const key = sellerConditionKey(context);
-      sellerConditionCounts.set(key, (sellerConditionCounts.get(key) ?? 0) + 1);
-    }
-
     await this.recoverSparseComparisons(
       snapshot,
       sellerListings.filter(
@@ -1113,22 +1135,6 @@ export class RepricingService {
                     comparisonRecoveryKey(context, conditions),
                   );
             const sample = recoveredSample ?? emptyComparisonSample();
-            const ownMatchingListings =
-              conditions === undefined
-                ? 0
-                : conditions.reduce(
-                    (total, condition) =>
-                      total +
-                      (sellerConditionCounts.get(
-                        JSON.stringify([
-                          context.product.productId,
-                          context.listing.printing,
-                          context.listing.language,
-                          condition,
-                        ]),
-                      ) ?? 0),
-                    0,
-                  );
             return calculateRepricingRow(
               context,
               sample.listings,
@@ -1138,10 +1144,6 @@ export class RepricingService {
               recoveredSample === undefined
                 ? {}
                 : {
-                    reportedQualifyingListings: Math.max(
-                      0,
-                      sample.marketplaceTotalListings - ownMatchingListings,
-                    ),
                     incomplete: comparisonSampleIncomplete(sample),
                   },
             );
@@ -1310,14 +1312,26 @@ export class RepricingService {
       );
       if (conditions === undefined) continue;
       const recoveryKey = comparisonRecoveryKey(context, conditions);
-      if (snapshot.comparisonRecoveries.has(recoveryKey)) continue;
+      const existingSample = snapshot.comparisonRecoveries.get(recoveryKey);
+      if (
+        existingSample !== undefined &&
+        comparisonSampleSatisfiesRules(
+          context,
+          existingSample,
+          this.sellerKey,
+          rules,
+          conditions,
+        )
+      ) {
+        continue;
+      }
       const groupKey = comparisonRecoveryGroupKey(context, conditions);
       const group = groups.get(groupKey) ?? { conditions, contexts: [] };
       group.contexts.push(context);
       groups.set(groupKey, group);
     }
     if (groups.size === 0) return;
-    const load = this.loadComparisonRecoveries(snapshot, groups);
+    const load = this.loadComparisonRecoveries(snapshot, groups, rules);
     this.marketplaceRecoveryLoads.set(snapshot, load);
     try {
       await load;
@@ -1337,44 +1351,62 @@ export class RepricingService {
         readonly contexts: readonly SellerListingContext[];
       }
     >,
+    rules: RepricingRules,
   ): Promise<void> {
     for (const [groupKey, group] of groups) {
       const [printing, language] = JSON.parse(groupKey) as [string, string];
-      const productIds = [
-        ...new Set(group.contexts.map((context) => context.product.productId)),
-      ];
-      for (const productIdChunk of chunks(productIds, 24)) {
-        const samples = new Map<number, MarketplaceComparisonSample>(
-          productIdChunk.map((productId) => [
-            productId,
-            emptyComparisonSample(),
-          ]),
-        );
-        for (const channelId of [0, 1]) {
-          const result = await this.client.searchMarketplaceProducts({
-            productIds: productIdChunk,
+      const contextsByProduct = new Map<number, SellerListingContext>();
+      for (const context of group.contexts) {
+        if (!contextsByProduct.has(context.product.productId)) {
+          contextsByProduct.set(context.product.productId, context);
+        }
+      }
+      for (const context of contextsByProduct.values()) {
+        const recoveryKey = comparisonRecoveryKey(context, group.conditions);
+        let sample =
+          snapshot.comparisonRecoveries.get(recoveryKey) ??
+          emptyComparisonSample();
+        let pageCount = 0;
+        while (
+          (pageCount === 0 ||
+            (comparisonSampleIncomplete(sample) &&
+              !comparisonSampleSatisfiesRules(
+                context,
+                sample,
+                this.sellerKey,
+                rules,
+                group.conditions,
+              ))) &&
+          pageCount < 3
+        ) {
+          const result = await this.client.searchMarketplaceProductListings({
+            productId: context.product.productId,
             conditions: group.conditions,
             printings: [printing],
             languages: [language],
-            channelId,
-            limit: 24,
+            channelIds: [0, 1],
+            listingTypes: ["standard"],
+            offset: sample.marketplaceReturnedListings,
+            limit: 50,
+            sort: "price",
           });
-          for (const product of result.products) {
-            samples.set(
-              product.productId,
-              mergeComparisonProduct(
-                samples.get(product.productId) ?? emptyComparisonSample(),
-                product,
-                channelId,
-              ),
-            );
+          const nextSample = mergeComparisonPage(sample, result);
+          pageCount += 1;
+          if (
+            nextSample.marketplaceReturnedListings ===
+            sample.marketplaceReturnedListings
+          ) {
+            sample = nextSample;
+            break;
           }
+          sample = nextSample;
         }
-        for (const context of group.contexts) {
-          if (!productIdChunk.includes(context.product.productId)) continue;
+        for (const matchingContext of group.contexts) {
+          if (matchingContext.product.productId !== context.product.productId)
+            continue;
           snapshot.comparisonRecoveries.set(
-            comparisonRecoveryKey(context, group.conditions),
-            samples.get(context.product.productId) ?? emptyComparisonSample(),
+            comparisonRecoveryKey(matchingContext, group.conditions),
+            sample,
           );
         }
       }

@@ -940,8 +940,8 @@ describe("configuration UI service", () => {
       sellerKey: "synthetic-seller",
       client: {
         listSellerInventory: () => Promise.resolve([]),
-        searchMarketplaceProducts: () =>
-          Promise.resolve({ totalProducts: 0, products: [] }),
+        searchMarketplaceProductListings: ({ productId }) =>
+          Promise.resolve({ productId, totalListings: 0, listings: [] }),
       },
     });
     const catalogSummary = {
