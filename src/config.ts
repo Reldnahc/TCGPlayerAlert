@@ -148,6 +148,7 @@ export interface AppConfig {
   readonly version: 1;
   readonly pricingProfileDefaultsVersion: 1;
   readonly pollIntervalMinutes: number;
+  readonly confirmBeforeMarkingShipped: boolean;
   readonly actionMaximumAttempts: number;
   readonly stateFile: string;
   readonly spoolDirectory: string;
@@ -1074,6 +1075,10 @@ export function parseConfig(value: unknown): AppConfig {
     1440,
     issues,
   );
+  const confirmBeforeMarkingShipped =
+    root?.confirmBeforeMarkingShipped === undefined
+      ? true
+      : booleanValue(root, "confirmBeforeMarkingShipped", "config", issues);
   const actionMaximumAttempts = integer(
     root,
     "actionMaximumAttempts",
@@ -1239,6 +1244,7 @@ export function parseConfig(value: unknown): AppConfig {
     version: 1,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
+    confirmBeforeMarkingShipped,
     actionMaximumAttempts,
     stateFile,
     spoolDirectory,

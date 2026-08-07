@@ -47,7 +47,7 @@ export function SettingsPage() {
               <div class="editor-section__head">
                 <div>
                   <h2>General</h2>
-                  <p>Application-wide polling behavior.</p>
+                  <p>Application-wide order behavior.</p>
                 </div>
               </div>
               <div class="form-grid form-grid--2">
@@ -65,6 +65,17 @@ export function SettingsPage() {
                     }
                   />
                 </Field>
+                <Toggle
+                  label="Confirm before marking shipped"
+                  description="Require approval before changing an order to shipped"
+                  checked={settings.confirmBeforeMarkingShipped}
+                  onChange={(checked) =>
+                    update((current) => ({
+                      ...current,
+                      confirmBeforeMarkingShipped: checked,
+                    }))
+                  }
+                />
               </div>
             </section>
           ) : section === "pricing" ? (

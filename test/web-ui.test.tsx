@@ -9,6 +9,7 @@ import type { Settings } from "../src/web/contracts.js";
 const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
+  confirmBeforeMarkingShipped: true,
   priceUpdateQueue: { enabled: true, delaySeconds: 0 },
   inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
   merchandiseProfiles: [
@@ -191,6 +192,11 @@ describe("operator console", () => {
       await screen.findByRole("heading", { name: "Settings" }),
     ).toBeTruthy();
     expect(screen.queryByText("Unsaved configuration changes")).toBeNull();
+    const shipmentConfirmation = screen.getByRole("checkbox", {
+      name: /Confirm before marking shipped/u,
+    });
+    expect((shipmentConfirmation as HTMLInputElement).checked).toBe(true);
+    await user.click(shipmentConfirmation);
     const interval = screen.getByRole("spinbutton");
     await user.clear(interval);
     await user.type(interval, "17");
@@ -203,6 +209,77 @@ describe("operator console", () => {
       "/api/settings",
       expect.objectContaining({ method: "PUT" }),
     );
+    const settingsSave = fetchMock.mock.calls.find(
+      ([input, options]) =>
+        requestPath(input) === "/api/settings" && options?.method === "PUT",
+    );
+    expect(settingsSave).toBeDefined();
+    const settingsBody = settingsSave?.[1]?.body;
+    if (typeof settingsBody !== "string") {
+      throw new Error("Expected settings to be submitted as JSON.");
+    }
+    expect(JSON.parse(settingsBody) as Record<string, unknown>).toMatchObject({
+      confirmBeforeMarkingShipped: false,
+    });
+  });
+
+  it("marks an order shipped immediately when confirmation is disabled", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/settings") {
+          return Promise.resolve(
+            json({ ...settings, confirmBeforeMarkingShipped: false }),
+          );
+        }
+        if (
+          path === "/api/orders/SYNTHETIC-ORDER-1/mark-shipped" &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(
+            json({ orderNumber: "SYNTHETIC-ORDER-1", outcome: "applied" }),
+          );
+        }
+        if (path.startsWith("/api/orders?")) {
+          return Promise.resolve(
+            json({
+              orders: [
+                {
+                  orderNumber: "SYNTHETIC-ORDER-1",
+                  buyerName: "Synthetic Buyer",
+                  orderDate: "2026-08-07T12:00:00.000Z",
+                  status: "Ready to Ship",
+                  statusCode: "ReadyToShip",
+                  canMarkShipped: true,
+                  shippingType: "Standard",
+                  productAmount: 10,
+                  shippingAmount: 1.49,
+                  totalAmount: 11.49,
+                },
+              ],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Mark shipped" }),
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/orders/SYNTHETIC-ORDER-1/mark-shipped",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("adds an exact catalog SKU directly from the search row", async () => {

@@ -78,6 +78,7 @@ export type OutputSettings =
 export interface ConfigurationUiSettings {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
+  readonly confirmBeforeMarkingShipped: boolean;
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
@@ -98,6 +99,7 @@ export interface ConfigurationUiSettings {
 export interface ConfigurationUiUpdate {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
+  readonly confirmBeforeMarkingShipped: boolean;
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
@@ -195,6 +197,7 @@ export class ConfigurationService {
     return {
       revision,
       pollIntervalMinutes: config.pollIntervalMinutes,
+      confirmBeforeMarkingShipped: config.confirmBeforeMarkingShipped,
       priceUpdateQueue: {
         enabled: config.priceUpdateQueue.enabled,
         delaySeconds: config.priceUpdateQueue.delaySeconds,
@@ -382,6 +385,10 @@ function parseUiUpdate(
   ) {
     issues.push("The polling interval must be between 1 and 1440 minutes.");
   }
+  const confirmBeforeMarkingShipped = source?.confirmBeforeMarkingShipped;
+  if (typeof confirmBeforeMarkingShipped !== "boolean") {
+    issues.push("Mark-shipped confirmation must be true or false.");
+  }
   const priceUpdateQueueSource = objectValue(source?.priceUpdateQueue);
   if (priceUpdateQueueSource === undefined) {
     issues.push("Price-update queue settings are required.");
@@ -518,6 +525,7 @@ function parseUiUpdate(
   return {
     revision: revision as string,
     pollIntervalMinutes: Number(pollIntervalMinutes),
+    confirmBeforeMarkingShipped: confirmBeforeMarkingShipped as boolean,
     priceUpdateQueue: {
       enabled: priceUpdateQueueEnabled as boolean,
       delaySeconds: Number(priceUpdateDelaySeconds),
@@ -895,6 +903,7 @@ function applyUpdate(
   return {
     ...config,
     pollIntervalMinutes: update.pollIntervalMinutes,
+    confirmBeforeMarkingShipped: update.confirmBeforeMarkingShipped,
     priceUpdateQueue: {
       ...config.priceUpdateQueue,
       enabled: update.priceUpdateQueue.enabled,

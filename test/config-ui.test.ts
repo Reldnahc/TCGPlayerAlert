@@ -67,6 +67,7 @@ describe("configuration UI", () => {
     const saved = await current.service.save({
       revision: initial.revision,
       pollIntervalMinutes: 15,
+      confirmBeforeMarkingShipped: false,
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
       inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
       merchandiseProfiles: [
@@ -103,6 +104,7 @@ describe("configuration UI", () => {
     expect(saved.revision).not.toBe(initial.revision);
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
+      confirmBeforeMarkingShipped: false,
       merchandiseProfiles: [
         { estimatedShippingPrice: 0.99, defaultCondition: "Lightly Played" },
       ],

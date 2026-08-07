@@ -12,6 +12,7 @@ describe("application configuration", () => {
 
     expect(config.version).toBe(1);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
+    expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.priceUpdateQueue.delaySeconds).toBe(1);
     expect(config.inventoryAdditionQueue).toMatchObject({
       enabled: false,
@@ -95,6 +96,15 @@ describe("application configuration", () => {
       omitLineValues: ["US", "USA"],
       page: { fontSize: 14 },
     });
+  });
+
+  it("keeps shipment confirmation enabled for older configuration files", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    delete value.confirmBeforeMarkingShipped;
+
+    expect(parseConfig(value).confirmBeforeMarkingShipped).toBe(true);
   });
 
   it("migrates an older version-one config with inventory-addition defaults", async () => {

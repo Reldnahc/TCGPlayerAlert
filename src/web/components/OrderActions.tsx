@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { packingSlipUrl, sellerPortalOrderUrl, uiApi } from "../api.js";
 import type { Order } from "../contracts.js";
 import { useOrders } from "../state/OrdersContext.js";
+import { useSettings } from "../state/SettingsContext.js";
 import { useToast } from "../state/ToastContext.js";
 import { errorMessage } from "../utils.js";
 import { Icon } from "./Icon.js";
@@ -17,6 +18,7 @@ export function OrderActions({
   readonly compact?: boolean;
 }) {
   const { load } = useOrders();
+  const { settings } = useSettings();
   const toast = useToast();
   const [busy, setBusy] = useState("");
   const [trackingOpen, setTrackingOpen] = useState(false);
@@ -86,7 +88,11 @@ export function OrderActions({
   }
 
   async function markShipped() {
-    if (!window.confirm(`Mark order ${order.orderNumber} as shipped?`)) return;
+    if (
+      settings?.confirmBeforeMarkingShipped !== false &&
+      !window.confirm(`Mark order ${order.orderNumber} as shipped?`)
+    )
+      return;
     await run(
       "shipped",
       async () => {

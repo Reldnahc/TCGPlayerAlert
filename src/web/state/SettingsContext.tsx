@@ -27,6 +27,7 @@ export function settingsUpdate(settings: Settings): SettingsUpdate {
   return {
     revision: settings.revision,
     pollIntervalMinutes: settings.pollIntervalMinutes,
+    confirmBeforeMarkingShipped: settings.confirmBeforeMarkingShipped,
     priceUpdateQueue: settings.priceUpdateQueue,
     inventoryAdditionQueue: settings.inventoryAdditionQueue,
     merchandiseProfiles: settings.merchandiseProfiles,

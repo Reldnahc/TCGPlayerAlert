@@ -2,6 +2,7 @@
   "version": 1,
   "pricingProfileDefaultsVersion": 1,
   "pollIntervalMinutes": 60,
+  "confirmBeforeMarkingShipped": true,
   "actionMaximumAttempts": 3,
   "stateFile": ".data/state.json",
   "spoolDirectory": ".spool",

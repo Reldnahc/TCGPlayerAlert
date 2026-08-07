@@ -46,6 +46,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     version: 1,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
+    confirmBeforeMarkingShipped: true,
     actionMaximumAttempts: 3,
     stateFile: ".data/test-state.json",
     spoolDirectory: ".spool-test",
