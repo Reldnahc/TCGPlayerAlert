@@ -34,4 +34,10 @@ After the package is published, replace the file dependency with the immutable r
 
 Both dependencies are pinned. Their platform-specific runtime artifacts are installed through npm and covered by the normal dependency audit. No PDF-viewer executable is copied into this repository.
 
+## Operator console
+
+- `preact@10.29.8` (MIT) provides the small, typed component runtime shipped to the loopback-only browser UI.
+- `vite@8.2.1` and `@preact/preset-vite@2.10.6` (MIT) compile and hash the browser assets during development and release builds; they are not loaded by the running service.
+- Testing Library and jsdom are pinned development-only dependencies used for interaction tests. The compiled application and server route tests remain part of `npm test`.
+
 No upstream application source from `todd-skelton/tcgplayer-automation-app` is copied into this repository.

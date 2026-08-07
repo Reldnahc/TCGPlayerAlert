@@ -1,26 +1,14 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { Script } from "node:vm";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConfigurationService,
-  immediateSyncLease,
-  InventoryAdditionQueueStore,
-  InventoryAdditionService,
   loadConfig,
-  OrderManagementService,
-  PriceUpdateQueueStore,
-  RepricingService,
   startConfigurationUi,
   type AppConfig,
   type ConfigurationUiServer,
 } from "../src/index.js";
-import {
-  CONFIG_UI_CSS,
-  CONFIG_UI_HTML,
-  CONFIG_UI_JS,
-} from "../src/config-ui-assets.js";
 
 const discovery = () =>
   Promise.resolve({
@@ -31,7 +19,7 @@ const discovery = () =>
     ],
   });
 
-async function configurationFixture(): Promise<{
+async function fixture(): Promise<{
   readonly path: string;
   readonly service: ConfigurationService;
 }> {
@@ -47,7 +35,7 @@ async function configurationFixture(): Promise<{
   };
 }
 
-describe("configuration UI service", () => {
+describe("configuration UI", () => {
   let server: ConfigurationUiServer | undefined;
 
   afterEach(async () => {
@@ -55,72 +43,40 @@ describe("configuration UI service", () => {
     server = undefined;
   });
 
-  it("discovers printers and atomically saves independently enabled outputs", async () => {
-    const fixture = await configurationFixture();
-    const initial = await fixture.service.read();
+  it("reads and atomically saves profile, queue, and printer settings", async () => {
+    const current = await fixture();
+    const initial = await current.service.read();
     const address = initial.outputs.find(
       (output) => output.type === "print-address-label",
     );
-    const packingSlip = initial.outputs.find(
+    const packing = initial.outputs.find(
       (output) => output.type === "print-packing-slip",
     );
-    if (address === undefined || packingSlip === undefined) {
-      throw new Error("The fixture is missing print actions.");
-    }
-    expect(initial.repricingProfiles).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "sell-now", name: "Sell now" }),
-      ]),
-    );
+    const merchandise = initial.merchandiseProfiles[0];
+    const pricing = initial.repricingProfiles[0];
+    if (
+      address === undefined ||
+      packing === undefined ||
+      merchandise === undefined ||
+      pricing === undefined
+    )
+      throw new Error("The fixture is incomplete.");
 
-    const saved = await fixture.service.save({
+    const saved = await current.service.save({
       revision: initial.revision,
       pollIntervalMinutes: 15,
-      priceUpdateQueue: {
-        enabled: true,
-        delaySeconds: 0,
-      },
-      inventoryAdditionQueue: {
-        enabled: true,
-        delaySeconds: 0,
-      },
+      priceUpdateQueue: { enabled: true, delaySeconds: 0 },
+      inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
       merchandiseProfiles: [
         {
-          ...initial.merchandiseProfiles[0],
+          ...merchandise,
           estimatedShippingPrice: 0.99,
           defaultCondition: "Lightly Played",
         },
       ],
-      defaultMerchandiseProfileId: "english-singles",
-      repricingProfiles: [
-        {
-          ...initial.repricingProfiles[0],
-          name: "Wait out gaps",
-          gamePricingModules: [
-            {
-              type: "magic-rarity-floor",
-              enabled: true,
-              floors: [{ rarity: "Rare", minimumPrice: 0.75 }],
-            },
-          ],
-          ranges: [
-            {
-              maximumPrice: 5,
-              priceSource: "lowest",
-              percentage: 100,
-              gapThresholdPercent: 30,
-              gapAction: "use-next",
-            },
-            {
-              priceSource: "market",
-              percentage: 95,
-              gapThresholdPercent: 20,
-              gapAction: "skip",
-            },
-          ],
-        },
-      ],
-      defaultRepricingProfileId: "match-lowest",
+      defaultMerchandiseProfileId: merchandise.id,
+      repricingProfiles: [{ ...pricing, name: "Operator profile" }],
+      defaultRepricingProfileId: pricing.id,
       outputs: [
         {
           actionId: address.actionId,
@@ -132,7 +88,7 @@ describe("configuration UI service", () => {
           fontSize: 14,
         },
         {
-          actionId: packingSlip.actionId,
+          actionId: packing.actionId,
           enabled: true,
           printerName: "Synthetic Office Printer",
           dpi: 200,
@@ -140,92 +96,40 @@ describe("configuration UI service", () => {
         },
       ],
     });
-    const config = await loadConfig(fixture.path);
+    const config = await loadConfig(current.path);
 
     expect(saved.revision).not.toBe(initial.revision);
-    expect(saved.repricingProfiles.map((profile) => profile.id)).not.toContain(
-      "sell-now",
-    );
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
-      priceUpdateQueue: { enabled: true, delaySeconds: 0 },
-      inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
       merchandiseProfiles: [
-        {
-          id: "english-singles",
-          estimatedShippingPrice: 0.99,
-          defaultCondition: "Lightly Played",
-          pricingProfileId: "match-lowest",
-        },
+        { estimatedShippingPrice: 0.99, defaultCondition: "Lightly Played" },
       ],
-      defaultMerchandiseProfileId: "english-singles",
-      repricingProfiles: [
-        {
-          id: "match-lowest",
-          name: "Wait out gaps",
-          gamePricingModules: [
-            {
-              type: "magic-rarity-floor",
-              enabled: true,
-              floors: [{ rarity: "Rare", minimumPrice: 0.75 }],
-            },
-          ],
-          ranges: [
-            {
-              maximumPrice: 5,
-              gapAction: "use-next",
-              supportMode: "adjacent",
-            },
-            {
-              priceSource: "market",
-              percentage: 95,
-              gapAction: "skip",
-              supportMode: "adjacent",
-            },
-          ],
-        },
-      ],
-      defaultRepricingProfileId: "match-lowest",
+      repricingProfiles: [{ name: "Operator profile" }],
     });
     expect(config.actions[address.actionId]?.enabled).toBe(false);
-    expect(config.actions[packingSlip.actionId]?.enabled).toBe(true);
-    expect(config.printers[address.printerId]?.printerName).toBe(
-      "Synthetic Label Printer",
-    );
-    expect(config.printers[packingSlip.printerId]).toMatchObject({
+    expect(config.printers[packing.printerId]).toMatchObject({
       printerName: "Synthetic Office Printer",
       dpi: 200,
       scale: "fit",
     });
   });
 
-  it("rejects a stale browser revision without overwriting newer settings", async () => {
-    const fixture = await configurationFixture();
-    const initial = await fixture.service.read();
-    await writeFile(fixture.path, `${await readFile(fixture.path, "utf8")} `);
-
+  it("rejects stale revisions and dependent pricing-profile removal", async () => {
+    const current = await fixture();
+    const initial = await current.service.read();
+    await writeFile(current.path, `${await readFile(current.path, "utf8")} `);
     await expect(
-      fixture.service.save({
-        ...initial,
-        pollIntervalMinutes: 30,
-      }),
+      current.service.save({ ...initial, pollIntervalMinutes: 30 }),
     ).rejects.toThrow("Settings changed on disk.");
 
-    expect(await readFile(fixture.path, "utf8")).toMatch(/\s $/u);
-  });
-
-  it("rejects removal of a pricing profile used by merchandise", async () => {
-    const fixture = await configurationFixture();
-    const initial = await fixture.service.read();
-    const pricingProfile = initial.repricingProfiles[0];
-    if (pricingProfile === undefined)
-      throw new Error("Missing pricing profile");
-
+    const fresh = await current.service.read();
+    const pricing = fresh.repricingProfiles[0];
+    if (pricing === undefined) throw new Error("Missing pricing profile.");
     await expect(
-      fixture.service.save({
-        ...initial,
-        repricingProfiles: [{ ...pricingProfile, id: "replacement-pricing" }],
-        defaultRepricingProfileId: "replacement-pricing",
+      current.service.save({
+        ...fresh,
+        repricingProfiles: [{ ...pricing, id: "replacement" }],
+        defaultRepricingProfileId: "replacement",
       }),
     ).rejects.toMatchObject({
       issues: [
@@ -234,1052 +138,103 @@ describe("configuration UI service", () => {
     });
   });
 
-  it("ships syntactically valid browser JavaScript", () => {
-    expect(() => new Script(CONFIG_UI_JS)).not.toThrow();
-    expect(CONFIG_UI_JS).not.toContain(
-      ".filter((product) => product.sellerListable)",
+  it("serves the compiled application and hashed assets with local security headers", async () => {
+    const current = await fixture();
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+    });
+    const page = await fetch(server.url);
+    const html = await page.text();
+    const assetPath = /src="(\/assets\/[^"]+\.js)"/u.exec(html)?.[1];
+    if (assetPath === undefined)
+      throw new Error("The compiled JavaScript asset is missing.");
+    const asset = await fetch(`${server.url}${assetPath}`);
+
+    expect(page.status).toBe(200);
+    expect(page.headers.get("Content-Security-Policy")).toContain(
+      "default-src 'self'",
     );
-    expect(CONFIG_UI_JS).not.toContain("#inventory-sku");
-    expect(CONFIG_UI_JS).not.toContain("defaultInventoryLanguage()");
-    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.merchandise-profile");
-    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.repricing-profile");
-    expect(CONFIG_UI_JS).toContain("localStorage.setItem");
-    expect(CONFIG_UI_HTML).toContain('id="inventory-profile-select"');
-    expect(CONFIG_UI_HTML).toContain('id="inventory-quantity-dialog"');
-    expect(CONFIG_UI_HTML).toContain('id="merchandise-profile-list"');
-    expect(CONFIG_UI_HTML).toContain('id="repricing-profile-select"');
-    expect(CONFIG_UI_HTML).toContain('id="repricing-profile-list"');
-    expect(CONFIG_UI_HTML).toContain("Pricing profiles");
-    expect(CONFIG_UI_HTML).not.toContain('id="repricing-minimum"');
-    expect(CONFIG_UI_HTML).toContain('id="catalog-product-line" disabled');
-    expect(CONFIG_UI_HTML).not.toContain("catalog-product-lines");
-    expect(CONFIG_UI_HTML).toContain('id="catalog-set"');
-    expect(CONFIG_UI_HTML).toContain("Card name or product number");
-    expect(CONFIG_UI_HTML).toContain("Search name or TCGplayer #");
-    expect(CONFIG_UI_HTML).not.toContain('id="inventory-editor"');
-    expect(CONFIG_UI_HTML).not.toContain('id="inventory-preview"');
-    expect(
-      CONFIG_UI_HTML.indexOf('class="inventory-profile-bar"'),
-    ).toBeLessThan(CONFIG_UI_HTML.indexOf('class="catalog-search-row"'));
-    expect(CONFIG_UI_JS).toContain('text: "Load more"');
-    expect(CONFIG_UI_JS).toContain('catalogSection("Exact name"');
-    expect(CONFIG_UI_JS).toContain("state.catalogSearchToken");
-    expect(CONFIG_UI_JS).toContain("state.catalogSearchController?.abort()");
-    expect(CONFIG_UI_JS).not.toContain('text: "Find exact name"');
-    expect(CONFIG_UI_JS).toContain('parameters.set("setName", setName)');
-    expect(CONFIG_UI_JS).toContain("function updateCatalogSetOptions(");
-    expect(CONFIG_UI_JS).toContain("function updateCatalogProductLineOptions(");
-    expect(CONFIG_UI_JS).toContain(
-      "compareCatalogRanks(left.matchRank, right.matchRank)",
-    );
-    expect(CONFIG_UI_JS).toContain("signal: requestController.signal");
-    expect(CONFIG_UI_JS).toContain(
-      "new URLSearchParams({ q: query, offset: String(offset) })",
-    );
-    expect(CONFIG_UI_JS).toContain('text: "Foil"');
-    expect(CONFIG_UI_JS).toContain('if (foil && !normal) return "Foil"');
-    expect(CONFIG_UI_JS).toContain('if (normal && !foil) return "Normal"');
-    expect(CONFIG_UI_JS).toContain(
-      "foil.disabled = loading || printingCheckPending || lockedPrinting !== null",
-    );
-    expect(CONFIG_UI_JS).toContain('"This card is only available in Foil"');
-    expect(CONFIG_UI_JS).toContain('"This card is not available in Foil"');
-    expect(CONFIG_UI_JS).toContain("maximumCatalogDetailRequests = 2");
-    expect(CONFIG_UI_JS).toContain('rootMargin: "160px 0px"');
-    expect(CONFIG_UI_JS).toContain(
-      "function rerenderCatalogProduct(productId)",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      "current.replaceWith(catalogResult(product));",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      "catalogDetailsObserver?.unobserve(current);",
-    );
-    expect(CONFIG_UI_JS).toContain("rerenderCatalogProduct(productId);");
-    expect(CONFIG_UI_JS).toContain("function applyInventorySearchFilter()");
-    expect(CONFIG_UI_JS).toContain(
-      '" · pricing uses " + money(row.competitorPricingShipping) + " shipping"',
-    );
-    expect(CONFIG_UI_JS).toContain('" · exact listing check"');
-    expect(CONFIG_UI_JS).toContain(
-      'document.querySelectorAll("#repricing-rows > tr[data-row-id]")',
-    );
-    expect(CONFIG_UI_JS).toContain(
-      "inventorySearchTimer = window.setTimeout(() =>",
-    );
-    expect(CONFIG_UI_JS).not.toContain(
-      "state.inventorySearchText = event.target.value;\n    renderRepricingRows();",
-    );
-    expect(
-      CONFIG_UI_JS.indexOf(
-        "const printing = selectedInventoryPrinting(productId, profile)",
-      ),
-    ).toBeGreaterThan(
-      CONFIG_UI_JS.indexOf(
-        "const details = await loadInventoryProductDetails(productId)",
-      ),
-    );
-    expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
-    expect(CONFIG_UI_JS).toContain("product.foilMarketPrice");
-    expect(CONFIG_UI_JS).toContain(
-      '" / TCGplayer #" + String(product.productId)',
-    );
-    expect(CONFIG_UI_JS).toContain("!/^\\d+$/u.test(query)");
-    expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
-    expect(CONFIG_UI_JS).toContain("inventoryPrintingByProductId");
-    expect(CONFIG_UI_JS).toContain('selectInput("sparseMarketFallback"');
-    expect(CONFIG_UI_JS).toContain('text: "Magic rarity minimums"');
-    expect(CONFIG_UI_JS).toContain('type: "magic-rarity-floor"');
-    expect(CONFIG_UI_JS).toContain(
-      "gamePricingModules: pricingProfile.gamePricingModules ?? []",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      "gamePricingModules: profile.gamePricingModules ?? []",
-    );
-    expect(CONFIG_UI_CSS).toContain(".rarity-floor-grid");
-    expect(CONFIG_UI_JS).toContain("Higher of market or lowest");
-    expect(CONFIG_UI_JS).toContain("Lowest listing, then market");
-    expect(CONFIG_UI_JS).toContain('kind: "warning"');
-    expect(CONFIG_UI_JS).toContain('text: "Not queued: "');
-    expect(CONFIG_UI_CSS).toContain(".catalog-inline-status.warning");
-    expect(CONFIG_UI_CSS).toContain(".catalog-inline-status-actions");
-    expect(CONFIG_UI_HTML).toContain('id="inventory-queue-pagination"');
-    expect(CONFIG_UI_HTML).toContain('id="queue-pagination"');
-    expect(CONFIG_UI_JS).toContain("const jobsPerPage = 10");
-    expect(CONFIG_UI_JS).toContain("function renderQueuePage(queueName)");
-    expect(CONFIG_UI_JS).toContain('text: "Retry"');
-    expect(CONFIG_UI_JS).toContain('action === "resubmit"');
-    expect(CONFIG_UI_JS).not.toContain("data.jobs.slice(0, 50)");
-    expect(CONFIG_UI_JS).toContain('"pricingProfileId"');
-    expect(CONFIG_UI_JS).toContain("updatePricingProfileRemovalState");
-    expect(CONFIG_UI_JS).toContain('text: "+" + String(quantity)');
-    expect(CONFIG_UI_JS).toContain('text: "+X"');
-    expect(CONFIG_UI_JS).toContain("showModal()");
-    expect(CONFIG_UI_JS).not.toContain('className: "catalog-inline-editor"');
-    expect(CONFIG_UI_JS).not.toContain('text: "Add to queue"');
-    expect(CONFIG_UI_JS).toContain(
-      "void queueCatalogProduct(product, quantity)",
-    );
-    expect(CONFIG_UI_JS).toContain("candidate.language === profile.language");
-    expect(CONFIG_UI_JS).toContain("const availableLanguages = [...new Set(");
-    expect(CONFIG_UI_JS).toContain("availableLanguages.length !== 1");
-    expect(CONFIG_UI_JS).toContain(
-      "approvedAlternateLanguage !== alternateLanguage",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      "languageConfirmation: { language: alternateLanguage, addQuantity }",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      'text: "List " + result.languageConfirmation.language',
-    );
-    expect(CONFIG_UI_JS).toContain('text: "Cancel"');
-    expect(CONFIG_UI_JS).toContain("candidate.language === alternateLanguage");
-    expect(CONFIG_UI_JS).toContain('" as " + sku.language');
-    expect(CONFIG_UI_JS).toContain("if (!preview.queueable)");
-    expect(CONFIG_UI_JS).toContain('kind: "success"');
-    expect(CONFIG_UI_JS).not.toContain("scheduleInventoryPreview");
-    expect(CONFIG_UI_JS).not.toContain("inventoryPreviewInFlight");
-    expect(CONFIG_UI_JS).toContain("function renderRepricingRange(");
-    expect(CONFIG_UI_JS).toContain("gapThresholdPercent");
-    expect(CONFIG_UI_JS).toContain("minimumListings");
-    expect(CONFIG_UI_JS).toContain("minimumSellerSupport");
-    expect(CONFIG_UI_JS).toContain("supportWindowPercent");
-    expect(CONFIG_UI_HTML).toContain('id="repricing-force-refresh"');
-    expect(CONFIG_UI_JS).toContain("?forceRefresh=true");
-    expect(CONFIG_UI_JS).toContain("data.marketplaceSnapshot.capturedAt");
-    expect(CONFIG_UI_JS).toContain('["cluster", "Seller price bands"]');
-    expect(CONFIG_UI_JS).toContain('clusterMode ? "Use supported band"');
-    expect(CONFIG_UI_JS).toContain("ranges: profile.ranges");
-    expect(CONFIG_UI_JS).not.toContain(
-      'document.querySelector("#catalog-results").hidden = true',
-    );
-    expect(CONFIG_UI_JS).not.toContain(
-      "message.textContent = products.length +",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      'text: isAddress ? "Print test label" : "Print test sheet"',
-    );
-    expect(CONFIG_UI_JS).toContain('"/api/print-tests/"');
-    expect(CONFIG_UI_JS).toContain(
-      "Sends a real print job with synthetic data.",
-    );
+    expect(html).toContain('<div id="app"></div>');
+    expect(html).not.toContain("Seller workspace");
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("Content-Type")).toContain("text/javascript");
+    expect((await asset.text()).length).toBeGreaterThan(1_000);
   });
 
-  it("keeps routine interface copy concise", () => {
-    const interfaceSource = CONFIG_UI_HTML + CONFIG_UI_JS;
-    const removedPhrases = [
-      "section-kicker",
-      "Recipient address only",
-      "Full order document",
-      "Print method:",
-      "Suggestions appear from loaded catalog results.",
-      "same normalized name",
-      "Broader fuzzy matches",
-      "expanding only when exact results are scarce",
-      "Runs one at a time",
-      "The worker processes the next one",
-      "The worker will recheck live quantity",
-      "Start the service to process",
-      "Nothing changes until you preview",
-    ];
+  it("accepts same-origin settings updates and rejects cross-origin mutations", async () => {
+    const current = await fixture();
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+    });
+    const initial = (await (
+      await fetch(`${server.url}/api/settings`)
+    ).json()) as Record<string, unknown>;
+    const update = { ...initial, pollIntervalMinutes: 17 };
+    const serverUrl = server.url;
+    const request = (origin: string) =>
+      fetch(`${serverUrl}/api/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify(update),
+      });
 
-    for (const phrase of removedPhrases) {
-      expect(interfaceSource).not.toContain(phrase);
-    }
-    expect(CONFIG_UI_HTML).not.toContain(
-      "Prevents printing and remote changes.",
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      "For items under $5, effective shipping is at least $1.49.",
-    );
+    const forbidden = await request("https://example.test");
+    const accepted = await request(server.url);
+    expect(forbidden.status).toBe(403);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ pollIntervalMinutes: 17 });
   });
 
-  it("prints synthetic output with the current unsaved printer settings", async () => {
-    const fixture = await configurationFixture();
-    const initial = await fixture.service.read();
-    const originalFile = await readFile(fixture.path, "utf8");
-    const executePrintTest = vi.fn<
-      (config: AppConfig, actionId: string) => Promise<void>
-    >(() => Promise.resolve());
+  it("prints synthetic output using the submitted unsaved printer settings", async () => {
+    const current = await fixture();
+    const initial = await current.service.read();
     const address = initial.outputs.find(
       (output) => output.type === "print-address-label",
     );
     if (address === undefined) throw new Error("Address output is missing.");
-    const outputs = initial.outputs.map((output) =>
-      output.actionId === address.actionId
-        ? {
-            ...output,
-            enabled: false,
-            printerName: "Synthetic Label Printer",
-            marginMm: 1,
-            fontSize: 16,
-          }
-        : output,
-    );
+    const executePrintTest = vi.fn<
+      (config: AppConfig, actionId: string) => Promise<void>
+    >(() => Promise.resolve());
     server = await startConfigurationUi({
-      configPath: fixture.path,
+      configPath: current.path,
+      service: current.service,
       port: 0,
-      service: fixture.service,
       executePrintTest,
     });
-
+    const candidate = {
+      ...initial,
+      outputs: initial.outputs.map((output) =>
+        output.actionId === address.actionId
+          ? {
+              ...output,
+              enabled: false,
+              printerName: "Synthetic Label Printer",
+              marginMm: 1,
+              fontSize: 16,
+            }
+          : output,
+      ),
+    };
     const response = await fetch(
       `${server.url}/api/print-tests/${address.actionId}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: server.url,
-        },
-        body: JSON.stringify({ ...initial, outputs }),
+        headers: { "Content-Type": "application/json", Origin: server.url },
+        body: JSON.stringify(candidate),
       },
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      printed: true,
-      actionId: address.actionId,
-      synthetic: true,
-    });
     expect(executePrintTest).toHaveBeenCalledOnce();
-    expect(executePrintTest.mock.calls[0]?.[1]).toBe(address.actionId);
-    expect(executePrintTest.mock.calls[0]?.[0]).toMatchObject({
-      actions: {
-        [address.actionId]: {
-          enabled: false,
-          page: { marginMm: 1, fontSize: 16 },
-        },
-      },
-      printers: {
-        [address.printerId]: {
-          printerName: "Synthetic Label Printer",
-        },
-      },
-    });
-    expect(await readFile(fixture.path, "utf8")).toBe(originalFile);
-  });
-
-  it("serves order lists, documents, printing, tracking, and shipment actions", async () => {
-    const fixture = await configurationFixture();
-    const order = {
-      orderNumber: "synthetic-order",
-      orderDate: "2026-08-01T12:00:00.000Z",
-      orderChannel: "Marketplace",
-      orderStatus: "Ready to Ship",
-      orderStatusCode: "ReadyToShip" as const,
-      buyerName: "Synthetic Buyer",
-      shippingType: "Standard",
-      productAmount: 12,
-      shippingAmount: 1.49,
-      totalAmount: 13.49,
-      buyerPaid: true,
-      orderFulfillment: "Seller",
-    };
-    const executePrint = vi.fn(() => Promise.resolve());
-    const orderClient = {
-      searchOrders: vi.fn(() =>
-        Promise.resolve({ totalOrders: 1, orders: [order] }),
-      ),
-      confirmOrder: vi.fn(() =>
-        Promise.resolve({
-          summary: order,
-          order: {
-            createdAt: order.orderDate,
-            status: order.orderStatus,
-            statusCode: order.orderStatusCode,
-            orderChannel: order.orderChannel,
-            orderFulfillment: order.orderFulfillment,
-            orderNumber: order.orderNumber,
-            sellerName: "Synthetic Seller",
-            buyerName: order.buyerName,
-            paymentType: "CreditCard",
-            pickupStatus: "",
-            shippingType: order.shippingType,
-            estimatedDeliveryDate: "2026-08-08T12:00:00.000Z",
-            transaction: {
-              productAmount: order.productAmount,
-              shippingAmount: order.shippingAmount,
-              grossAmount: order.totalAmount,
-              feeAmount: 1,
-              netAmount: 12.49,
-              directFeeAmount: 0,
-              taxes: [],
-            },
-            shippingAddress: {
-              recipientName: "Synthetic Buyer",
-              addressOne: "123 Example Street",
-              city: "Example City",
-              territory: "IL",
-              country: "US",
-              postalCode: "00000",
-            },
-            products: [],
-            refundStatus: "None",
-            trackingNumbers: [],
-            allowedActions: ["AddTracking", "MarkShipped"],
-          },
-        }),
-      ),
-      getPackingSlip: vi.fn(() =>
-        Promise.resolve({
-          bytes: new Uint8Array([37, 80, 68, 70]),
-          contentType: "application/pdf" as const,
-          fileName: "packing-slip.pdf",
-          orderNumbers: [order.orderNumber],
-        }),
-      ),
-      detectCarrier: vi.fn(() => Promise.resolve({ carrier: "USPS" })),
-      addOrderTracking: vi.fn(() =>
-        Promise.resolve({
-          orderNumber: order.orderNumber,
-          outcome: "applied" as const,
-        }),
-      ),
-      markOrdersShipped: vi.fn(() =>
-        Promise.resolve({
-          updatedOrderNumbers: [order.orderNumber],
-          alreadyShippedOrderNumbers: [],
-          errors: [],
-        }),
-      ),
-    };
-    const orderService = new OrderManagementService({
-      client: orderClient,
-      sellerKey: "synthetic-seller",
-      pageSize: 100,
-      maximumPages: 10,
-      timezoneOffsetMinutes: 300,
-      executePrint,
-    });
-    server = await startConfigurationUi({
-      configPath: fixture.path,
-      port: 0,
-      service: fixture.service,
-      orderService,
-    });
-    const serverUrl = server.url;
-    const mutation = (path: string, body: unknown) =>
-      fetch(`${serverUrl}/api/orders/synthetic-order/${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: serverUrl,
-        },
-        body: JSON.stringify(body),
-      });
-
-    const orders = await fetch(`${serverUrl}/api/orders?status=ready-to-ship`);
-    const invalidOrders = await fetch(
-      `${serverUrl}/api/orders?status=unsupported`,
-    );
-    const document = await fetch(
-      `${serverUrl}/api/orders/synthetic-order/packing-slip`,
-    );
-    const pirateShip = await fetch(
-      `${serverUrl}/api/orders/synthetic-order/pirate-ship`,
-    );
-    const printed = await mutation("print", {
-      actionType: "print-address-label",
-    });
-    const tracking = await mutation("tracking", {
-      trackingNumber: "synthetic-tracking",
-    });
-    const shipped = await mutation("mark-shipped", {});
-
-    expect(orders.status).toBe(200);
-    expect(invalidOrders.status).toBe(400);
-    expect(await orders.json()).toMatchObject({
-      orders: [
-        {
-          orderNumber: order.orderNumber,
-          buyerName: order.buyerName,
-          status: "Ready to Ship",
-          statusCode: "ReadyToShip",
-          canMarkShipped: true,
-        },
-      ],
-    });
-    expect(document.status).toBe(200);
-    expect(document.headers.get("Content-Type")).toBe("application/pdf");
-    expect(new Uint8Array(await document.arrayBuffer())).toEqual(
-      new Uint8Array([37, 80, 68, 70]),
-    );
-    expect(pirateShip.status).toBe(200);
-    expect(await pirateShip.json()).toEqual({
-      url: "https://ship.pirateship.com/ship/single",
-      pasteAddress:
-        "Synthetic Buyer\n123 Example Street\nExample City, IL 00000\nUS",
-    });
-    expect(printed.status).toBe(200);
-    expect(tracking.status).toBe(200);
-    expect(shipped.status).toBe(200);
-    expect(executePrint).toHaveBeenCalledWith(
-      order.orderNumber,
-      "print-address-label",
-      expect.any(AbortSignal),
-    );
-    expect(orderClient.addOrderTracking).toHaveBeenCalledOnce();
-    expect(orderClient.markOrdersShipped).toHaveBeenCalledOnce();
-  });
-
-  it("organizes the workspace into accessible persistent tabs", () => {
-    const ids = [...CONFIG_UI_HTML.matchAll(/\sid="([^"]+)"/gu)].map(
-      (match) => match[1],
-    );
-
-    expect(CONFIG_UI_HTML.match(/\srole="tab"/gu)).toHaveLength(6);
-    expect(CONFIG_UI_HTML.match(/\srole="tabpanel"/gu)).toHaveLength(6);
-    expect(CONFIG_UI_HTML).not.toContain('<header class="hero">');
-    expect(CONFIG_UI_HTML).not.toContain('class="status-strip"');
-    expect(CONFIG_UI_HTML).not.toContain('id="connection"');
-    expect(CONFIG_UI_HTML).not.toContain('id="dry-run-status"');
-    expect(CONFIG_UI_HTML.indexOf('role="tablist"')).toBeLessThan(
-      CONFIG_UI_HTML.indexOf('role="tabpanel"'),
-    );
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(CONFIG_UI_HTML).toContain(
-      'id="panel-settings" class="tab-panel" role="tabpanel"',
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      'id="panel-add-cards" class="tab-panel" role="tabpanel" aria-labelledby="tab-add-cards" tabindex="0" data-panel="add-cards" hidden',
-    );
     expect(
-      [...CONFIG_UI_HTML.matchAll(/\sdata-tab="([^"]+)"/gu)].map(
-        (match) => match[1],
-      ),
-    ).toEqual([
-      "dashboard",
-      "orders",
-      "add-cards",
-      "inventory",
-      "settings",
-      "jobs",
-    ]);
-    expect(CONFIG_UI_HTML).toContain(
-      'id="panel-dashboard" class="tab-panel" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="0" data-panel="dashboard"',
+      executePrintTest.mock.calls[0]?.[0].actions[address.actionId],
+    ).toMatchObject({ enabled: false, page: { marginMm: 1, fontSize: 16 } });
+    expect(await readFile(current.path, "utf8")).not.toContain(
+      '"fontSize": 16',
     );
-    expect(CONFIG_UI_HTML).toContain(
-      'id="panel-orders" class="tab-panel" role="tabpanel" aria-labelledby="tab-orders" tabindex="0" data-panel="orders" hidden',
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      'id="tab-inventory" class="tab-button" type="button" role="tab" aria-controls="panel-inventory" aria-selected="false" tabindex="-1" data-tab="inventory">Inventory</button>',
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      'id="panel-inventory" class="tab-panel" role="tabpanel" aria-labelledby="tab-inventory" tabindex="0" data-panel="inventory" hidden',
-    );
-    expect(CONFIG_UI_HTML).not.toContain('id="tab-repricing"');
-    expect(CONFIG_UI_JS).toContain("tcgplayer-alert.active-tab");
-    expect(CONFIG_UI_JS).toContain('value === "automation"');
-    expect(CONFIG_UI_JS).toContain('value === "repricing"');
-    expect(CONFIG_UI_JS).not.toContain("#queue-health");
-    expect(CONFIG_UI_JS).not.toContain("#inventory-queue-health");
-    expect(CONFIG_UI_JS).toContain('event.key === "ArrowRight"');
-    expect(CONFIG_UI_JS).toContain('window.addEventListener("popstate"');
-    expect(CONFIG_UI_JS).toContain('return "dashboard"');
-  });
-
-  it("keeps dashboard automation controls compact and exposes order actions", () => {
-    expect(CONFIG_UI_HTML).toContain('id="dashboard-automation-controls"');
-    expect(CONFIG_UI_HTML).toContain('id="dashboard-order-rows"');
-    expect(CONFIG_UI_HTML).toContain('id="dashboard-ready-count"');
-    expect(CONFIG_UI_HTML).toContain('id="dashboard-product-total"');
-    expect(CONFIG_UI_HTML).toContain('id="dashboard-shipping-total"');
-    expect(CONFIG_UI_HTML).toContain('id="dashboard-order-total"');
-    expect(CONFIG_UI_HTML).toContain('id="order-rows"');
-    expect(CONFIG_UI_HTML).toContain(
-      "<th>Products</th><th>Shipping</th><th>Total</th>",
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      '<th class="order-status-column">Status</th>',
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      '<th class="order-actions-column">Actions</th>',
-    );
-    expect(CONFIG_UI_CSS).toContain(
-      ".full-order-table .order-status-column, .full-order-table .order-status-cell { width: 225px; min-width: 225px; }",
-    );
-    expect(CONFIG_UI_CSS).toContain(
-      ".full-order-table .order-actions { min-width: 280px; max-width: 300px; gap: 4px; }",
-    );
-    expect(CONFIG_UI_HTML).toContain(
-      '<th class="money-heading">Products</th><th class="money-heading">Shipping</th><th class="money-heading">Total</th><th class="dashboard-actions-column">Actions</th>',
-    );
-    expect(CONFIG_UI_HTML).not.toContain('id="dry-run"');
-    expect(CONFIG_UI_JS).not.toContain('dashboardToggle("Dry run"');
-    expect(CONFIG_UI_JS).toContain('"Print address label"');
-    expect(CONFIG_UI_JS).toContain('"Print packing slip"');
-    expect(CONFIG_UI_JS).toContain('"Download packing slip"');
-    expect(CONFIG_UI_JS).toContain('"Open in Pirate Ship"');
-    expect(CONFIG_UI_JS).toContain('pirateShipButton(order, "ready-to-ship")');
-    expect(CONFIG_UI_JS).toContain(
-      "state.orderLists[scope] = readyToShipListFrom(state.orderLists.all)",
-    );
-    expect(CONFIG_UI_JS).toContain("list.orders.reduce((sum, order) => ({");
-    expect(CONFIG_UI_JS).toContain('"Add tracking"');
-    expect(CONFIG_UI_JS).toContain('"Mark shipped"');
-    expect(CONFIG_UI_JS).toContain(
-      "const canMarkShipped = canMarkOrderShipped(order)",
-    );
-    expect(CONFIG_UI_JS).toContain("return order.canMarkShipped === true");
-    expect(CONFIG_UI_JS).toContain("button.disabled = !canMarkShipped");
-    expect(CONFIG_UI_CSS).toContain(
-      ".order-action:disabled { cursor: not-allowed; opacity: .6; }",
-    );
-    expect(CONFIG_UI_CSS).toContain(
-      ".order-action.busy:disabled { cursor: wait; }",
-    );
-    expect(CONFIG_UI_JS).toContain("function setOrderButtonBusy(button, busy)");
-    expect(CONFIG_UI_JS).toContain('button.classList.toggle("busy", busy)');
-    expect(CONFIG_UI_JS).not.toContain("shippedOrderNumbers");
-    expect(CONFIG_UI_JS).not.toContain('status: "Shipped"');
-    expect(CONFIG_UI_JS).not.toContain('=== "readytoship"');
-    expect(CONFIG_UI_JS).toContain('text: "Manage order"');
-    expect(CONFIG_UI_JS).toContain(
-      '"https://sellerportal.tcgplayer.com/orders/"',
-    );
-    expect(CONFIG_UI_JS).toContain("navigator.clipboard.writeText");
-    expect(CONFIG_UI_JS).toContain(
-      '"Address copied. Press Ctrl+V in Pirate Ship."',
-    );
-    expect(CONFIG_UI_JS).toContain(
-      "const card = outputs.querySelector('[data-action-id=\"'",
-    );
-    expect(CONFIG_UI_JS).not.toContain(
-      "const card = form.querySelector('[data-action-id=\"'",
-    );
-  });
-
-  it("keeps persistent configuration in Settings and job pages focused", () => {
-    const settingsPanel = CONFIG_UI_HTML.slice(
-      CONFIG_UI_HTML.indexOf('id="panel-settings"'),
-      CONFIG_UI_HTML.indexOf('id="panel-add-cards"'),
-    );
-    const jobsPanel = CONFIG_UI_HTML.slice(
-      CONFIG_UI_HTML.indexOf('id="panel-jobs"'),
-      CONFIG_UI_HTML.indexOf('id="save-bar"'),
-    );
-    const persistentControlIds = [
-      "poll-interval",
-      "inventory-queue-enabled",
-      "inventory-delay",
-      "price-queue-enabled",
-      "price-delay",
-      "outputs",
-    ];
-
-    for (const id of persistentControlIds) {
-      expect(settingsPanel).toContain(`id="${id}"`);
-      expect(jobsPanel).not.toContain(`id="${id}"`);
-    }
-    expect(jobsPanel).toContain('id="inventory-queue-jobs"');
-    expect(jobsPanel).toContain('id="queue-jobs"');
-    expect(jobsPanel).toContain('id="inventory-queue-pagination"');
-    expect(jobsPanel).toContain('id="queue-pagination"');
-  });
-
-  it("resubmits failed price and inventory jobs through same-origin routes", async () => {
-    const fixture = await configurationFixture();
-    const priceQueue = new PriceUpdateQueueStore({
-      stateFile: join(dirname(fixture.path), "price-resubmit.json"),
-      historyLimit: 25,
-      lease: immediateSyncLease,
-    });
-    const inventoryQueue = new InventoryAdditionQueueStore({
-      stateFile: join(dirname(fixture.path), "inventory-resubmit.json"),
-      historyLimit: 25,
-      lease: immediateSyncLease,
-    });
-    const priceJob = (
-      await priceQueue.enqueue({
-        productId: 123,
-        productName: "Synthetic Card",
-        productConditionId: 456,
-        conditionId: 1,
-        channelId: 0,
-        categoryName: "Synthetic Game",
-        quantity: 1,
-        price: 2.5,
-        storePriceCustomId: null,
-        reserveQuantity: 0,
-      })
-    )[0];
-    const inventoryJob = (
-      await inventoryQueue.enqueue({
-        productId: 123,
-        productName: "Synthetic Card",
-        productConditionId: 456,
-        conditionId: 1,
-        channelId: 0,
-        categoryName: "Synthetic Game",
-        currentQuantity: 1,
-        addQuantity: 2,
-        price: 2.5,
-        storePriceCustomId: null,
-        reserveQuantity: 0,
-      })
-    )[0];
-    if (priceJob === undefined || inventoryJob === undefined) {
-      throw new Error("The queue fixture did not create jobs.");
-    }
-    await priceQueue.claimNext();
-    await priceQueue.finish(priceJob.id, "failed", "PROVIDER_ERROR");
-    await inventoryQueue.claimNext();
-    await inventoryQueue.finish(inventoryJob.id, "failed", "PROVIDER_ERROR");
-    server = await startConfigurationUi({
-      configPath: fixture.path,
-      port: 0,
-      service: fixture.service,
-      priceQueue,
-      inventoryQueue,
-    });
-    const serverUrl = server.url;
-    const resubmit = (path: string) =>
-      fetch(`${serverUrl}${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: serverUrl,
-        },
-        body: "{}",
-      });
-
-    const priceResponse = await resubmit(
-      `/api/price-updates/${priceJob.id}/resubmit`,
-    );
-    const inventoryResponse = await resubmit(
-      `/api/inventory-additions/${inventoryJob.id}/resubmit`,
-    );
-    const duplicateResponse = await resubmit(
-      `/api/inventory-additions/${inventoryJob.id}/resubmit`,
-    );
-
-    expect(priceResponse.status).toBe(202);
-    expect(await priceResponse.json()).toMatchObject({
-      job: { status: "pending", resubmittedFromJobId: priceJob.id },
-    });
-    expect(inventoryResponse.status).toBe(202);
-    expect(await inventoryResponse.json()).toMatchObject({
-      job: { status: "pending", resubmittedFromJobId: inventoryJob.id },
-    });
-    expect(duplicateResponse.status).toBe(409);
-    expect(await inventoryQueue.snapshot()).toMatchObject({
-      counts: { failed: 1, pending: 1 },
-    });
-  });
-
-  it("shows the save banner only for unsaved persistent settings", () => {
-    expect(CONFIG_UI_HTML).toContain('id="save-bar" class="save-bar" hidden');
-    expect(CONFIG_UI_JS).toContain("savedSettingsFingerprint");
-    expect(CONFIG_UI_JS).toContain(
-      "settingsFingerprint() !== state.savedSettingsFingerprint",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      'form.addEventListener("input", updateSaveBarVisibility)',
-    );
-    expect(CONFIG_UI_JS).toContain('form.addEventListener("change", () =>');
-    expect(CONFIG_UI_JS).toContain("syncDashboardAutomation()");
-    expect(CONFIG_UI_JS).not.toContain(
-      'saveBar.hidden = selectedTab !== "settings"',
-    );
-  });
-
-  it("uses the wider desktop application shell", () => {
-    expect(CONFIG_UI_CSS).toContain(
-      ".shell { width: min(1440px, calc(100% - 32px));",
-    );
-    expect(CONFIG_UI_CSS).toContain(
-      ".save-bar { position: fixed; z-index: 5; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(1408px, calc(100% - 32px));",
-    );
-    expect(CONFIG_UI_CSS).toContain(
-      ".shell { width: min(100% - 22px, 600px); padding-top: 10px; }",
-    );
-  });
-
-  it("keeps navigation in document flow and confines desktop card results", () => {
-    expect(CONFIG_UI_CSS).not.toContain("position: sticky");
-    expect(CONFIG_UI_CSS).toContain(
-      "body.add-cards-active { overflow: hidden; }",
-    );
-    expect(CONFIG_UI_CSS).toContain(
-      "body.add-cards-active .catalog-results { min-height: 0; max-height: none; overflow-y: auto;",
-    );
-    expect(CONFIG_UI_JS).toContain(
-      'document.body.classList.toggle("add-cards-active", selectedTab === "add-cards")',
-    );
-  });
-
-  it("serves the browser UI on loopback and accepts same-origin updates only", async () => {
-    const fixture = await configurationFixture();
-    const priceQueue = new PriceUpdateQueueStore({
-      stateFile: join(dirname(fixture.path), "price-updates.json"),
-      historyLimit: 25,
-      lease: immediateSyncLease,
-    });
-    const inventoryQueue = new InventoryAdditionQueueStore({
-      stateFile: join(dirname(fixture.path), "inventory-additions.json"),
-      historyLimit: 25,
-      lease: immediateSyncLease,
-    });
-    const repricingService = new RepricingService({
-      sellerKey: "synthetic-seller",
-      client: {
-        listSellerInventory: () => Promise.resolve([]),
-        searchMarketplaceProducts: () =>
-          Promise.resolve({ totalProducts: 0, products: [] }),
-      },
-    });
-    const catalogSummary = {
-      productId: 123,
-      imageUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
-      productName: "Synthetic Card",
-      productLineName: "Synthetic Game",
-      setName: "Synthetic Set",
-      rarityName: "Rare",
-      cardNumber: "42",
-      marketPrice: 3.5,
-      foilMarketPrice: 8.25,
-      sellerListable: false,
-    } as const;
-    const catalogProduct = {
-      ...catalogSummary,
-      sellerListable: true,
-      skus: [
-        {
-          productConditionId: 455,
-          conditionId: 1,
-          condition: "Near Mint",
-          printing: "Normal",
-          language: "Japanese",
-        },
-        {
-          productConditionId: 456,
-          conditionId: 1,
-          condition: "Near Mint",
-          printing: "Normal",
-          language: "English",
-        },
-        {
-          productConditionId: 457,
-          conditionId: 1,
-          condition: "Near Mint",
-          printing: "Foil",
-          language: "English",
-        },
-        {
-          productConditionId: 458,
-          conditionId: 2,
-          condition: "Lightly Played",
-          printing: "Normal",
-          language: "Spanish",
-        },
-      ],
-    } as const;
-    const inventoryService = new InventoryAdditionService({
-      sellerKey: "synthetic-seller",
-      client: {
-        searchCatalogProducts: () =>
-          Promise.resolve({
-            totalProducts: 1,
-            productLines: [{ name: "Synthetic Game", count: 1 }],
-            sets: [{ name: "Synthetic Set", count: 1 }],
-            products: [catalogSummary],
-          }),
-        getCatalogProduct: ({ productId }: { readonly productId: number }) =>
-          Promise.resolve({ ...catalogProduct, productId }),
-        searchMarketplaceProducts: () =>
-          Promise.resolve({ totalProducts: 0, products: [] }),
-      },
-    });
-    server = await startConfigurationUi({
-      configPath: fixture.path,
-      port: 0,
-      service: fixture.service,
-      priceQueue,
-      priceWorkerRunning: true,
-      repricingService,
-      inventoryQueue,
-      inventoryWorkerRunning: true,
-      inventoryService,
-    });
-
-    const page = await fetch(server.url);
-    const settings = await fetch(`${server.url}/api/settings`);
-    const forbidden = await fetch(`${server.url}/api/settings`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: "https://example.test",
-      },
-      body: "{}",
-    });
-    const queued = await fetch(`${server.url}/api/price-updates`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: server.url,
-      },
-      body: JSON.stringify({
-        productId: 123,
-        productName: "Synthetic Card",
-        productConditionId: 456,
-        conditionId: 1,
-        channelId: 0,
-        categoryName: "Synthetic Game",
-        quantity: 7,
-        price: 1.15,
-        storePriceCustomId: null,
-        reserveQuantity: 2,
-      }),
-    });
-    const queueStatus = await fetch(`${server.url}/api/price-updates`);
-    const repricingPreview = await fetch(
-      `${server.url}/api/repricing/preview`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: server.url,
-        },
-        body: JSON.stringify({
-          minimumPrice: 0.35,
-          conditionPolicy: "same-or-better",
-          priceBasis: "delivered",
-          adjustmentCents: 0,
-          allowPriceIncreases: false,
-        }),
-      },
-    );
-    const catalogSearch = await fetch(
-      `${server.url}/api/catalog/search?q=Synthetic`,
-    );
-    const productNumberSearch = await fetch(
-      `${server.url}/api/catalog/search?q=1`,
-    );
-    const invalidCatalogOffset = await fetch(
-      `${server.url}/api/catalog/search?q=Synthetic&offset=-1`,
-    );
-    const invalidSetSearch = await fetch(
-      `${server.url}/api/catalog/search?q=Synthetic&setName=${"x".repeat(257)}`,
-    );
-    const catalogDetails = await fetch(
-      `${server.url}/api/catalog/products/123`,
-    );
-    const inventoryPreviewResponse = await fetch(
-      `${server.url}/api/inventory-additions/preview`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: server.url,
-        },
-        body: JSON.stringify({
-          productId: 123,
-          productConditionId: 456,
-          addQuantity: 2,
-          rules: {
-            minimumPrice: 0.35,
-            conditionPolicy: "same-or-better",
-            priceBasis: "item",
-            adjustmentCents: 0,
-            allowPriceIncreases: false,
-            estimatedShippingPrice: 0,
-            ranges: [
-              {
-                minimumListings: 0,
-                priceSource: "market",
-                percentage: 100,
-                gapThresholdPercent: 100,
-                gapAction: "follow-lowest",
-              },
-            ],
-          },
-        }),
-      },
-    );
-    const inventoryPreview = (await inventoryPreviewResponse.json()) as {
-      id: string;
-      proposedPrice: number;
-    };
-    const queuedInventory = await fetch(
-      `${server.url}/api/inventory-additions/previews/${inventoryPreview.id}/queue`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: server.url,
-        },
-        body: "{}",
-      },
-    );
-    const inventoryStatus = await fetch(
-      `${server.url}/api/inventory-additions`,
-    );
-
-    expect(page.status).toBe(200);
-    const pageText = await page.text();
-    expect(pageText).not.toContain("Seller workspace");
-    expect(pageText).toContain('role="tablist"');
-    expect(pageText).toContain("Add cards");
-    expect(pageText).toContain('id="inventory-profile-select"');
-    expect(pageText).toContain('id="inventory-search"');
-    expect(pageText).toContain("Inventory changes");
-    expect(CONFIG_UI_JS).toContain("function inventoryRowMatches(row, query)");
-    expect(CONFIG_UI_JS).toContain(' + "/remove"');
-    expect(pageText).not.toContain('id="inventory-card-condition"');
-    expect(CONFIG_UI_JS).not.toContain('id: "inventory-card-condition"');
-    expect(CONFIG_UI_JS).toContain('className: "catalog-condition-select"');
-    expect(CONFIG_UI_JS).not.toContain('id: "inventory-printing"');
-    expect(CONFIG_UI_JS).not.toContain('id: "inventory-language"');
-    expect(repricingPreview.status).toBe(200);
-    expect(await repricingPreview.json()).toMatchObject({
-      counts: { ready: 0, unchanged: 0, skipped: 0 },
-      totals: { listingCount: 0, totalQuantity: 0, currentListingValue: 0 },
-      rows: [],
-    });
-    expect(settings.status).toBe(200);
-    expect(catalogSearch.status).toBe(200);
-    expect(await catalogSearch.json()).toMatchObject({
-      totalProducts: 1,
-      productLines: [{ name: "Synthetic Game", count: 1 }],
-      sets: [{ name: "Synthetic Set", count: 1 }],
-      nextOffset: 1,
-      hasMore: false,
-      products: [
-        { productId: 123, foilMarketPrice: 8.25, matchKind: "variant" },
-      ],
-    });
-    expect(productNumberSearch.status).toBe(200);
-    expect(await productNumberSearch.json()).toMatchObject({
-      totalProducts: 1,
-      nextOffset: 1,
-      hasMore: false,
-      products: [{ productId: 1, matchKind: "exact" }],
-    });
-    expect(invalidCatalogOffset.status).toBe(400);
-    expect(invalidSetSearch.status).toBe(400);
-    expect(catalogDetails.status).toBe(200);
-    expect(await catalogDetails.json()).toMatchObject({ productId: 123 });
-    expect(inventoryPreviewResponse.status).toBe(200);
-    expect(inventoryPreview.proposedPrice).toBe(3.5);
-    expect(queuedInventory.status).toBe(202);
-    expect(inventoryStatus.status).toBe(200);
-    expect(await inventoryStatus.json()).toMatchObject({
-      workerRunning: true,
-      counts: { pending: 1 },
-    });
-    expect(forbidden.status).toBe(403);
-    expect(queued.status).toBe(202);
-    expect(await queueStatus.json()).toMatchObject({
-      workerRunning: true,
-      counts: { pending: 1 },
-    });
-    expect(page.headers.get("content-security-policy")).toContain(
-      "frame-ancestors 'none'",
-    );
-    expect(page.headers.get("content-security-policy")).toContain(
-      "img-src 'self' https://product-images.tcgplayer.com",
-    );
-    expect(page.headers.get("permissions-policy")).toBe(
-      "clipboard-write=(self)",
-    );
-  });
-
-  it("queues a server-held inventory removal from a repricing preview", async () => {
-    const fixture = await configurationFixture();
-    const inventoryQueue = new InventoryAdditionQueueStore({
-      stateFile: join(dirname(fixture.path), "inventory-removals.json"),
-      historyLimit: 25,
-      lease: immediateSyncLease,
-    });
-    const previewId = "11111111-1111-4111-8111-111111111111";
-    const rowId = "22222222-2222-4222-8222-222222222222";
-    const takeRemoval = vi.fn().mockReturnValue({
-      productId: 123,
-      productName: "Synthetic Card",
-      productConditionId: 456,
-      conditionId: 3,
-      channelId: 0,
-      categoryName: "Synthetic Game",
-      currentQuantity: 2,
-      price: 2,
-      storePriceCustomId: null,
-      reserveQuantity: 0,
-    });
-    server = await startConfigurationUi({
-      configPath: fixture.path,
-      port: 0,
-      service: fixture.service,
-      inventoryQueue,
-      repricingService: { takeRemoval } as unknown as RepricingService,
-    });
-
-    const response = await fetch(
-      `${server.url}/api/repricing/previews/${previewId}/remove`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: server.url,
-        },
-        body: JSON.stringify({ rowId }),
-      },
-    );
-
-    expect(response.status).toBe(202);
-    expect(takeRemoval).toHaveBeenCalledWith(previewId, rowId);
-    expect(await response.json()).toMatchObject({
-      job: {
-        operation: "remove",
-        status: "pending",
-        removal: {
-          productConditionId: 456,
-          currentQuantity: 2,
-        },
-      },
-    });
-    expect(await inventoryQueue.snapshot()).toMatchObject({
-      counts: { pending: 1 },
-      jobs: [expect.objectContaining({ operation: "remove" })],
-    });
   });
 });

@@ -13,9 +13,17 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "test", "tsup.config.mjs", "vitest.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "tsup.config.mjs",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

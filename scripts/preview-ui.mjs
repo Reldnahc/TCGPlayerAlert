@@ -1,0 +1,463 @@
+import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+import { ConfigurationService, startConfigurationUi } from "../dist/index.js";
+
+const previewDirectory = await mkdtemp(
+  join(tmpdir(), "tcgplayer-alert-preview-"),
+);
+const configPath = join(previewDirectory, "local.json");
+await writeFile(
+  configPath,
+  await readFile("config/local.example.json", "utf8"),
+);
+
+const now = "2026-08-07T17:15:00.000Z";
+const orders = [
+  {
+    orderNumber: "123-4567890-001",
+    buyerName: "Alex Morgan",
+    orderDate: "2026-08-07T14:31:00.000Z",
+    status: "Ready to Ship",
+    statusCode: "ReadyToShip",
+    canMarkShipped: true,
+    shippingType: "Standard",
+    productAmount: 28.75,
+    shippingAmount: 1.49,
+    totalAmount: 30.24,
+  },
+  {
+    orderNumber: "123-4567890-002",
+    buyerName: "Jordan Lee",
+    orderDate: "2026-08-06T19:42:00.000Z",
+    status: "Ready to Ship",
+    statusCode: "ReadyToShip",
+    canMarkShipped: true,
+    shippingType: "Expedited",
+    productAmount: 71.2,
+    shippingAmount: 4.99,
+    totalAmount: 76.19,
+  },
+  {
+    orderNumber: "123-4567890-003",
+    buyerName: "Sam Rivera",
+    orderDate: "2026-08-05T12:12:00.000Z",
+    status: "Shipped",
+    statusCode: "Shipped",
+    canMarkShipped: false,
+    shippingType: "Standard",
+    productAmount: 8.5,
+    shippingAmount: 1.49,
+    totalAmount: 9.99,
+  },
+];
+
+const catalogProduct = {
+  productId: 123456,
+  imageUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123456.jpg",
+  productName: "Lightning Bolt",
+  productLineName: "Magic: The Gathering",
+  setName: "Masters 25",
+  rarityName: "Uncommon",
+  cardNumber: "141",
+  marketPrice: 1.72,
+  foilMarketPrice: 4.81,
+  sellerListable: true,
+};
+
+let inventoryJobs = [
+  {
+    id: "00000000-0000-4000-8000-000000000101",
+    operation: "add",
+    status: "submitted",
+    createdAt: now,
+    updatedAt: now,
+    attempts: 1,
+    addition: {
+      productId: 123456,
+      productName: "Lightning Bolt",
+      productConditionId: 654321,
+      conditionId: 1,
+      channelId: 0,
+      categoryName: "Magic: The Gathering",
+      currentQuantity: 1,
+      addQuantity: 2,
+      price: 1.72,
+      storePriceCustomId: null,
+      reserveQuantity: 0,
+    },
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000102",
+    operation: "remove",
+    status: "failed",
+    createdAt: now,
+    updatedAt: now,
+    attempts: 2,
+    errorCode: "PROVIDER_ERROR",
+    removal: {
+      productId: 222222,
+      productName: "Counterspell",
+      productConditionId: 333333,
+      conditionId: 2,
+      channelId: 0,
+      categoryName: "Magic: The Gathering",
+      currentQuantity: 3,
+      price: 2.2,
+      storePriceCustomId: null,
+      reserveQuantity: 0,
+    },
+  },
+];
+let priceJobs = [
+  {
+    id: "00000000-0000-4000-8000-000000000201",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+    attempts: 0,
+    update: {
+      productId: 444444,
+      productName: "Sol Ring",
+      productConditionId: 555555,
+      conditionId: 1,
+      channelId: 0,
+      categoryName: "Magic: The Gathering",
+      quantity: 4,
+      price: 1.49,
+      storePriceCustomId: null,
+      reserveQuantity: 0,
+    },
+  },
+];
+
+function counts(jobs) {
+  return Object.fromEntries(
+    [...new Set(jobs.map((job) => job.status))].map((status) => [
+      status,
+      jobs.filter((job) => job.status === status).length,
+    ]),
+  );
+}
+
+const inventoryQueue = {
+  snapshot: () =>
+    Promise.resolve({ jobs: inventoryJobs, counts: counts(inventoryJobs) }),
+  enqueue: (addition) => {
+    const job = {
+      id: randomUUID(),
+      operation: "add",
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      attempts: 0,
+      addition,
+    };
+    inventoryJobs = [job, ...inventoryJobs];
+    return Promise.resolve([job]);
+  },
+  enqueueRemoval: (removal) => {
+    const job = {
+      id: randomUUID(),
+      operation: "remove",
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      attempts: 0,
+      removal,
+    };
+    inventoryJobs = [job, ...inventoryJobs];
+    return Promise.resolve(job);
+  },
+  resubmit: (id) => Promise.resolve(inventoryJobs.find((job) => job.id === id)),
+  cancel: (id) => Promise.resolve(inventoryJobs.find((job) => job.id === id)),
+};
+const priceQueue = {
+  snapshot: () =>
+    Promise.resolve({ jobs: priceJobs, counts: counts(priceJobs) }),
+  enqueue: ({ updates }) => {
+    const jobs = updates.map((update) => ({
+      id: randomUUID(),
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      attempts: 0,
+      update,
+    }));
+    priceJobs = [...jobs, ...priceJobs];
+    return Promise.resolve(jobs);
+  },
+  resubmit: (id) => Promise.resolve(priceJobs.find((job) => job.id === id)),
+  cancel: (id) => Promise.resolve(priceJobs.find((job) => job.id === id)),
+};
+
+const inventoryService = {
+  search: () =>
+    Promise.resolve({
+      totalProducts: 3,
+      productLines: [{ name: "Magic: The Gathering", count: 3 }],
+      sets: [
+        { name: "Masters 25", count: 1 },
+        { name: "Magic 2011", count: 1 },
+      ],
+      products: [
+        catalogProduct,
+        {
+          ...catalogProduct,
+          productId: 234567,
+          setName: "Magic 2011",
+          cardNumber: "149",
+          marketPrice: 1.51,
+          foilMarketPrice: 5.12,
+          matchKind: "exact",
+          matchRank: [0, 1],
+        },
+        {
+          ...catalogProduct,
+          productId: 345678,
+          productName: "Lightning Strike",
+          setName: "Theros",
+          cardNumber: "127",
+          marketPrice: 0.31,
+          foilMarketPrice: 0.78,
+          matchKind: "related",
+          matchRank: [2],
+        },
+      ].map((product, index) => ({
+        matchKind: index === 2 ? "related" : "exact",
+        matchRank: [index],
+        ...product,
+      })),
+      nextOffset: 3,
+      hasMore: false,
+    }),
+  getProduct: (productId) =>
+    Promise.resolve({
+      ...catalogProduct,
+      productId,
+      skus: [
+        {
+          productConditionId: productId + 1,
+          conditionId: 1,
+          condition: "Near Mint",
+          printing: "Normal",
+          language: "English",
+        },
+        {
+          productConditionId: productId + 2,
+          conditionId: 1,
+          condition: "Near Mint",
+          printing: "Foil",
+          language: "English",
+        },
+      ],
+    }),
+  preview: ({ productId, productConditionId, addQuantity, rules }) =>
+    Promise.resolve({
+      id: "00000000-0000-4000-8000-000000000301",
+      createdAt: now,
+      expiresAt: now,
+      product: catalogProduct,
+      sku: {
+        productConditionId,
+        conditionId: 1,
+        condition: "Near Mint",
+        printing: "Normal",
+        language: "English",
+      },
+      currentQuantity: 0,
+      addQuantity,
+      proposedPrice: 1.71,
+      minimumApplied: false,
+      queueable: true,
+      reason: "Uses the marketplace reference.",
+      rules,
+      productId,
+    }),
+  takeAddition: () => ({
+    productId: 123456,
+    productName: "Lightning Bolt",
+    productConditionId: 654321,
+    conditionId: 1,
+    channelId: 0,
+    categoryName: "Magic: The Gathering",
+    currentQuantity: 0,
+    addQuantity: 1,
+    price: 1.71,
+    storePriceCustomId: null,
+    reserveQuantity: 0,
+  }),
+};
+
+const previewRows = [
+  {
+    id: "row-1",
+    productId: 1001,
+    productConditionId: 2001,
+    productName: "Lightning Bolt",
+    productLineName: "Magic: The Gathering",
+    setName: "Masters 25",
+    condition: "Near Mint",
+    printing: "Normal",
+    language: "English",
+    quantity: 4,
+    currentPrice: 1.85,
+    currentShipping: 1.49,
+    proposedPrice: 1.72,
+    marketPrice: 1.72,
+    lowestPrice: 1.73,
+    lowestShipping: 1.49,
+    qualifyingListings: 18,
+    comparisonSource: "batched",
+    distinctSellers: 14,
+    minimumApplied: false,
+    status: "ready",
+    reason: "Uses 100% of the lowest supported listing.",
+    queueable: true,
+    removable: true,
+  },
+  {
+    id: "row-2",
+    productId: 1002,
+    productConditionId: 2002,
+    productName: "Sol Ring",
+    productLineName: "Magic: The Gathering",
+    setName: "Commander Masters",
+    condition: "Lightly Played",
+    printing: "Foil",
+    language: "English",
+    quantity: 2,
+    currentPrice: 4.25,
+    currentShipping: 1.49,
+    proposedPrice: 4.25,
+    marketPrice: 4.51,
+    lowestPrice: 4.25,
+    lowestShipping: 1.49,
+    qualifyingListings: 9,
+    comparisonSource: "exact",
+    distinctSellers: 7,
+    minimumApplied: false,
+    status: "unchanged",
+    reason: "Current price already matches the profile.",
+    queueable: false,
+    removable: true,
+  },
+  {
+    id: "row-3",
+    productId: 1003,
+    productConditionId: 2003,
+    productName: "Counterspell",
+    productLineName: "Magic: The Gathering",
+    setName: "Dominaria Remastered",
+    condition: "Moderately Played",
+    printing: "Normal",
+    language: "English",
+    quantity: 1,
+    currentPrice: 0.45,
+    currentShipping: 1.49,
+    proposedPrice: 0.5,
+    marketPrice: 0.48,
+    lowestPrice: 0.44,
+    lowestShipping: 1.49,
+    qualifyingListings: 23,
+    comparisonSource: "batched",
+    distinctSellers: 18,
+    minimumApplied: true,
+    effectiveMinimumPrice: 0.5,
+    minimumPriceSource: "Uncommon",
+    status: "ready",
+    reason: "The Magic rarity floor sets the minimum.",
+    queueable: true,
+    removable: true,
+  },
+];
+const repricingService = {
+  preview: (rules) =>
+    Promise.resolve({
+      id: "00000000-0000-4000-8000-000000000401",
+      createdAt: now,
+      expiresAt: now,
+      rules,
+      rows: previewRows,
+      counts: { ready: 2, unchanged: 1, skipped: 0 },
+      totals: { listingCount: 3, totalQuantity: 7, currentListingValue: 16.35 },
+      marketplaceSnapshot: { capturedAt: now, expiresAt: now, source: "cache" },
+    }),
+  takeUpdates: (_id, body) =>
+    previewRows
+      .filter((row) => body.rowIds.includes(row.id))
+      .map((row) => ({
+        productId: row.productId,
+        productName: row.productName,
+        productConditionId: row.productConditionId,
+        conditionId: 1,
+        channelId: 0,
+        categoryName: row.productLineName,
+        quantity: row.quantity,
+        price: row.proposedPrice,
+        storePriceCustomId: null,
+        reserveQuantity: 0,
+      })),
+  takeRemoval: () => ({
+    productId: 1001,
+    productName: "Lightning Bolt",
+    productConditionId: 2001,
+    conditionId: 1,
+    channelId: 0,
+    categoryName: "Magic: The Gathering",
+    currentQuantity: 4,
+    price: 1.85,
+    storePriceCustomId: null,
+    reserveQuantity: 0,
+  }),
+};
+
+const service = new ConfigurationService({
+  configPath,
+  discoverPrinters: () =>
+    Promise.resolve({
+      supported: true,
+      printers: [
+        { name: "DYMO LabelWriter 450", isDefault: false },
+        { name: "Office Laser Printer", isDefault: true },
+      ],
+    }),
+});
+const server = await startConfigurationUi({
+  configPath,
+  port: Number(process.env.PREVIEW_PORT ?? 47839),
+  service,
+  inventoryService,
+  inventoryQueue,
+  inventoryWorkerRunning: false,
+  priceQueue,
+  priceWorkerRunning: true,
+  repricingService,
+  orderService: {
+    listOrders: (scope) =>
+      Promise.resolve({
+        orders:
+          scope === "ready-to-ship"
+            ? orders.filter((order) => order.canMarkShipped)
+            : orders,
+        fetchedAt: now,
+      }),
+    getPackingSlip: () =>
+      Promise.resolve({ bytes: new Uint8Array([37, 80, 68, 70]) }),
+    preparePirateShip: () =>
+      Promise.resolve({
+        url: "https://ship.pirateship.com/ship/single",
+        pasteAddress: "Alex Morgan\n123 Example Street\nChicago, IL 60601",
+      }),
+    print: () => Promise.resolve(),
+    addTracking: (orderNumber) =>
+      Promise.resolve({ orderNumber, carrier: "USPS", outcome: "applied" }),
+    markShipped: (orderNumber) =>
+      Promise.resolve({ orderNumber, outcome: "applied" }),
+  },
+  executePrintTest: () => Promise.resolve(),
+});
+
+process.stdout.write(`Synthetic UI preview: ${server.url}\n`);

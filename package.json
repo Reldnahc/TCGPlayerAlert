@@ -8,11 +8,15 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsup",
+    "build:web": "vite build",
+    "preview:web": "npm run build && node scripts/preview-ui.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "pretest": "npm run build:web",
     "test": "vitest run",
     "test:watch": "vitest",
     "audit": "npm audit --audit-level=high",
@@ -27,16 +31,22 @@
     "@napi-rs/canvas": "0.1.88",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
+    "preact": "10.29.8",
     "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.5.4.tgz"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@preact/preset-vite": "2.10.6",
+    "@testing-library/preact": "3.2.4",
+    "@testing-library/user-event": "14.6.1",
     "@types/node": "20.19.39",
     "eslint": "10.8.0",
+    "jsdom": "27.0.1",
     "prettier": "3.9.6",
     "tsup": "8.5.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.66.0",
+    "vite": "8.2.1",
     "vitest": "4.1.10"
   },
   "overrides": {

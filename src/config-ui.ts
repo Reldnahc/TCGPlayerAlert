@@ -4,7 +4,14 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type {
   ActionConfig,
@@ -15,11 +22,6 @@ import type {
   WindowsPdfPrinterConfig,
 } from "./config.js";
 import { parseConfig } from "./config.js";
-import {
-  CONFIG_UI_CSS,
-  CONFIG_UI_HTML,
-  CONFIG_UI_JS,
-} from "./config-ui-assets.js";
 import { ConfigurationError } from "./errors.js";
 import { parseGamePricingModules } from "./game-pricing.js";
 import type { PriceUpdateQueueStore } from "./price-update-queue.js";
@@ -229,6 +231,16 @@ export interface StartConfigurationUiOptions {
   readonly inventoryService?: InventoryAdditionService;
   readonly orderService?: OrderManagementService;
   readonly executePrintTest?: ConfigurationPrintTest;
+  /** Built Vite application directory. Defaults to dist/web from the process working directory. */
+  readonly webDirectory?: string;
+}
+
+interface ConfigurationUiAssets {
+  readonly index: Uint8Array;
+  readonly files: ReadonlyMap<
+    string,
+    { readonly bytes: Uint8Array; readonly contentType: string }
+  >;
 }
 
 export async function startConfigurationUi(
@@ -243,6 +255,9 @@ export async function startConfigurationUi(
   const service =
     options.service ??
     new ConfigurationService({ configPath: options.configPath });
+  const webAssets = await loadConfigurationUiAssets(
+    options.webDirectory ?? resolve("dist/web"),
+  );
   const server = createServer((request, response) => {
     void handleRequest(
       request,
@@ -256,6 +271,7 @@ export async function startConfigurationUi(
       options.inventoryService,
       options.orderService,
       options.executePrintTest,
+      webAssets,
     );
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -884,6 +900,41 @@ function applyUpdate(
   };
 }
 
+async function loadConfigurationUiAssets(
+  directory: string,
+): Promise<ConfigurationUiAssets> {
+  const absoluteDirectory = resolve(directory);
+  const index = await readFile(resolve(absoluteDirectory, "index.html"));
+  const assetsDirectory = resolve(absoluteDirectory, "assets");
+  const files = new Map<
+    string,
+    { readonly bytes: Uint8Array; readonly contentType: string }
+  >();
+  for (const entry of await readdir(assetsDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || !/^[a-zA-Z0-9._-]+$/u.test(entry.name)) continue;
+    const extension = entry.name
+      .slice(entry.name.lastIndexOf("."))
+      .toLowerCase();
+    const contentType =
+      extension === ".css"
+        ? "text/css; charset=utf-8"
+        : extension === ".js"
+          ? "text/javascript; charset=utf-8"
+          : extension === ".svg"
+            ? "image/svg+xml"
+            : extension === ".png"
+              ? "image/png"
+              : extension === ".woff2"
+                ? "font/woff2"
+                : "application/octet-stream";
+    files.set(`/assets/${entry.name}`, {
+      bytes: await readFile(resolve(assetsDirectory, entry.name)),
+      contentType,
+    });
+  }
+  return { index, files };
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -896,6 +947,7 @@ async function handleRequest(
   inventoryService: InventoryAdditionService | undefined,
   orderService: OrderManagementService | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
+  webAssets: ConfigurationUiAssets,
 ): Promise<void> {
   setSecurityHeaders(response);
   if (!isLoopbackHost(request.headers.host)) {
@@ -907,11 +959,12 @@ async function handleRequest(
   const url = new URL(request.url ?? "/", "http://localhost");
   try {
     if (request.method === "GET" && url.pathname === "/") {
-      send(response, 200, "text/html; charset=utf-8", CONFIG_UI_HTML);
-    } else if (request.method === "GET" && url.pathname === "/styles.css") {
-      send(response, 200, "text/css; charset=utf-8", CONFIG_UI_CSS);
-    } else if (request.method === "GET" && url.pathname === "/app.js") {
-      send(response, 200, "text/javascript; charset=utf-8", CONFIG_UI_JS);
+      sendBytes(response, 200, "text/html; charset=utf-8", webAssets.index);
+    } else if (request.method === "GET" && webAssets.files.has(url.pathname)) {
+      const asset = webAssets.files.get(url.pathname);
+      if (asset === undefined)
+        throw new Error("The requested UI asset is unavailable.");
+      sendBytes(response, 200, asset.contentType, asset.bytes);
     } else if (request.method === "GET" && url.pathname === "/api/settings") {
       sendJson(response, 200, await service.read());
     } else if (request.method === "GET" && url.pathname === "/api/orders") {
