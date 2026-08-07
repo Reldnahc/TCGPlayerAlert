@@ -13,6 +13,7 @@ export interface ManagedOrderSummary {
   readonly buyerName: string;
   readonly orderDate: string;
   readonly status: string;
+  readonly readyToShip: boolean;
   readonly shippingType: string;
   readonly productAmount: number;
   readonly shippingAmount: number;
@@ -335,11 +336,19 @@ function toManagedOrder(order: SellerOrderSearchSummary): ManagedOrderSummary {
     buyerName: order.buyerName,
     orderDate: order.orderDate,
     status: order.orderStatus,
+    readyToShip: isReadyToShipStatus(order.orderStatus),
     shippingType: order.shippingType,
     productAmount: order.productAmount,
     shippingAmount: order.shippingAmount,
     totalAmount: order.totalAmount,
   };
+}
+
+function isReadyToShipStatus(status: string): boolean {
+  // Order search accepts the compact filter token but currently returns the
+  // spaced display label. Preserve the returned status and derive capability
+  // only from these two observed provider values.
+  return status === "ReadyToShip" || status === "Ready to Ship";
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

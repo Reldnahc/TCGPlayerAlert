@@ -5,7 +5,7 @@ const firstOrder = {
   orderNumber: "synthetic-order-1",
   orderDate: "2026-08-01T12:00:00.000Z",
   orderChannel: "Marketplace",
-  orderStatus: "ReadyToShip",
+  orderStatus: "Ready to Ship",
   buyerName: "Synthetic Buyer",
   shippingType: "Standard",
   productAmount: 12,
@@ -130,6 +130,7 @@ describe("order management", () => {
           buyerName: firstOrder.buyerName,
           orderDate: firstOrder.orderDate,
           status: firstOrder.orderStatus,
+          readyToShip: true,
           shippingType: firstOrder.shippingType,
           productAmount: 12,
           shippingAmount: 1.49,
@@ -138,6 +139,7 @@ describe("order management", () => {
         expect.objectContaining({
           orderNumber: secondOrder.orderNumber,
           status: "Shipped - In Transit",
+          readyToShip: false,
         }),
       ],
     });
@@ -269,7 +271,8 @@ describe("order management", () => {
       orders: [
         expect.objectContaining({
           orderNumber: firstOrder.orderNumber,
-          status: "ReadyToShip",
+          status: "Ready to Ship",
+          readyToShip: true,
         }),
       ],
     });

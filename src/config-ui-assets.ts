@@ -1304,7 +1304,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function isReadyToShip(order) {
-    return order.status === "ReadyToShip";
+    return order.readyToShip === true;
   }
 
   function readyToShipListFrom(list) {
@@ -1387,7 +1387,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   }
 
   function markShippedButton(order, scope) {
-    const canMarkShipped = order.status === "ReadyToShip";
+    const canMarkShipped = isReadyToShip(order);
     const button = orderButton("Mark shipped", async (button) => {
       if (!window.confirm("Mark order " + order.orderNumber + " as shipped?")) return;
       await runOrderMutation(

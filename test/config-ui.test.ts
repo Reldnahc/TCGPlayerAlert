@@ -458,7 +458,7 @@ describe("configuration UI service", () => {
       orderNumber: "synthetic-order",
       orderDate: "2026-08-01T12:00:00.000Z",
       orderChannel: "Marketplace",
-      orderStatus: "ReadyToShip",
+      orderStatus: "Ready to Ship",
       buyerName: "Synthetic Buyer",
       shippingType: "Standard",
       productAmount: 12,
@@ -584,7 +584,8 @@ describe("configuration UI service", () => {
         {
           orderNumber: order.orderNumber,
           buyerName: order.buyerName,
-          status: "ReadyToShip",
+          status: "Ready to Ship",
+          readyToShip: true,
         },
       ],
     });
@@ -707,9 +708,9 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('"Add tracking"');
     expect(CONFIG_UI_JS).toContain('"Mark shipped"');
     expect(CONFIG_UI_JS).toContain(
-      'const canMarkShipped = order.status === "ReadyToShip"',
+      "const canMarkShipped = isReadyToShip(order)",
     );
-    expect(CONFIG_UI_JS).toContain('return order.status === "ReadyToShip"');
+    expect(CONFIG_UI_JS).toContain("return order.readyToShip === true");
     expect(CONFIG_UI_JS).toContain("button.disabled = !canMarkShipped");
     expect(CONFIG_UI_CSS).toContain(
       ".order-action:disabled { cursor: not-allowed; opacity: .6; }",
