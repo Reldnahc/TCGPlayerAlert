@@ -9,6 +9,7 @@ import {
   createInventoryAdditionQueue,
   createInventoryAdditionService,
   createOrderManagementService,
+  createFeedbackManagementService,
   createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
@@ -81,6 +82,7 @@ try {
       inventoryService: createInventoryAdditionService(config),
       orderService: createOrderManagementService(config, configPath),
       paymentService: createPaymentManagementService(config),
+      feedbackService: createFeedbackManagementService(config),
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
@@ -132,6 +134,7 @@ try {
       inventoryService: createInventoryAdditionService(initialConfig),
       orderService: createOrderManagementService(initialConfig, configPath),
       paymentService: createPaymentManagementService(initialConfig),
+      feedbackService: createFeedbackManagementService(initialConfig),
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     const priceWorkerPromise = priceWorker

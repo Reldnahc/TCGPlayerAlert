@@ -4,6 +4,7 @@ export type IconName =
   | "dashboard"
   | "orders"
   | "payments"
+  | "feedback"
   | "add"
   | "inventory"
   | "settings"
@@ -40,6 +41,12 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <rect x="3" y="6" width="18" height="13" rx="2" />
       <path d="M3 10h18M7 15h4" />
+    </>
+  ),
+  feedback: (
+    <>
+      <path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+      <path d="m12 7 .9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2L9.1 9.1l2-.3z" />
     </>
   ),
   add: (

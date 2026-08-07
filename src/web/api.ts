@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   CatalogProduct,
   CatalogSearch,
+  FeedbackPage,
   InventoryJob,
   InventoryQueueResponse,
   OrderList,
@@ -109,6 +110,24 @@ export const uiApi = {
     requestJson(
       `/api/payments/${encodeURIComponent(referenceId)}${force ? "?refresh=1" : ""}`,
     ),
+  feedback: (
+    page: number,
+    rating: string,
+    commentsOnly: boolean,
+    days: string,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<FeedbackPage> => {
+    const query = new URLSearchParams({ page: String(page) });
+    if (rating !== "") query.set("rating", rating);
+    if (commentsOnly) query.set("comments", "1");
+    if (days !== "") query.set("days", days);
+    if (force) query.set("refresh", "1");
+    return requestJson(
+      `/api/feedback?${query.toString()}`,
+      signal === undefined ? {} : { signal },
+    );
+  },
   printOrder: (orderNumber: string, actionType: string): Promise<void> =>
     requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/print`, {
       method: "POST",

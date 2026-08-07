@@ -43,6 +43,7 @@ import type {
   OrderManagementService,
 } from "./order-management.js";
 import type { PaymentManagementService } from "./payment-management.js";
+import type { FeedbackManagementService } from "./feedback-management.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   Object.values(SellerPayoutStatus),
@@ -240,6 +241,7 @@ export interface StartConfigurationUiOptions {
   readonly inventoryService?: InventoryAdditionService;
   readonly orderService?: OrderManagementService;
   readonly paymentService?: PaymentManagementService;
+  readonly feedbackService?: FeedbackManagementService;
   readonly executePrintTest?: ConfigurationPrintTest;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
@@ -281,6 +283,7 @@ export async function startConfigurationUi(
       options.inventoryService,
       options.orderService,
       options.paymentService,
+      options.feedbackService,
       options.executePrintTest,
       webAssets,
     );
@@ -958,6 +961,7 @@ async function handleRequest(
   inventoryService: InventoryAdditionService | undefined,
   orderService: OrderManagementService | undefined,
   paymentService: PaymentManagementService | undefined,
+  feedbackService: FeedbackManagementService | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
   webAssets: ConfigurationUiAssets,
 ): Promise<void> {
@@ -1032,6 +1036,63 @@ async function handleRequest(
           ...(statusValue === null
             ? {}
             : { status: statusValue as SellerPayoutStatusCode }),
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (request.method === "GET" && url.pathname === "/api/feedback") {
+      if (feedbackService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller feedback is unavailable.",
+        });
+        return;
+      }
+      const pageValue = url.searchParams.get("page");
+      const page = pageValue === null ? 1 : Number(pageValue);
+      if (!Number.isInteger(page) || page < 1 || page > 1_000_000) {
+        sendJson(response, 400, {
+          message: "The feedback page is invalid.",
+        });
+        return;
+      }
+      const ratingValue = url.searchParams.get("rating");
+      const rating = ratingValue === null ? undefined : Number(ratingValue);
+      if (
+        rating !== undefined &&
+        (!Number.isInteger(rating) || rating < 1 || rating > 5)
+      ) {
+        sendJson(response, 400, {
+          message: "The feedback rating filter is invalid.",
+        });
+        return;
+      }
+      const daysValue = url.searchParams.get("days");
+      const days = daysValue === null ? undefined : Number(daysValue);
+      if (
+        days !== undefined &&
+        (!Number.isInteger(days) || days < 1 || days > 36_500)
+      ) {
+        sendJson(response, 400, {
+          message: "The feedback age filter is invalid.",
+        });
+        return;
+      }
+      const commentsValue = url.searchParams.get("comments");
+      if (commentsValue !== null && commentsValue !== "1") {
+        sendJson(response, 400, {
+          message: "The feedback comment filter is invalid.",
+        });
+        return;
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        feedbackService.list({
+          page,
+          ...(rating === undefined
+            ? {}
+            : { rating: rating as 1 | 2 | 3 | 4 | 5 }),
+          ...(commentsValue === "1" ? { commentsOnly: true } : {}),
+          ...(days === undefined ? {} : { days }),
           force: url.searchParams.get("refresh") === "1",
           signal,
         }),

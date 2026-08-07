@@ -17,6 +17,7 @@ import type {
   PirateShipPreparation,
 } from "../order-management.js";
 import type { ManagedPaymentsPage } from "../payment-management.js";
+import type { ManagedSellerFeedbackPage } from "../feedback-management.js";
 import type {
   PriceUpdateJob,
   PriceUpdateQueueSnapshot,
@@ -35,6 +36,7 @@ export interface ShipmentResult {
 export type PirateShipResult = PirateShipPreparation;
 export type PaymentsPage = ManagedPaymentsPage;
 export type PaymentDetail = SellerPayoutDetail;
+export type FeedbackPage = ManagedSellerFeedbackPage;
 export type CatalogSearch = CatalogSearchResult;
 export type CatalogProduct = CatalogProductDetails;
 export type AdditionPreview = InventoryAdditionPreview;

@@ -9,6 +9,7 @@ import { InventoryPage } from "./pages/InventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
 import { PaymentsPage } from "./pages/PaymentsPage.js";
+import { FeedbackPage } from "./pages/FeedbackPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { OrdersProvider } from "./state/OrdersContext.js";
 import { SettingsProvider, useSettings } from "./state/SettingsContext.js";
@@ -88,6 +89,7 @@ function Console() {
       dashboard: DashboardPage,
       orders: OrdersPage,
       payments: PaymentsPage,
+      feedback: FeedbackPage,
       "add-cards": AddCardsPage,
       inventory: InventoryPage,
       settings: SettingsPage,

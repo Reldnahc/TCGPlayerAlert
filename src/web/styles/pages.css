@@ -279,6 +279,101 @@
   min-height: 30px;
   padding-block: 4px;
 }
+.feedback-layout {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  min-height: 0;
+  gap: 10px;
+  overflow: hidden;
+}
+.feedback-metrics .metric strong {
+  font-size: 17px;
+}
+.feedback-filter {
+  width: 156px;
+}
+.feedback-table-region {
+  min-height: 0;
+}
+.feedback-table {
+  min-width: 980px;
+}
+.feedback-table th:first-child {
+  width: 145px;
+}
+.feedback-table th:nth-child(2) {
+  width: 110px;
+}
+.feedback-table th:nth-child(3) {
+  width: 150px;
+}
+.feedback-table th:last-child {
+  width: 310px;
+}
+.feedback-table td {
+  height: 54px;
+}
+.feedback-stars {
+  color: #d79213;
+  font-size: 15px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.feedback-stars i {
+  color: #d6dadd;
+  font-style: normal;
+}
+.feedback-date {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.feedback-comment {
+  max-width: 620px;
+  line-height: 1.4;
+}
+.feedback-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.feedback-signal {
+  display: inline-flex;
+  min-height: 21px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.feedback-signal.is-positive {
+  color: #096442;
+  border-color: #a8d8c4;
+  background: #ebf7f2;
+}
+.feedback-signal.is-negative {
+  color: #982f27;
+  border-color: #e3b2ad;
+  background: #fff1ef;
+}
+.feedback-signal.is-unanswered {
+  opacity: 0.58;
+}
+.feedback-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.feedback-pagination .button {
+  min-height: 30px;
+  padding-block: 4px;
+}
 .row-actions {
   display: flex;
   align-items: center;
@@ -838,6 +933,9 @@
   white-space: nowrap;
 }
 @media (max-width: 1180px) {
+  .feedback-layout {
+    overflow: auto;
+  }
   .payments-layout {
     overflow: auto;
   }

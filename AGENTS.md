@@ -15,7 +15,7 @@ The product must remain useful beyond one seller, scheduling cadence, operating 
 
 ## Current Phase
 
-Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are authorized through the profile-driven preview and durable, paced queue in ADRs 0005 and 0006. Exact-SKU inventory additions with an initial price are authorized through the profile-driven, internally previewed queue in ADR 0007. Operator-confirmed removal of an entire eligible exact-SKU listing is authorized through the searchable Inventory preview and the same durable inventory queue in ADR 0008. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review. A read-only Payments workspace may present payout history, payout details, and unpaid balances from the private client; payment setup, payment instruments, bank details, and every payment mutation remain out of scope.
+Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are authorized through the profile-driven preview and durable, paced queue in ADRs 0005 and 0006. Exact-SKU inventory additions with an initial price are authorized through the profile-driven, internally previewed queue in ADR 0007. Operator-confirmed removal of an entire eligible exact-SKU listing is authorized through the searchable Inventory preview and the same durable inventory queue in ADR 0008. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review. Read-only Payments and Feedback workspaces may present data from the private client; payment setup, payment instruments, bank details, feedback mutations, and every payment mutation remain out of scope.
 
 The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
 
@@ -38,6 +38,7 @@ Keep these concerns separated even if the first version runs as one process:
 - **Optional event acceleration:** future provider adapters may interpret notifications and request an immediate sync, but may not directly create authoritative orders or dispatch actions.
 - **TCGplayer access:** an application-facing adapter around the separately versioned `tcgplayer-private-api` client. Private endpoint details do not belong in this repository.
 - **Payments:** cached, read-only legacy or Money Movement payment presentation normalized behind an application service; never expose payment instruments or add payout mutation controls.
+- **Feedback:** cached, read-only seller ratings and buyer comments normalized behind an application service; omit provider user/order keys, mask buyer nicknames before the browser boundary, and do not add feedback mutations.
 - **Domain and orchestration:** provider-neutral orders, documents, events, rules, idempotency, retries, and workflow state.
 - **Rules:** declarative conditions and action selection, with validation and explainable evaluation results.
 - **Actions:** plugins that consume domain data or documents and produce side effects.
@@ -60,7 +61,7 @@ The unofficial seller API integration is maintained separately at:
 
 - <https://github.com/Reldnahc/tcgplayer-private-api>
 
-This application repository owns scheduling, manual synchronization, reconciliation, optional event accelerators, domain orchestration, rules, actions, printing, user configuration, read-only payment presentation, and end-to-end workflow state. The API repository owns TCGplayer seller authentication/session behavior, private endpoint transport, response validation, order and document retrieval, and read-only payout retrieval.
+This application repository owns scheduling, manual synchronization, reconciliation, optional event accelerators, domain orchestration, rules, actions, printing, user configuration, read-only payment and feedback presentation, and end-to-end workflow state. The API repository owns TCGplayer seller authentication/session behavior, private endpoint transport, response validation, order and document retrieval, and read-only payout and feedback retrieval.
 
 - Consume the API client only through its documented npm package exports.
 - Use a released semantic version for normal builds. Local adjacent-repository development may use an npm-managed `file:../tcgplayer-private-api` dependency or a packed tarball.

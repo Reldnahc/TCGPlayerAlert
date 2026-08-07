@@ -123,6 +123,31 @@ function baseFetch(
         fetchedAt: "2026-08-07T12:00:00.000Z",
       }),
     );
+  if (path.startsWith("/api/feedback"))
+    return Promise.resolve(
+      json({
+        page: 1,
+        pageSize: 25,
+        totalPages: 1,
+        totalFeedback: 0,
+        feedback: [],
+        aggregation: {
+          totalRatings: 0,
+          fiveStar: 0,
+          fourStar: 0,
+          threeStar: 0,
+          twoStar: 0,
+          oneStar: 0,
+          arrivedWhenExpected: { positive: 0, negative: 0, unanswered: 0 },
+          asDescribed: { positive: 0, negative: 0, unanswered: 0 },
+          goodCommunication: { positive: 0, negative: 0, unanswered: 0 },
+          totalAdditionalRatings: 0,
+        },
+        storefrontUrl:
+          "https://store.tcgplayer.com/sellerfeedback/synthetic-seller",
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
   throw new Error(`Unexpected request: ${path}`);
 }
 
@@ -156,6 +181,7 @@ describe("operator console", () => {
       "Add cards",
       "Orders",
       "Payments",
+      "Feedback",
       "Inventory",
       "Settings",
       "Jobs",
@@ -452,5 +478,86 @@ describe("operator console", () => {
         ([input]) => requestPath(input) === "/api/payments?page=2",
       ),
     ).toBe(true);
+  });
+
+  it("shows filtered read-only feedback without exposing raw buyer nicknames", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path.startsWith("/api/feedback?")) {
+          return Promise.resolve(
+            json({
+              page: 1,
+              pageSize: 25,
+              totalPages: 1,
+              totalFeedback: 1,
+              feedback: [
+                {
+                  rating: 5,
+                  comment: "Synthetic feedback comment.",
+                  buyerDisplayName: "Synthetic B*",
+                  createdAt: "2026-08-07T12:00:00.000Z",
+                  active: true,
+                  arrivedWhenExpected: true,
+                  asDescribed: true,
+                  goodCommunication: false,
+                },
+              ],
+              aggregation: {
+                totalRatings: 10,
+                fiveStar: 8,
+                fourStar: 1,
+                threeStar: 0,
+                twoStar: 0,
+                oneStar: 1,
+                arrivedWhenExpected: {
+                  positive: 9,
+                  negative: 1,
+                  unanswered: 0,
+                },
+                asDescribed: { positive: 9, negative: 1, unanswered: 0 },
+                goodCommunication: {
+                  positive: 8,
+                  negative: 1,
+                  unanswered: 1,
+                },
+                totalAdditionalRatings: 28,
+              },
+              storefrontUrl:
+                "https://store.tcgplayer.com/sellerfeedback/synthetic-seller",
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+
+    await user.click(screen.getByRole("link", { name: "Feedback" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Feedback" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Synthetic feedback comment.")).toBeTruthy();
+    expect(screen.getByText("Synthetic B*")).toBeTruthy();
+    expect(screen.queryByText("Synthetic Buyer")).toBeNull();
+    expect(screen.getByLabelText("5 out of 5 stars")).toBeTruthy();
+    expect(screen.getByText("80.0%")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Open TCGplayer" }).getAttribute("href"),
+    ).toBe("https://store.tcgplayer.com/sellerfeedback/synthetic-seller");
+
+    await user.selectOptions(screen.getByLabelText("Rating"), "1");
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input]) => requestPath(input) === "/api/feedback?page=1&rating=1",
+        ),
+      ).toBe(true),
+    );
   });
 });

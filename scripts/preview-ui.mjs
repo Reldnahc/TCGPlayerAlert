@@ -532,6 +532,60 @@ const server = await startConfigurationUi({
         ],
       }),
   },
+  feedbackService: {
+    list: ({ page = 1 }) =>
+      Promise.resolve({
+        page,
+        pageSize: 25,
+        totalPages: 1,
+        totalFeedback: 3,
+        feedback: [
+          {
+            rating: 5,
+            comment: "Fast shipping and careful packaging.",
+            buyerDisplayName: "Taylor M*",
+            createdAt: "2026-08-07T10:20:00.000Z",
+            active: true,
+            arrivedWhenExpected: true,
+            asDescribed: true,
+            goodCommunication: true,
+          },
+          {
+            rating: 4,
+            buyerDisplayName: "R***7",
+            createdAt: "2026-08-05T15:40:00.000Z",
+            active: true,
+            arrivedWhenExpected: true,
+            asDescribed: true,
+          },
+          {
+            rating: 3,
+            comment: "Synthetic preview comment for layout testing.",
+            buyerDisplayName: "Morgan L*",
+            createdAt: "2026-08-02T09:10:00.000Z",
+            active: true,
+            arrivedWhenExpected: false,
+            asDescribed: true,
+            goodCommunication: true,
+          },
+        ],
+        aggregation: {
+          totalRatings: 42,
+          fiveStar: 36,
+          fourStar: 4,
+          threeStar: 1,
+          twoStar: 0,
+          oneStar: 1,
+          arrivedWhenExpected: { positive: 37, negative: 2, unanswered: 3 },
+          asDescribed: { positive: 39, negative: 1, unanswered: 2 },
+          goodCommunication: { positive: 34, negative: 1, unanswered: 7 },
+          totalAdditionalRatings: 114,
+        },
+        storefrontUrl:
+          "https://store.tcgplayer.com/sellerfeedback/synthetic-seller",
+        fetchedAt: now,
+      }),
+  },
   executePrintTest: () => Promise.resolve(),
 });
 

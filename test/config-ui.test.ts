@@ -8,6 +8,7 @@ import {
   startConfigurationUi,
   type AppConfig,
   type ConfigurationUiServer,
+  type FeedbackManagementService,
   type PaymentManagementService,
 } from "../src/index.js";
 
@@ -252,6 +253,64 @@ describe("configuration UI", () => {
     expect(get).toHaveBeenCalledWith(
       "SYNTHETIC PAYOUT/1",
       expect.objectContaining({ force: false }),
+    );
+    expect(invalid.status).toBe(400);
+  });
+
+  it("serves filtered read-only seller feedback", async () => {
+    const current = await fixture();
+    const list = vi.fn(() =>
+      Promise.resolve({
+        page: 2,
+        pageSize: 25,
+        totalPages: 3,
+        totalFeedback: 51,
+        feedback: [],
+        aggregation: {
+          totalRatings: 75,
+          fiveStar: 70,
+          fourStar: 3,
+          threeStar: 1,
+          twoStar: 0,
+          oneStar: 1,
+          arrivedWhenExpected: { positive: 60, negative: 1, unanswered: 14 },
+          asDescribed: { positive: 62, negative: 1, unanswered: 12 },
+          goodCommunication: { positive: 58, negative: 1, unanswered: 16 },
+          totalAdditionalRatings: 183,
+        },
+        storefrontUrl:
+          "https://store.tcgplayer.com/sellerfeedback/synthetic-seller",
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+    const feedbackService = {
+      list,
+    } as unknown as FeedbackManagementService;
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      feedbackService,
+    });
+
+    const page = await fetch(
+      `${server.url}/api/feedback?page=2&rating=4&comments=1&days=90&refresh=1`,
+    );
+    const invalid = await fetch(`${server.url}/api/feedback?rating=6`);
+
+    expect(page.status).toBe(200);
+    expect(await page.json()).toMatchObject({
+      totalFeedback: 51,
+      aggregation: { totalRatings: 75 },
+    });
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 2,
+        rating: 4,
+        commentsOnly: true,
+        days: 90,
+        force: true,
+      }),
     );
     expect(invalid.status).toBe(400);
   });
