@@ -143,6 +143,8 @@ describe("operator console", () => {
     expect(
       await screen.findByRole("heading", { name: "Dashboard" }),
     ).toBeTruthy();
+    expect(screen.queryByText("TCGplayer seller operations")).toBeNull();
+    expect(screen.queryByText("Local only")).toBeNull();
     await user.click(screen.getByRole("link", { name: "Settings" }));
     expect(
       await screen.findByRole("heading", { name: "Settings" }),

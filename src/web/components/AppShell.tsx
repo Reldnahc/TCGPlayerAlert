@@ -33,8 +33,6 @@ export function AppShell({
   readonly onNavigate: (route: RouteId) => void;
   readonly children: ComponentChildren;
 }) {
-  const label =
-    routes.find((candidate) => candidate.id === route)?.label ?? "Dashboard";
   return (
     <div class="app-shell">
       <aside class="sidebar">
@@ -71,18 +69,7 @@ export function AppShell({
           <span>Credentials remain server-side</span>
         </footer>
       </aside>
-      <section class="workspace">
-        <div class="topbar">
-          <div class="topbar__title">
-            <strong>{label}</strong>
-            <span>TCGplayer seller operations</span>
-          </div>
-          <div class="topbar__actions">
-            <span class="status status--success">Local only</span>
-          </div>
-        </div>
-        {children}
-      </section>
+      <section class="workspace">{children}</section>
     </div>
   );
 }
