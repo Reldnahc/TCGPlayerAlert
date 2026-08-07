@@ -76,12 +76,148 @@
   gap: 10px;
   overflow: hidden;
 }
-.legacy-payments-table-region {
-  min-height: 150px;
+.payment-table-section {
+  --payment-section-accent: #496574;
+  --payment-section-border: #c9d5db;
+  --payment-section-header: #eef3f5;
+  display: grid;
+  min-height: 160px;
   flex: 1 1 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--payment-section-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.payment-table-section--upcoming {
+  --payment-section-accent: var(--accent);
+  --payment-section-border: #b9dacb;
+  --payment-section-header: #e8f5ef;
+}
+.payment-table-section--history {
+  --payment-section-accent: #356b86;
+  --payment-section-border: #c6d8e1;
+  --payment-section-header: #edf4f7;
+}
+.payment-table-section__header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 12px 8px 14px;
+  border-bottom: 1px solid var(--payment-section-border);
+  border-left: 4px solid var(--payment-section-accent);
+  background: var(--payment-section-header);
+}
+.payment-table-section__header > div {
+  display: grid;
+  gap: 1px;
+}
+.payment-table-section__header h2 {
+  color: var(--payment-section-accent);
+  font-size: 13px;
+  font-weight: 760;
+  letter-spacing: -0.01em;
+}
+.payment-table-section__header p,
+.payment-table-section__header > span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.payment-table-section__header > span {
+  padding: 3px 7px;
+  border: 1px solid var(--payment-section-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  white-space: nowrap;
+}
+.legacy-payments-table-region {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
 }
 .legacy-payments-table {
   min-width: 1180px;
+}
+.payment-table-section .legacy-payments-table th {
+  height: 39px;
+  border-bottom-color: var(--payment-section-border);
+  color: #46545d;
+  background: #f5f7f8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.payment-table-section--upcoming .legacy-payments-table th {
+  background: #f1f8f5;
+}
+.payment-table-section--history .legacy-payments-table th {
+  background: #f3f7f9;
+}
+.legacy-payments-table .payment-column-sign {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  margin-left: 3px;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.legacy-payments-table th.payment-column--credit,
+.legacy-payments-table td.payment-column--credit {
+  color: #086746;
+  background: #f1faf6;
+}
+.legacy-payments-table th.payment-column--credit .payment-column-sign {
+  color: #086746;
+  background: #cfeadd;
+}
+.legacy-payments-table th.payment-column--debit,
+.legacy-payments-table td.payment-column--debit {
+  color: #96352e;
+  background: #fff5f4;
+}
+.legacy-payments-table th.payment-column--debit .payment-column-sign {
+  color: #96352e;
+  background: #f7dcd9;
+}
+.legacy-payments-table th.payment-column--adjustment,
+.legacy-payments-table td.payment-column--adjustment {
+  color: #80500d;
+  background: #fff9ed;
+}
+.legacy-payments-table th.payment-column--payment,
+.legacy-payments-table td.payment-column--payment {
+  border-left: 1px solid #b9dacb;
+  color: #075f40;
+  background: #e8f5ef;
+}
+.legacy-payments-table td.payment-column--payment strong {
+  font-size: 13px;
+}
+.legacy-payments-table
+  tbody
+  tr:nth-child(even)
+  > td:not([class*="payment-column--"]) {
+  background: #fafbfc;
+}
+.legacy-payments-table tbody tr:hover > td:not([class*="payment-column--"]) {
+  background: #eef3f5;
+}
+.legacy-payments-table tbody tr:hover > td.payment-column--credit {
+  background: #e7f6ef;
+}
+.legacy-payments-table tbody tr:hover > td.payment-column--debit {
+  background: #fcebea;
+}
+.legacy-payments-table tbody tr:hover > td.payment-column--adjustment {
+  background: #fff3db;
+}
+.legacy-payments-table tbody tr:hover > td.payment-column--payment {
+  background: #dcefe6;
 }
 .payment-detail {
   display: grid;

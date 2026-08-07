@@ -453,27 +453,41 @@ function LegacyPaymentsWorkspace({
             detail={`Page ${String(data.page)} of ${String(data.totalPages)}`}
           />
         </div>
-        <Toolbar>
-          <strong>Estimated future payments</strong>
-          <span class="toolbar__spacer" />
-          <span class="muted">Updated {dateTime(data.fetchedAt)}</span>
-        </Toolbar>
         {error === "" ? null : <Notice tone="danger">{error}</Notice>}
-        <LegacyPaymentsTable
-          payments={upcoming}
-          emptyTitle="No upcoming payments"
-        />
-        <Toolbar>
-          <strong>Past payment history</strong>
-          <span class="toolbar__spacer" />
-          <span class="muted">
-            Page {String(data.page)} of {String(data.totalPages)}
-          </span>
-        </Toolbar>
-        <LegacyPaymentsTable
-          payments={data.pastPayments}
-          emptyTitle="No past payments"
-        />
+        <section
+          class="payment-table-section payment-table-section--upcoming"
+          aria-labelledby="upcoming-payments-title"
+        >
+          <header class="payment-table-section__header">
+            <div>
+              <h2 id="upcoming-payments-title">Estimated future payments</h2>
+              <p>Transfers TCGplayer has scheduled for your account</p>
+            </div>
+            <span>{dateTime(data.fetchedAt)}</span>
+          </header>
+          <LegacyPaymentsTable
+            payments={upcoming}
+            emptyTitle="No upcoming payments"
+          />
+        </section>
+        <section
+          class="payment-table-section payment-table-section--history"
+          aria-labelledby="payment-history-title"
+        >
+          <header class="payment-table-section__header">
+            <div>
+              <h2 id="payment-history-title">Past payment history</h2>
+              <p>Completed payment summaries</p>
+            </div>
+            <span>
+              Page {String(data.page)} of {String(data.totalPages)}
+            </span>
+          </header>
+          <LegacyPaymentsTable
+            payments={data.pastPayments}
+            emptyTitle="No past payments"
+          />
+        </section>
         <div class="payment-pagination">
           <Button
             icon="chevron-left"
@@ -513,15 +527,29 @@ function LegacyPaymentsTable({
         <table class="data-table legacy-payments-table">
           <thead>
             <tr>
-              <th>Estimated arrival</th>
-              <th>Initiated</th>
-              <th class="align-right">Orders</th>
-              <th class="align-right">Sales (+)</th>
-              <th class="align-right">Fees (-)</th>
-              <th class="align-right">Refunds (-)</th>
-              <th class="align-right">Refunded fees (+)</th>
-              <th class="align-right">Adjustments</th>
-              <th class="align-right">Payment</th>
+              <th scope="col">Est. arrival</th>
+              <th scope="col">Initiated</th>
+              <th scope="col" class="align-right">
+                Orders
+              </th>
+              <th scope="col" class="align-right payment-column--credit">
+                Sales <span class="payment-column-sign">+</span>
+              </th>
+              <th scope="col" class="align-right payment-column--debit">
+                Fees <span class="payment-column-sign">−</span>
+              </th>
+              <th scope="col" class="align-right payment-column--debit">
+                Order refunds <span class="payment-column-sign">−</span>
+              </th>
+              <th scope="col" class="align-right payment-column--credit">
+                Fee credits <span class="payment-column-sign">+</span>
+              </th>
+              <th scope="col" class="align-right payment-column--adjustment">
+                Adjustments
+              </th>
+              <th scope="col" class="align-right payment-column--payment">
+                Payment
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -532,22 +560,22 @@ function LegacyPaymentsTable({
                 <td>{calendarDate(payment.estimatedArrivalDate)}</td>
                 <td>{calendarDate(payment.initiatedDate)}</td>
                 <td class="align-right numeric">{payment.ordersCount}</td>
-                <td class="align-right numeric">
+                <td class="align-right numeric payment-column--credit">
                   {moneyFromCents(payment.totalSales)}
                 </td>
-                <td class="align-right numeric">
+                <td class="align-right numeric payment-column--debit">
                   {moneyFromCents(payment.totalFees)}
                 </td>
-                <td class="align-right numeric">
+                <td class="align-right numeric payment-column--debit">
                   {moneyFromCents(payment.refundedOrders)}
                 </td>
-                <td class="align-right numeric">
+                <td class="align-right numeric payment-column--credit">
                   {moneyFromCents(payment.refundedFees)}
                 </td>
-                <td class="align-right numeric">
+                <td class="align-right numeric payment-column--adjustment">
                   {moneyFromCents(payment.adjustments)}
                 </td>
-                <td class="align-right numeric">
+                <td class="align-right numeric payment-column--payment">
                   <strong>{moneyFromCents(payment.amount)}</strong>
                 </td>
               </tr>
