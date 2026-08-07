@@ -487,7 +487,23 @@ const server = await startConfigurationUi({
         payouts,
         unpaidBalance: {
           totalBalance: 3_274,
-          transactions: [],
+          transactions: [
+            {
+              createdAt: "2026-08-07T11:00:00.000Z",
+              type: "SettleOrder",
+              orderNumber: orders[0].orderNumber,
+              amount: 3_024,
+              feeAmount: -268,
+              netAmount: 2_756,
+            },
+            {
+              createdAt: "2026-08-07T11:30:00.000Z",
+              type: "ApplyAdjustment",
+              amount: 518,
+              feeAmount: 0,
+              netAmount: 518,
+            },
+          ],
         },
         fetchedAt: now,
       }),

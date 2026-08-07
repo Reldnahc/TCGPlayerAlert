@@ -294,7 +294,19 @@ describe("operator console", () => {
                   status: "Succeeded",
                 },
               ],
-              unpaidBalance: { totalBalance: 2_500, transactions: [] },
+              unpaidBalance: {
+                totalBalance: 2_500,
+                transactions: [
+                  {
+                    createdAt: "2026-08-07T11:30:00.000Z",
+                    type: "SettleOrder",
+                    orderNumber: "SYNTHETIC-UPCOMING-1",
+                    amount: 3_000,
+                    feeAmount: -500,
+                    netAmount: 2_500,
+                  },
+                ],
+              },
               fetchedAt: "2026-08-07T12:00:00.000Z",
             }),
           );
@@ -313,6 +325,26 @@ describe("operator console", () => {
     ).toBeTruthy();
     expect(screen.getByText("$25.00")).toBeTruthy();
     expect(screen.getAllByText("$123.45").length).toBeGreaterThan(0);
+    await user.click(
+      screen.getByRole("button", {
+        name: "View upcoming payment transactions",
+      }),
+    );
+    expect(screen.getByText("Upcoming payments")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "SYNTHETIC-UPCOMING-1" }),
+    ).toBeTruthy();
+    await user.selectOptions(
+      screen.getByLabelText("Transaction type"),
+      "ApplyRefund",
+    );
+    expect(screen.getByText("No matching transactions")).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("Transaction type"), "All");
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        requestPath(input).startsWith("/api/payments"),
+      ),
+    ).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "View" }));
     expect(await screen.findByText("Payout SYNTHETIC-PAYOUT-1")).toBeTruthy();
     expect(

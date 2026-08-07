@@ -10,7 +10,7 @@ Operators need payout visibility without returning to Seller Portal for routine 
 
 ## Decision
 
-- Consume payout history, one payout's displayed transactions, and the current unpaid balance only through the public `tcgplayer-private-api` contract.
+- Consume payout history, one payout's displayed transactions, and the current unpaid balance with its displayed upcoming transactions only through the public `tcgplayer-private-api` contract.
 - Keep the browser behind loopback application routes. Seller credentials and the private package remain server-side.
 - Cache payout pages and unpaid balance data in memory for one minute and payout details for five minutes. Explicit Refresh requests bypass the relevant cache.
 - Do not persist payment data or include it in logs, workflow state, jobs, or configuration.
@@ -21,4 +21,4 @@ Operators need payout visibility without returning to Seller Portal for routine 
 
 ## Consequences
 
-The Payments page provides useful reporting with bounded API use and no money-moving capability. Its summaries cover the currently loaded payout page, while the unpaid balance comes from its dedicated read. Private endpoint drift fails through the package's response validation. Features such as payment setup, bank-account management, refunds, and payout administration require separate authorization and design review rather than expansion of this workspace.
+The Payments page provides useful reporting with bounded API use and no money-moving capability. Its payout summaries cover the currently loaded payout page, while the unpaid balance and searchable upcoming-transactions view share one dedicated read and cache entry. Private endpoint drift fails through the package's response validation. Features such as payment setup, bank-account management, issuing refunds, and payout administration require separate authorization and design review rather than expansion of this workspace.

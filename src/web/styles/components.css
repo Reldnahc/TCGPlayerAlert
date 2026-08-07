@@ -194,6 +194,32 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
 }
+.metric small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.metric--action {
+  position: relative;
+  padding-right: 34px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.metric--action > svg {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+}
+.metric--action:hover,
+.metric--action:focus-visible {
+  background: var(--bg-selected);
+}
 .data-region {
   min-width: 0;
   min-height: 0;

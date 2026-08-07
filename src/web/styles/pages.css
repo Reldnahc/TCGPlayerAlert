@@ -91,6 +91,24 @@
 .payment-detail-summary .metric strong {
   font-size: 13px;
 }
+.upcoming-payment-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1fr) minmax(
+      160px,
+      0.8fr
+    );
+  align-items: end;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.upcoming-payment-controls .metric {
+  padding: 0;
+}
+.upcoming-payment-controls .metric strong {
+  font-size: 18px;
+}
 .payment-transactions {
   min-width: 0;
   min-height: 0;
@@ -679,6 +697,12 @@
   }
   .payment-detail {
     min-height: 400px;
+  }
+  .upcoming-payment-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+  .upcoming-payment-controls .metric {
+    grid-column: 1 / -1;
   }
 }
 @media (max-width: 860px) {

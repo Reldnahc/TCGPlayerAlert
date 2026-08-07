@@ -39,12 +39,18 @@ const PAYOUT_STATUSES = [
 ] as const;
 
 const CURRENT_PAYOUT_STATUSES = new Set([
-  "Staged",
-  "InReview",
-  "Committed",
   "InTransit",
-  "Retrying",
+  "Committed",
+  "InReview",
+  "Staged",
 ]);
+const PREVIOUS_PAYOUT_STATUSES = new Set(["Succeeded", "Failed"]);
+
+type PaymentPanelSelection =
+  | { readonly kind: "payout"; readonly referenceId: string }
+  | { readonly kind: "upcoming" }
+  | null;
+type PaymentTransaction = PaymentsData["unpaidBalance"]["transactions"][number];
 
 export function PaymentsPage() {
   const [page, setPage] = useState(1);
@@ -52,7 +58,7 @@ export function PaymentsPage() {
   const [data, setData] = useState<PaymentsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedReference, setSelectedReference] = useState("");
+  const [selection, setSelection] = useState<PaymentPanelSelection>(null);
   const [detail, setDetail] = useState<PaymentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
@@ -74,7 +80,9 @@ export function PaymentsPage() {
   }, [page, status]);
 
   async function selectPayout(referenceId: string, force = false) {
-    setSelectedReference(referenceId);
+    if (selection?.kind !== "payout" || selection.referenceId !== referenceId)
+      setDetail(null);
+    setSelection({ kind: "payout", referenceId });
     setDetailLoading(true);
     setDetailError("");
     try {
@@ -103,14 +111,18 @@ export function PaymentsPage() {
   const previousPayout = useMemo(
     () =>
       data?.payouts
-        .filter((payout) => payout.status === "Succeeded")
+        .filter((payout) => PREVIOUS_PAYOUT_STATUSES.has(payout.status))
         .sort((left, right) =>
-          (right.lastSentAt ?? right.createdAt).localeCompare(
-            left.lastSentAt ?? left.createdAt,
-          ),
+          right.createdAt.localeCompare(left.createdAt),
         )[0],
     [data],
   );
+  const selectedReference =
+    selection?.kind === "payout" ? selection.referenceId : "";
+  const previousReference = previousPayout?.referenceId ?? undefined;
+  const nextReference = nextPayout?.referenceId ?? undefined;
+  const unpaidTransactions = data?.unpaidBalance.transactions ?? [];
+  const unpaidAsOf = newestTransactionDate(unpaidTransactions);
   const totalPages =
     data === null
       ? 1
@@ -120,7 +132,7 @@ export function PaymentsPage() {
     <main class="page">
       <PageHeader
         title="Payments"
-        description="Read-only payout history and unpaid balance"
+        description="Read-only upcoming and completed payouts"
         actions={
           <>
             <a
@@ -146,14 +158,63 @@ export function PaymentsPage() {
           <Metric
             label="Previous payout"
             value={moneyFromCents(previousPayout?.amount)}
+            detail={
+              previousPayout === undefined
+                ? "No previous payouts"
+                : `${previousPayout.status} · ${previousPayout.lastSentAt === undefined ? compactDate(previousPayout.createdAt) : `Sent ${compactDate(previousPayout.lastSentAt)}`}`
+            }
+            actionLabel={
+              previousReference === undefined
+                ? undefined
+                : `View previous payout ${previousReference}`
+            }
+            onClick={
+              previousReference === undefined
+                ? undefined
+                : () => void selectPayout(previousReference)
+            }
           />
           <Metric
             label="Next payout"
             value={moneyFromCents(nextPayout?.amount)}
+            detail={
+              nextPayout === undefined
+                ? "No payouts scheduled"
+                : `${nextPayout.status} · ${nextPayout.holdUntil === undefined ? compactDate(nextPayout.createdAt) : `Scheduled ${compactDate(nextPayout.holdUntil)}`}`
+            }
+            actionLabel={
+              nextReference === undefined
+                ? undefined
+                : `View next payout ${nextReference}`
+            }
+            onClick={
+              nextReference === undefined
+                ? undefined
+                : () => void selectPayout(nextReference)
+            }
           />
           <Metric
             label="Unpaid balance"
             value={moneyFromCents(data?.unpaidBalance.totalBalance)}
+            detail={
+              unpaidTransactions.length === 0
+                ? "No upcoming transactions"
+                : `${String(unpaidTransactions.length)} transaction${unpaidTransactions.length === 1 ? "" : "s"}${unpaidAsOf === undefined ? "" : ` · As of ${compactDate(unpaidAsOf)}`}`
+            }
+            actionLabel={
+              unpaidTransactions.length === 0
+                ? undefined
+                : "View upcoming payment transactions"
+            }
+            onClick={
+              unpaidTransactions.length === 0
+                ? undefined
+                : () => {
+                    setSelection({ kind: "upcoming" });
+                    setDetail(null);
+                    setDetailError("");
+                  }
+            }
           />
           <Metric
             label="Payout records"
@@ -167,7 +228,7 @@ export function PaymentsPage() {
               onChange={(event) => {
                 setStatus(event.currentTarget.value);
                 setPage(1);
-                setSelectedReference("");
+                setSelection(null);
                 setDetail(null);
               }}
             >
@@ -243,21 +304,29 @@ export function PaymentsPage() {
               </table>
             )}
           </div>
-          <PayoutDetailPanel
-            detail={detail}
-            loading={detailLoading}
-            error={detailError}
-            selectedReference={selectedReference}
-            onRefresh={() => {
-              if (selectedReference !== "")
-                void selectPayout(selectedReference, true);
-            }}
-            onClose={() => {
-              setSelectedReference("");
-              setDetail(null);
-              setDetailError("");
-            }}
-          />
+          {selection?.kind === "upcoming" ? (
+            <UpcomingPaymentsPanel
+              transactions={unpaidTransactions}
+              totalBalance={data?.unpaidBalance.totalBalance}
+              onClose={() => setSelection(null)}
+            />
+          ) : (
+            <PayoutDetailPanel
+              detail={detail}
+              loading={detailLoading}
+              error={detailError}
+              selectedReference={selectedReference}
+              onRefresh={() => {
+                if (selectedReference !== "")
+                  void selectPayout(selectedReference, true);
+              }}
+              onClose={() => {
+                setSelection(null);
+                setDetail(null);
+                setDetailError("");
+              }}
+            />
+          )}
         </section>
         <div class="payment-pagination">
           <Button
@@ -280,6 +349,88 @@ export function PaymentsPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function UpcomingPaymentsPanel({
+  transactions,
+  totalBalance,
+  onClose,
+}: {
+  readonly transactions: readonly PaymentTransaction[];
+  readonly totalBalance: number | undefined;
+  readonly onClose: () => void;
+}) {
+  const [type, setType] = useState("All");
+  const [orderQuery, setOrderQuery] = useState("");
+  const normalizedQuery = orderQuery.trim().toLocaleLowerCase();
+  const filtered = useMemo(
+    () =>
+      transactions
+        .filter(
+          (transaction) =>
+            (type === "All" || transaction.type === type) &&
+            (normalizedQuery === "" ||
+              transaction.orderNumber
+                ?.toLocaleLowerCase()
+                .includes(normalizedQuery) === true),
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [normalizedQuery, transactions, type],
+  );
+  const asOf = newestTransactionDate(transactions);
+
+  return (
+    <aside class="payment-detail surface">
+      <header class="surface__header">
+        <div>
+          <strong>Upcoming payments</strong>
+          <p>
+            New orders, refunds, and adjustments not yet included in a committed
+            payout
+            {asOf === undefined ? "" : ` · As of ${dateTime(asOf)}`}
+          </p>
+        </div>
+        <Button tone="quiet" onClick={onClose}>
+          Close
+        </Button>
+      </header>
+      <div class="upcoming-payment-controls">
+        <Metric label="Unpaid balance" value={moneyFromCents(totalBalance)} />
+        <Field label="Search by order">
+          <input
+            type="search"
+            value={orderQuery}
+            placeholder="Order number"
+            onInput={(event) => setOrderQuery(event.currentTarget.value)}
+          />
+        </Field>
+        <Field label="Transaction type">
+          <select
+            value={type}
+            onChange={(event) => setType(event.currentTarget.value)}
+          >
+            <option value="All">All</option>
+            <option value="SettleOrder">Order</option>
+            <option value="ApplyRefund">Refund</option>
+            <option value="ApplyAdjustment">Adjustment</option>
+          </select>
+        </Field>
+      </div>
+      <div class="payment-transactions">
+        {filtered.length === 0 ? (
+          <EmptyState
+            title={
+              transactions.length === 0
+                ? "No upcoming transactions"
+                : "No matching transactions"
+            }
+          />
+        ) : (
+          <PaymentTransactionsTable transactions={filtered} />
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -363,50 +514,7 @@ function PayoutDetailPanel({
             {detail.transactions.length === 0 ? (
               <EmptyState title="No displayed transactions" />
             ) : (
-              <table class="data-table payment-transactions-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Order</th>
-                    <th class="align-right">Amount</th>
-                    <th class="align-right">Fee</th>
-                    <th class="align-right">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.transactions.map((transaction, index) => (
-                    <tr
-                      key={`${transaction.createdAt}:${transaction.type}:${String(index)}`}
-                    >
-                      <td>{compactDate(transaction.createdAt)}</td>
-                      <td>{transactionLabel(transaction.type)}</td>
-                      <td>
-                        {transaction.orderNumber === undefined ? (
-                          "—"
-                        ) : (
-                          <a
-                            href={sellerPortalOrderUrl(transaction.orderNumber)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {transaction.orderNumber}
-                          </a>
-                        )}
-                      </td>
-                      <td class="align-right numeric">
-                        {moneyFromCents(transaction.amount)}
-                      </td>
-                      <td class="align-right numeric">
-                        {moneyFromCents(transaction.feeAmount)}
-                      </td>
-                      <td class="align-right numeric">
-                        <strong>{moneyFromCents(transaction.netAmount)}</strong>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <PaymentTransactionsTable transactions={detail.transactions} />
             )}
           </div>
         </>
@@ -415,9 +523,74 @@ function PayoutDetailPanel({
   );
 }
 
+function PaymentTransactionsTable({
+  transactions,
+}: {
+  readonly transactions: readonly PaymentTransaction[];
+}) {
+  return (
+    <table class="data-table payment-transactions-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Order</th>
+          <th class="align-right">Amount</th>
+          <th class="align-right">Fee</th>
+          <th class="align-right">Net</th>
+        </tr>
+      </thead>
+      <tbody>
+        {transactions.map((transaction, index) => (
+          <tr
+            key={`${transaction.createdAt}:${transaction.type}:${String(index)}`}
+          >
+            <td>{compactDate(transaction.createdAt)}</td>
+            <td>{transactionLabel(transaction.type)}</td>
+            <td>
+              {transaction.orderNumber === undefined ? (
+                "—"
+              ) : (
+                <a
+                  href={sellerPortalOrderUrl(transaction.orderNumber)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {transaction.orderNumber}
+                </a>
+              )}
+            </td>
+            <td class="align-right numeric">
+              {moneyFromCents(transaction.amount)}
+            </td>
+            <td class="align-right numeric">
+              {moneyFromCents(transaction.feeAmount)}
+            </td>
+            <td class="align-right numeric">
+              <strong>{moneyFromCents(transaction.netAmount)}</strong>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function transactionLabel(value: string): string {
   if (value === "SettleOrder") return "Order";
   if (value === "ApplyRefund") return "Refund";
   if (value === "ApplyAdjustment") return "Adjustment";
   return value;
+}
+
+function newestTransactionDate(
+  transactions: readonly PaymentTransaction[],
+): string | undefined {
+  return transactions.reduce<string | undefined>(
+    (newest, transaction) =>
+      newest === undefined || transaction.createdAt > newest
+        ? transaction.createdAt
+        : newest,
+    undefined,
+  );
 }

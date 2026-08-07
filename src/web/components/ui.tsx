@@ -173,15 +173,35 @@ export function Toolbar({
 export function Metric({
   label,
   value,
+  detail,
+  actionLabel,
+  onClick,
 }: {
   readonly label: string;
   readonly value: string;
+  readonly detail?: string | undefined;
+  readonly actionLabel?: string | undefined;
+  readonly onClick?: (() => void) | undefined;
 }) {
-  return (
-    <div class="metric">
+  const content = (
+    <>
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
+      {detail === undefined ? null : <small>{detail}</small>}
+    </>
+  );
+  return onClick === undefined ? (
+    <div class="metric">{content}</div>
+  ) : (
+    <button
+      type="button"
+      class="metric metric--action"
+      aria-label={actionLabel ?? label}
+      onClick={onClick}
+    >
+      {content}
+      <Icon name="chevron-right" size={15} />
+    </button>
   );
 }
 
