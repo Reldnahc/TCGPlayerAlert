@@ -96,6 +96,13 @@ describe("configuration UI service", () => {
         {
           ...initial.repricingProfiles[0],
           name: "Wait out gaps",
+          gamePricingModules: [
+            {
+              type: "magic-rarity-floor",
+              enabled: true,
+              floors: [{ rarity: "Rare", minimumPrice: 0.75 }],
+            },
+          ],
           ranges: [
             {
               maximumPrice: 5,
@@ -156,6 +163,13 @@ describe("configuration UI service", () => {
         {
           id: "match-lowest",
           name: "Wait out gaps",
+          gamePricingModules: [
+            {
+              type: "magic-rarity-floor",
+              enabled: true,
+              floors: [{ rarity: "Rare", minimumPrice: 0.75 }],
+            },
+          ],
           ranges: [
             {
               maximumPrice: 5,
@@ -314,6 +328,15 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain("inventoryConditionByProductId");
     expect(CONFIG_UI_JS).toContain("inventoryPrintingByProductId");
     expect(CONFIG_UI_JS).toContain('selectInput("sparseMarketFallback"');
+    expect(CONFIG_UI_JS).toContain('text: "Magic rarity minimums"');
+    expect(CONFIG_UI_JS).toContain('type: "magic-rarity-floor"');
+    expect(CONFIG_UI_JS).toContain(
+      "gamePricingModules: pricingProfile.gamePricingModules ?? []",
+    );
+    expect(CONFIG_UI_JS).toContain(
+      "gamePricingModules: profile.gamePricingModules ?? []",
+    );
+    expect(CONFIG_UI_CSS).toContain(".rarity-floor-grid");
     expect(CONFIG_UI_JS).toContain("Higher of market or lowest");
     expect(CONFIG_UI_JS).toContain("Lowest listing, then market");
     expect(CONFIG_UI_JS).toContain('kind: "warning"');

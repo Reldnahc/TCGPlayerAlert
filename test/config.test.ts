@@ -31,6 +31,7 @@ describe("application configuration", () => {
     expect(config.repricingProfiles[0]).toMatchObject({
       name: "Smart conservative",
       sparseMarketFallback: "higher-of-market-and-lowest",
+      gamePricingModules: [],
       ranges: [
         {
           maximumPrice: 1,
@@ -78,6 +79,7 @@ describe("application configuration", () => {
       adjustmentCents: 1,
       allowPriceIncreases: true,
       sparseMarketFallback: "lowest-then-market",
+      gamePricingModules: [],
       ranges: [
         {
           minimumListings: 0,
@@ -173,6 +175,68 @@ describe("application configuration", () => {
     expect(ranges?.every((range) => range.supportWindowPercent === 5)).toBe(
       true,
     );
+  });
+
+  it("loads Magic rarity floors and defaults older profiles to no game modules", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      repricingProfiles: { gamePricingModules?: unknown }[];
+    };
+    const firstProfile = value.repricingProfiles[0];
+    const secondProfile = value.repricingProfiles[1];
+    if (firstProfile === undefined || secondProfile === undefined) {
+      throw new Error("Missing pricing profile fixtures");
+    }
+    firstProfile.gamePricingModules = [
+      {
+        type: "magic-rarity-floor",
+        enabled: true,
+        floors: [
+          { rarity: "Common", minimumPrice: 0.4 },
+          { rarity: "Rare", minimumPrice: 0.75 },
+        ],
+      },
+    ];
+    delete secondProfile.gamePricingModules;
+
+    const profiles = parseConfig(value).repricingProfiles;
+
+    expect(profiles[0]?.gamePricingModules).toEqual([
+      {
+        type: "magic-rarity-floor",
+        enabled: true,
+        floors: [
+          { rarity: "Common", minimumPrice: 0.4 },
+          { rarity: "Rare", minimumPrice: 0.75 },
+        ],
+      },
+    ]);
+    expect(profiles[1]?.gamePricingModules).toEqual([]);
+  });
+
+  it("rejects duplicate or invalid Magic rarity floors", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      repricingProfiles: { gamePricingModules: unknown }[];
+    };
+    const firstProfile = value.repricingProfiles[0];
+    if (firstProfile === undefined) {
+      throw new Error("Missing pricing profile fixture");
+    }
+    firstProfile.gamePricingModules = [
+      {
+        type: "magic-rarity-floor",
+        enabled: true,
+        floors: [
+          { rarity: "Rare", minimumPrice: 0 },
+          { rarity: " rare ", minimumPrice: 0.75 },
+        ],
+      },
+    ];
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });
 
   it("seeds Sell now once and preserves its later deletion", async () => {

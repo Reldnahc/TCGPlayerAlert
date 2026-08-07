@@ -1,3 +1,7 @@
+import { DEFAULT_MAGIC_RARITIES } from "./game-pricing.js";
+
+const DEFAULT_MAGIC_RARITIES_JSON = JSON.stringify(DEFAULT_MAGIC_RARITIES);
+
 export const CONFIG_UI_HTML = String.raw`<!doctype html>
 <html lang="en">
   <head>
@@ -434,6 +438,15 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
 .profile-default input { width: 17px; height: 17px; accent-color: var(--green); }
 .profile-remove { border: 0; background: transparent; color: #8c4630; font-weight: 750; }
 .profile-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
+.game-pricing-module { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #f8faf8; }
+.game-pricing-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.game-pricing-copy { display: grid; gap: 3px; }
+.game-pricing-copy strong { font-size: .84rem; }
+.game-pricing-copy small { color: var(--muted); }
+.rarity-floor-grid { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 9px; }
+.rarity-floor-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(90px, .75fr) auto; align-items: end; gap: 7px; }
+.rarity-floor-row .field { min-width: 0; }
+.rarity-floor-remove { align-self: end; min-height: 38px; border: 0; background: transparent; color: #8c4630; font-weight: 800; }
 .repricing-range-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
 .repricing-range-head strong { font-size: .84rem; }
 .repricing-ranges { display: grid; gap: 9px; }
@@ -548,6 +561,7 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { border-colo
   .output-grid { grid-template-columns: 1fr; }
   .queue-settings { grid-template-columns: 1fr; gap: 20px; }
   .profile-fields { grid-template-columns: 1fr 1fr; }
+  .rarity-floor-grid { grid-template-columns: 1fr 1fr; }
   .repricing-range { grid-template-columns: 1fr 1fr; }
   .repricing-range-label, .repricing-range-remove { grid-column: span 2; }
   .inventory-profile-bar, .repricing-profile-bar { grid-template-columns: 1fr auto; }
@@ -944,6 +958,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
           el("span", { className: "switch", "aria-hidden": "true" }),
         ]),
       ]),
+      renderMagicRarityFloors(profile),
       el("div", { className: "repricing-range-head" }, [
         el("strong", { text: "Value ranges" }),
         addRange,
@@ -951,6 +966,81 @@ export const CONFIG_UI_JS = String.raw`(() => {
       el("div", { className: "repricing-ranges" }, profile.ranges.map((range, index) => renderRepricingRange(profile, range, index))),
     );
     return card;
+  }
+
+  const defaultMagicRarities = ${DEFAULT_MAGIC_RARITIES_JSON};
+
+  function magicRarityFloorModule(profile) {
+    return profile.gamePricingModules?.find((module) => module.type === "magic-rarity-floor")
+      ?? { type: "magic-rarity-floor", enabled: false, floors: [] };
+  }
+
+  function renderMagicRarityFloors(profile) {
+    const module = magicRarityFloorModule(profile);
+    const configuredByRarity = new Map(module.floors.map((floor) => [floor.rarity.toLocaleLowerCase(), floor]));
+    const extraRarities = module.floors
+      .map((floor) => floor.rarity)
+      .filter((rarity) => !defaultMagicRarities.some((candidate) => candidate.toLocaleLowerCase() === rarity.toLocaleLowerCase()));
+    const enabled = el("input", { type: "checkbox", name: "magicRarityFloorEnabled" });
+    enabled.checked = module.enabled;
+    const add = el("button", { className: "quiet-button", type: "button", text: "Add rarity" });
+    add.addEventListener("click", () => addMagicRarityFloor(profile.id));
+    const rows = [...defaultMagicRarities, ...extraRarities].map((rarity) => {
+      const configured = configuredByRarity.get(rarity.toLocaleLowerCase());
+      const rarityInput = el("input", {
+        name: "magicRarityName",
+        maxlength: "80",
+        required: "",
+        value: rarity,
+      });
+      const standard = defaultMagicRarities.some((candidate) => candidate === rarity);
+      rarityInput.readOnly = standard;
+      const minimum = el("input", {
+        name: "magicRarityMinimumPrice",
+        type: "number",
+        min: "0.01",
+        max: "1000000",
+        step: "0.01",
+        placeholder: money(profile.minimumPrice),
+      });
+      if (configured) minimum.value = String(configured.minimumPrice);
+      const remove = el("button", {
+        className: "rarity-floor-remove",
+        type: "button",
+        text: standard ? "" : "Remove",
+        title: standard ? "" : "Remove this rarity",
+      });
+      remove.hidden = standard;
+      if (!standard) remove.addEventListener("click", () => removeMagicRarityFloor(profile.id, rarity));
+      return el("div", { className: "rarity-floor-row", "data-magic-rarity-floor": "" }, [
+        field("Rarity", rarityInput),
+        field("Minimum ($)", minimum),
+        remove,
+      ]);
+    });
+    const syncEnabled = () => {
+      for (const row of rows) {
+        for (const input of row.querySelectorAll("input")) input.disabled = !enabled.checked;
+      }
+      add.disabled = !enabled.checked || rows.length >= 50;
+    };
+    enabled.addEventListener("change", syncEnabled);
+    syncEnabled();
+    return el("div", { className: "game-pricing-module", "data-game-pricing-module": "magic-rarity-floor" }, [
+      el("div", { className: "game-pricing-head" }, [
+        el("div", { className: "game-pricing-copy" }, [
+          el("strong", { text: "Magic rarity minimums" }),
+          el("small", { text: "Optional rarity floors can raise, but never lower, this profile's general minimum." }),
+        ]),
+        el("label", { className: "switch-row" }, [
+          el("span", { text: "Enable" }),
+          enabled,
+          el("span", { className: "switch", "aria-hidden": "true" }),
+        ]),
+      ]),
+      el("div", { className: "rarity-floor-grid" }, rows),
+      add,
+    ]);
   }
 
   function renderRepricingProfiles() {
@@ -1031,6 +1121,49 @@ export const CONFIG_UI_JS = String.raw`(() => {
     renderMerchandiseProfiles();
     renderRepricingProfileSelector();
     updateSaveBarVisibility();
+  }
+
+  function addMagicRarityFloor(profileId) {
+    replaceRepricingProfile(profileId, (profile) => {
+      const current = magicRarityFloorModule(profile);
+      if (current.floors.length >= 50) return profile;
+      const existing = new Set(current.floors.map((floor) => floor.rarity.toLocaleLowerCase()));
+      let suffix = 1;
+      let rarity = "Other rarity";
+      while (existing.has(rarity.toLocaleLowerCase())) {
+        suffix += 1;
+        rarity = "Other rarity " + String(suffix);
+      }
+      const module = {
+        ...current,
+        enabled: true,
+        floors: [...current.floors, { rarity, minimumPrice: profile.minimumPrice }],
+      };
+      return {
+        ...profile,
+        gamePricingModules: [
+          ...(profile.gamePricingModules ?? []).filter((candidate) => candidate.type !== "magic-rarity-floor"),
+          module,
+        ],
+      };
+    });
+  }
+
+  function removeMagicRarityFloor(profileId, rarity) {
+    replaceRepricingProfile(profileId, (profile) => {
+      const current = magicRarityFloorModule(profile);
+      const module = {
+        ...current,
+        floors: current.floors.filter((floor) => floor.rarity.toLocaleLowerCase() !== rarity.toLocaleLowerCase()),
+      };
+      return {
+        ...profile,
+        gamePricingModules: [
+          ...(profile.gamePricingModules ?? []).filter((candidate) => candidate.type !== "magic-rarity-floor"),
+          module,
+        ],
+      };
+    });
   }
 
   function addRepricingRange(profileId) {
@@ -2166,8 +2299,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
       return option;
     }));
     const profile = activeRepricingProfile();
+    const magicFloors = profile ? magicRarityFloorModule(profile) : null;
+    const gamePricingSummary = magicFloors?.enabled && magicFloors.floors.length > 0
+      ? " · " + String(magicFloors.floors.length) + " Magic rarity " + (magicFloors.floors.length === 1 ? "floor" : "floors")
+      : "";
     document.querySelector("#repricing-profile-summary").textContent = profile
-      ? String(profile.ranges.length) + (profile.ranges.length === 1 ? " range" : " ranges") + " · min " + money(profile.minimumPrice) + " · " + (profile.priceBasis === "delivered" ? "delivered price" : "item price") + " · " + (profile.allowPriceIncreases ? "increases allowed" : "decreases only")
+      ? String(profile.ranges.length) + (profile.ranges.length === 1 ? " range" : " ranges") + " · min " + money(profile.minimumPrice) + gamePricingSummary + " · " + (profile.priceBasis === "delivered" ? "delivered price" : "item price") + " · " + (profile.allowPriceIncreases ? "increases allowed" : "decreases only")
       : "";
   }
 
@@ -2232,6 +2369,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       adjustmentCents: pricingProfile.adjustmentCents,
       allowPriceIncreases: pricingProfile.allowPriceIncreases,
       sparseMarketFallback: pricingProfile.sparseMarketFallback,
+      gamePricingModules: pricingProfile.gamePricingModules ?? [],
       ranges: pricingProfile.ranges,
       estimatedShippingPrice: profile.estimatedShippingPrice,
     };
@@ -2470,7 +2608,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const proposed = el("td", {}, [
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);
-    if (row.minimumApplied) proposed.append(el("span", { className: "minimum-note", text: "minimum applied" }));
+    if (row.minimumApplied) proposed.append(el("span", {
+      className: "minimum-note",
+      text: row.minimumPriceSource
+        ? row.minimumPriceSource + " floor " + money(row.effectiveMinimumPrice)
+        : "minimum applied",
+    }));
     const removalActions = el("td", { className: "inventory-row-actions" });
     if (state.inventoryRemovalQueuedRowIds.has(row.id)) {
       removalActions.append(el("span", { className: "status-pill pending", text: "removal queued" }));
@@ -2638,6 +2781,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       adjustmentCents: profile.adjustmentCents,
       allowPriceIncreases: profile.allowPriceIncreases,
       sparseMarketFallback: profile.sparseMarketFallback,
+      gamePricingModules: profile.gamePricingModules ?? [],
       ranges: profile.ranges,
     };
   }
@@ -2808,6 +2952,14 @@ export const CONFIG_UI_JS = String.raw`(() => {
 
   function collectRepricingProfile(card) {
     const rangeCards = [...card.querySelectorAll("[data-range-index]")];
+    const magicModule = card.querySelector('[data-game-pricing-module="magic-rarity-floor"]');
+    const magicFloors = [...(magicModule?.querySelectorAll("[data-magic-rarity-floor]") ?? [])].flatMap((row) => {
+      const minimum = row.querySelector('[name="magicRarityMinimumPrice"]').value;
+      return minimum === "" ? [] : [{
+        rarity: row.querySelector('[name="magicRarityName"]').value.trim(),
+        minimumPrice: Number(minimum),
+      }];
+    });
     return {
       id: card.dataset.repricingProfileId,
       name: card.querySelector('[name="profileName"]').value.trim(),
@@ -2817,6 +2969,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
       adjustmentCents: Number(card.querySelector('[name="adjustmentCents"]').value),
       allowPriceIncreases: card.querySelector('[name="allowPriceIncreases"]').checked,
       sparseMarketFallback: card.querySelector('[name="sparseMarketFallback"]').value,
+      gamePricingModules: [{
+        type: "magic-rarity-floor",
+        enabled: magicModule?.querySelector('[name="magicRarityFloorEnabled"]')?.checked ?? false,
+        floors: magicFloors,
+      }],
       ranges: rangeCards.map((rangeCard, index) => ({
         ...(index === rangeCards.length - 1
           ? {}

@@ -15,6 +15,14 @@ export {
   ConfigurationError,
   safeErrorCode,
 } from "./errors.js";
+export {
+  DEFAULT_MAGIC_RARITIES,
+  effectiveMinimumPrice,
+  MAGIC_PRODUCT_LINE_NAME,
+  MAGIC_RARITY_FLOOR_MODULE,
+  parseGamePricingModules,
+} from "./game-pricing.js";
+export type * from "./game-pricing.js";
 export type { Logger } from "./logger.js";
 export { FulfillmentWorkflow } from "./orchestrator.js";
 export type * from "./orchestrator.js";

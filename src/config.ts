@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { ConfigurationError } from "./errors.js";
+import {
+  parseGamePricingModules,
+  type GamePricingModuleConfig,
+} from "./game-pricing.js";
 import type { SparseMarketFallback } from "./repricing.js";
 
 export type RuleField =
@@ -136,6 +140,7 @@ export interface RepricingProfileConfig {
   readonly adjustmentCents: number;
   readonly allowPriceIncreases: boolean;
   readonly sparseMarketFallback: SparseMarketFallback;
+  readonly gamePricingModules: readonly GamePricingModuleConfig[];
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
@@ -327,6 +332,7 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
   adjustmentCents: 0,
   allowPriceIncreases: false,
   sparseMarketFallback: "higher-of-market-and-lowest",
+  gamePricingModules: [],
   ranges: [
     {
       maximumPrice: 1,
@@ -394,6 +400,7 @@ const SELL_NOW_REPRICING_PROFILE: RepricingProfileConfig = {
   adjustmentCents: 1,
   allowPriceIncreases: true,
   sparseMarketFallback: "lowest-then-market",
+  gamePricingModules: [],
   ranges: [
     {
       minimumListings: 0,
@@ -540,6 +547,11 @@ function parseRepricingProfile(
       issues,
     ),
     sparseMarketFallback: sparseMarketFallback as SparseMarketFallback,
+    gamePricingModules: parseGamePricingModules(
+      source?.gamePricingModules,
+      `${path}.gamePricingModules`,
+      issues,
+    ),
     ranges,
   };
 }

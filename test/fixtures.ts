@@ -86,6 +86,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         adjustmentCents: 0,
         allowPriceIncreases: false,
         sparseMarketFallback: "higher-of-market-and-lowest",
+        gamePricingModules: [],
         ranges: [
           {
             maximumPrice: 1,
@@ -152,6 +153,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         adjustmentCents: 1,
         allowPriceIncreases: true,
         sparseMarketFallback: "lowest-then-market",
+        gamePricingModules: [],
         ranges: [
           {
             minimumListings: 0,

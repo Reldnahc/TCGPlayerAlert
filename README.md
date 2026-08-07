@@ -117,12 +117,13 @@ node dist/cli.js inventory cancel --job JOB_ID
 
 ## Reprice listed cards
 
-Create pricing profiles in **Settings**, then use **Inventory**:
+Create pricing profiles in **Settings**, then use **Inventory**. Pricing profiles can also enable game-specific modules. The first module adds Magic rarity minimums without making more marketplace requests, and the same policy applies when a merchandise profile adds a card.
 
 1. Set the profile floor, item or delivered-price basis, condition matching, cent adjustment, whether increases are allowed, and the fallback used when the configured comparable or seller-support evidence is unavailable.
-2. Add ordered value ranges. For each range, choose the minimum number of qualifying comparable listings, lowest listing or market price, and the percentage to use.
-3. Choose **Seller price bands** to count distinct sellers rather than raw listings. Set how many sellers must support a band, the percentage width of that band, and the isolated-low gap that triggers **Use supported band** or **Skip card**. **Ignore gap** disables gap handling. **First vs second (legacy)** remains available for older policies.
-4. Select the profile in **Inventory**, click **Update preview**, review the market, absolute low, seller support, supported band, proposed price, and explanation, then queue selected rows.
+2. Optionally enable **Magic rarity minimums**, enter additional floors for the common rarity names, and use **Add rarity** for any other rarity returned by TCGplayer. Blank or unmatched rarities use the general floor; configured rarity floors may raise but never lower it.
+3. Add ordered value ranges. For each range, choose the minimum number of qualifying comparable listings, lowest listing or market price, and the percentage to use.
+4. Choose **Seller price bands** to count distinct sellers rather than raw listings. Set how many sellers must support a band, the percentage width of that band, and the isolated-low gap that triggers **Use supported band** or **Skip card**. **Ignore gap** disables gap handling. **First vs second (legacy)** remains available for older policies.
+5. Select the profile in **Inventory**, click **Update preview**, review the market, absolute low, seller support, supported band, proposed price, and explanation, then queue selected rows.
 
 The Inventory search box filters the already-loaded preview by card, set, product line, condition, printing, language, TCGplayer product number, or SKU number. Filtering is entirely browser-local and does not make more TCGplayer requests. An eligible row can also be removed in full with **Remove** and its inline confirmation. Removal creates a durable inventory job; it does not mutate inventory directly from the browser.
 
@@ -213,4 +214,4 @@ Tests use synthetic orders, documents, providers, stores, and printers. Ordinary
 
 ## Current boundaries
 
-This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, profile-driven one-click exact-SKU inventory additions, searchable inventory with operator-confirmed exact-SKU removal, profile-driven preview-first smart repricing, and paced mutation queues. Email acceleration, remote administration, remote shipment mutations, bulk inventory ingestion, barcode scanning, unattended scheduled repricing, per-card pricing floors, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.
+This release is a single-seller, single-machine service with a CLI, a loopback-only configuration UI, Windows printer discovery, durable fulfillment state, profile-driven one-click exact-SKU inventory additions, searchable inventory with operator-confirmed exact-SKU removal, profile-driven preview-first smart repricing, optional Magic rarity floors, and paced mutation queues. Email acceleration, remote administration, remote shipment mutations, bulk inventory ingestion, barcode scanning, unattended scheduled repricing, per-card pricing floors, and multi-user operation remain deliberate future extensions rather than hidden assumptions in the core workflow.

@@ -8,6 +8,11 @@ import type {
   TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ConfigurationError } from "./errors.js";
+import {
+  effectiveMinimumPrice,
+  parseGamePricingModules,
+  type GamePricingModuleConfig,
+} from "./game-pricing.js";
 
 export const TCGPLAYER_CONDITION_ORDER = [
   "Near Mint",
@@ -50,6 +55,8 @@ export interface RepricingRules {
   readonly allowPriceIncreases: boolean;
   /** Missing preserves the pre-fallback behavior for programmatic consumers. */
   readonly sparseMarketFallback?: SparseMarketFallback;
+  /** Missing preserves profiles saved before game-specific modules. */
+  readonly gamePricingModules?: readonly GamePricingModuleConfig[];
   readonly ranges: readonly RepricingRange[];
 }
 
@@ -99,6 +106,8 @@ export interface RepricingPreviewRow {
   readonly sparseMarketFallbackApplied?: Exclude<SparseMarketFallback, "skip">;
   readonly rangeMaximumPrice?: number;
   readonly minimumApplied: boolean;
+  readonly effectiveMinimumPrice?: number;
+  readonly minimumPriceSource?: string;
   readonly status: RepricingRowStatus;
   readonly reason: string;
   readonly queueable: boolean;
@@ -225,6 +234,11 @@ export function parseRepricingRules(value: unknown): RepricingRules {
     issues.push("Sparse-market fallback is invalid.");
   }
   const ranges = parseRepricingRanges(source?.ranges, issues);
+  const gamePricingModules = parseGamePricingModules(
+    source?.gamePricingModules,
+    "gamePricingModules",
+    issues,
+  );
   if (issues.length > 0) throw new ConfigurationError(issues);
   return {
     minimumPrice: Number(minimumPrice),
@@ -233,6 +247,7 @@ export function parseRepricingRules(value: unknown): RepricingRules {
     adjustmentCents: Number(adjustmentCents),
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
     sparseMarketFallback: sparseMarketFallback as SparseMarketFallback,
+    gamePricingModules,
     ranges,
   };
 }
@@ -855,8 +870,13 @@ export function calculateRepricingRow(
       ? ownShippingForPricing(own.listing, referenceListing, rules.priceBasis)
       : 0) -
     rules.adjustmentCents / 100;
-  const minimumApplied = rawTarget < rules.minimumPrice;
-  const target = roundCurrency(Math.max(rules.minimumPrice, rawTarget));
+  const minimum = effectiveMinimumPrice(
+    rules.minimumPrice,
+    own.product,
+    rules.gamePricingModules ?? [],
+  );
+  const minimumApplied = rawTarget < minimum.minimumPrice;
+  const target = roundCurrency(Math.max(minimum.minimumPrice, rawTarget));
   const comparison = {
     ...rangeDetails,
     ...(referenceListing === undefined
@@ -875,6 +895,14 @@ export function calculateRepricingRow(
       : { sparseMarketFallbackApplied: appliedSparseMarketFallback }),
     pricingSource,
     minimumApplied,
+    ...(minimumApplied
+      ? {
+          effectiveMinimumPrice: minimum.minimumPrice,
+          ...(minimum.source === undefined
+            ? {}
+            : { minimumPriceSource: minimum.source.label }),
+        }
+      : {}),
   };
   const strategy = sparseMarketFallbackApplied
     ? `Seller support was insufficient, so this profile uses its ${sparseMarketFallback.replaceAll("-", " ")} fallback and prices from the ${fallbackReference.source === "market" ? "market price" : "lowest qualifying listing"}.`
@@ -896,7 +924,9 @@ export function calculateRepricingRow(
       proposedPrice: target,
       status: "unchanged",
       reason: minimumApplied
-        ? "Already at the configured minimum."
+        ? minimum.source === undefined
+          ? "Already at the configured minimum."
+          : `Already at the ${minimum.source.label} minimum of $${minimum.minimumPrice.toFixed(2)}.`
         : `Already matches the profile target. ${strategyReason}`,
       queueable: false,
     };
@@ -917,7 +947,9 @@ export function calculateRepricingRow(
     proposedPrice: target,
     status: "ready",
     reason: minimumApplied
-      ? "The minimum price overrides the calculated target."
+      ? minimum.source === undefined
+        ? "The minimum price overrides the calculated target."
+        : `The ${minimum.source.label} minimum of $${minimum.minimumPrice.toFixed(2)} overrides the calculated target.`
       : strategyReason,
     queueable: true,
   };

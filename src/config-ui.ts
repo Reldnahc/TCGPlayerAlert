@@ -21,6 +21,7 @@ import {
   CONFIG_UI_JS,
 } from "./config-ui-assets.js";
 import { ConfigurationError } from "./errors.js";
+import { parseGamePricingModules } from "./game-pricing.js";
 import type { PriceUpdateQueueStore } from "./price-update-queue.js";
 import type {
   InventoryAdditionQueueStore,
@@ -719,6 +720,11 @@ function parseRepricingProfileUpdate(
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
     sparseMarketFallback:
       sparseMarketFallback as RepricingProfileConfig["sparseMarketFallback"],
+    gamePricingModules: parseGamePricingModules(
+      source?.gamePricingModules,
+      `${path} game pricing modules`,
+      issues,
+    ),
     ranges,
   };
 }

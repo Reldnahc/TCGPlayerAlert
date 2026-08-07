@@ -612,6 +612,61 @@ describe("inventory additions", () => {
     });
   });
 
+  it("uses the merchandise pricing profile's Magic rarity floor", async () => {
+    const magicRare = {
+      ...product,
+      productLineName: "Magic: The Gathering",
+      rarityName: "Rare",
+      marketPrice: 0.2,
+    };
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [magicRare],
+          }),
+        getCatalogProduct: () => Promise.resolve(magicRare),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 2,
+      rules: additionPricingRules({
+        conditionPolicy: "same",
+        gamePricingModules: [
+          {
+            type: "magic-rarity-floor",
+            enabled: true,
+            floors: [{ rarity: "Rare", minimumPrice: 0.75 }],
+          },
+        ],
+        ranges: [
+          {
+            minimumListings: 0,
+            priceSource: "market",
+            percentage: 100,
+            gapThresholdPercent: 100,
+            gapAction: "follow-lowest",
+          },
+        ],
+      }),
+    });
+
+    expect(preview).toMatchObject({
+      proposedPrice: 0.75,
+      minimumApplied: true,
+      queueable: true,
+    });
+    expect(preview.reason).toContain("Magic Rare minimum of $0.75");
+  });
+
   it("raises seller shipping to the minimum without lowering a competitor's higher rate", async () => {
     const service = new InventoryAdditionService({
       sellerKey: "synthetic-seller",

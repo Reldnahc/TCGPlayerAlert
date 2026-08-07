@@ -105,6 +105,48 @@ describe("smart repricing", () => {
     });
   });
 
+  it("applies a Magic rarity floor from the selected pricing profile", () => {
+    const ownListing = listing({ price: 1 });
+    const competitor = listing({
+      listingId: 2,
+      sellerKey: "competitor",
+      sellerName: "Other Store",
+      price: 0.4,
+    });
+    const magicProduct = {
+      ...product(ownListing),
+      productLineName: "Magic: The Gathering",
+      rarityName: "Rare",
+    };
+
+    const row = calculateRepricingRow(
+      { product: magicProduct, listing: ownListing },
+      [competitor],
+      sellerKey,
+      {
+        ...rules,
+        gamePricingModules: [
+          {
+            type: "magic-rarity-floor",
+            enabled: true,
+            floors: [{ rarity: "Rare", minimumPrice: 0.75 }],
+          },
+        ],
+      },
+      "magic-rare",
+    );
+
+    expect(row).toMatchObject({
+      proposedPrice: 0.75,
+      effectiveMinimumPrice: 0.75,
+      minimumPriceSource: "Magic Rare",
+      minimumApplied: true,
+      status: "ready",
+      queueable: true,
+    });
+    expect(row.reason).toContain("Magic Rare minimum of $0.75");
+  });
+
   it("ignores channel-1 records with incomplete Direct evidence", () => {
     const ownListing = listing({ price: 3, channelId: 0 });
     const marketplaceCompetitor = listing({
