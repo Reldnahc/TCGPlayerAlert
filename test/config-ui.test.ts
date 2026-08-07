@@ -272,6 +272,26 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain('"This card is not available in Foil"');
     expect(CONFIG_UI_JS).toContain("maximumCatalogDetailRequests = 2");
     expect(CONFIG_UI_JS).toContain('rootMargin: "160px 0px"');
+    expect(CONFIG_UI_JS).toContain(
+      "function rerenderCatalogProduct(productId)",
+    );
+    expect(CONFIG_UI_JS).toContain(
+      "current.replaceWith(catalogResult(product));",
+    );
+    expect(CONFIG_UI_JS).toContain(
+      "catalogDetailsObserver?.unobserve(current);",
+    );
+    expect(CONFIG_UI_JS).toContain("rerenderCatalogProduct(productId);");
+    expect(CONFIG_UI_JS).toContain("function applyInventorySearchFilter()");
+    expect(CONFIG_UI_JS).toContain(
+      'document.querySelectorAll("#repricing-rows > tr[data-row-id]")',
+    );
+    expect(CONFIG_UI_JS).toContain(
+      "inventorySearchTimer = window.setTimeout(() =>",
+    );
+    expect(CONFIG_UI_JS).not.toContain(
+      "state.inventorySearchText = event.target.value;\n    renderRepricingRows();",
+    );
     expect(
       CONFIG_UI_JS.indexOf(
         "const printing = selectedInventoryPrinting(productId, profile)",

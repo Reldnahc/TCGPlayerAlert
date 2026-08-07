@@ -621,6 +621,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   const saveTitle = document.querySelector("#save-title");
   const saveDetail = document.querySelector("#save-detail");
   let catalogDetailsObserver = null;
+  let inventorySearchTimer = null;
 
   function isTabId(value) {
     return tabIds.includes(value);
@@ -1734,7 +1735,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       }).finally(() => {
         state.inventoryProductDetailsActive -= 1;
         if (state.catalogSearch?.products.some((product) => product.productId === productId)) {
-          renderCatalogSearch();
+          rerenderCatalogProduct(productId);
         }
         drainInventoryProductDetailsQueue();
       });
@@ -1870,7 +1871,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         });
         cancelLanguage.addEventListener("click", () => {
           state.inventoryResultByProductId.delete(product.productId);
-          renderCatalogSearch();
+          rerenderCatalogProduct(product.productId);
         });
         statusChildren.push(el("div", {
           className: "catalog-inline-status-actions",
@@ -1886,6 +1887,18 @@ export const CONFIG_UI_JS = String.raw`(() => {
     }, children);
     observeInventoryProductDetails(card, product.productId);
     return card;
+  }
+
+  function rerenderCatalogProduct(productId) {
+    const product = state.catalogSearch?.products.find(
+      (candidate) => candidate.productId === productId,
+    );
+    const current = document.querySelector(
+      '.catalog-result[data-product-id="' + String(productId) + '"]',
+    );
+    if (!product || !current) return;
+    catalogDetailsObserver?.unobserve(current);
+    current.replaceWith(catalogResult(product));
   }
 
   const catalogMatchOrder = { exact: 0, variant: 1, related: 2 };
@@ -2187,7 +2200,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
   function selectInventoryCondition(productId, condition) {
     state.inventoryConditionByProductId.set(productId, condition);
     state.inventoryResultByProductId.delete(productId);
-    if (state.catalogSearch) renderCatalogSearch();
+    rerenderCatalogProduct(productId);
   }
 
   function toggleInventoryFoil(productId) {
@@ -2196,7 +2209,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const selected = state.inventoryPrintingByProductId.get(productId) || profile?.defaultPrinting || "Normal";
     state.inventoryPrintingByProductId.set(productId, selected === "Foil" ? "Normal" : "Foil");
     state.inventoryResultByProductId.delete(productId);
-    if (state.catalogSearch) renderCatalogSearch();
+    rerenderCatalogProduct(productId);
   }
 
   function openInventoryQuantityDialog(productId) {
@@ -2233,7 +2246,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
         kind: "error",
         text: "Choose a merchandise profile before adding this card.",
       });
-      renderCatalogSearch();
+      rerenderCatalogProduct(productId);
       return;
     }
     const pricingRules = inventoryPricingRules(profile);
@@ -2242,13 +2255,13 @@ export const CONFIG_UI_JS = String.raw`(() => {
         kind: "error",
         text: "The merchandise profile references a missing pricing profile.",
       });
-      renderCatalogSearch();
+      rerenderCatalogProduct(productId);
       return;
     }
     const condition = state.inventoryConditionByProductId.get(productId) || profile.defaultCondition;
     state.inventoryAddingProductIds.add(productId);
     state.inventoryResultByProductId.delete(productId);
-    renderCatalogSearch();
+    rerenderCatalogProduct(productId);
     try {
       const details = await loadInventoryProductDetails(productId);
       const printing = selectedInventoryPrinting(productId, profile);
@@ -2331,7 +2344,7 @@ export const CONFIG_UI_JS = String.raw`(() => {
       });
     } finally {
       state.inventoryAddingProductIds.delete(productId);
-      if (state.catalogSearch) renderCatalogSearch();
+      rerenderCatalogProduct(productId);
     }
   }
 
@@ -2483,7 +2496,10 @@ export const CONFIG_UI_JS = String.raw`(() => {
       if (row.removalReason) unavailable.title = row.removalReason;
       removalActions.append(unavailable);
     }
-    return el("tr", {}, [
+    return el("tr", {
+      "data-row-id": row.id,
+      "data-search-text": inventoryRowSearchText(row),
+    }, [
       el("td", {}, [checkbox]),
       el("td", {}, [el("div", { className: "card-cell" }, [
         el("strong", { text: row.productName }),
@@ -2503,10 +2519,12 @@ export const CONFIG_UI_JS = String.raw`(() => {
     ]);
   }
 
-  function inventoryRowMatches(row, query) {
-    const tokens = query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean);
-    if (tokens.length === 0) return true;
-    const text = [
+  function inventorySearchTokens(query) {
+    return query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean);
+  }
+
+  function inventoryRowSearchText(row) {
+    return [
       row.productName,
       row.productLineName,
       row.setName,
@@ -2516,21 +2534,42 @@ export const CONFIG_UI_JS = String.raw`(() => {
       row.productId,
       row.productConditionId,
     ].join(" ").toLocaleLowerCase();
+  }
+
+  function inventoryRowMatches(row, query) {
+    const tokens = inventorySearchTokens(query);
+    if (tokens.length === 0) return true;
+    const text = inventoryRowSearchText(row);
     return tokens.every((token) => text.includes(token));
+  }
+
+  function applyInventorySearchFilter() {
+    const preview = state.repricingPreview;
+    if (!preview) return;
+    const tokens = inventorySearchTokens(state.inventorySearchText);
+    let visibleCount = 0;
+    for (const row of document.querySelectorAll("#repricing-rows > tr[data-row-id]")) {
+      const visible = tokens.every((token) => row.dataset.searchText.includes(token));
+      row.hidden = !visible;
+      if (visible) visibleCount += 1;
+    }
+    const empty = document.querySelector("#repricing-filter-empty");
+    if (empty) empty.hidden = visibleCount !== 0;
+    document.querySelector("#repricing-filter-count").textContent = state.inventorySearchText.trim() === ""
+      ? ""
+      : "Showing " + String(visibleCount) + " of " + String(preview.rows.length) + " listings";
   }
 
   function renderRepricingRows() {
     const preview = state.repricingPreview;
     if (!preview) return;
-    const rows = preview.rows.filter((row) => inventoryRowMatches(row, state.inventorySearchText));
     document.querySelector("#repricing-rows").replaceChildren(
-      ...(rows.length === 0
-        ? [el("tr", {}, [el("td", { colspan: "9", className: "queue-empty", text: "No inventory matches this search." })])]
-        : rows.map(renderRepricingRow)),
+      ...preview.rows.map(renderRepricingRow),
+      el("tr", { id: "repricing-filter-empty", hidden: "" }, [
+        el("td", { colspan: "9", className: "queue-empty", text: "No inventory matches this search." }),
+      ]),
     );
-    document.querySelector("#repricing-filter-count").textContent = state.inventorySearchText.trim() === ""
-      ? ""
-      : "Showing " + String(rows.length) + " of " + String(preview.rows.length) + " listings";
+    applyInventorySearchFilter();
   }
 
   function renderRepricingPreview(preview) {
@@ -2927,7 +2966,11 @@ export const CONFIG_UI_JS = String.raw`(() => {
   document.querySelector("#repricing-queue").addEventListener("click", queueRepricingSelection);
   document.querySelector("#inventory-search").addEventListener("input", (event) => {
     state.inventorySearchText = event.target.value;
-    renderRepricingRows();
+    if (inventorySearchTimer !== null) window.clearTimeout(inventorySearchTimer);
+    inventorySearchTimer = window.setTimeout(() => {
+      inventorySearchTimer = null;
+      applyInventorySearchFilter();
+    }, 100);
   });
   document.querySelector("#repricing-select-all").addEventListener("click", () => {
     const preview = state.repricingPreview;
