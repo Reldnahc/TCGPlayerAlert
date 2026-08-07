@@ -145,6 +145,21 @@ describe("operator console", () => {
     ).toBeTruthy();
     expect(screen.queryByText("TCGplayer seller operations")).toBeNull();
     expect(screen.queryByText("Local only")).toBeNull();
+    expect(
+      [
+        ...screen
+          .getByRole("navigation", { name: "Primary navigation" })
+          .querySelectorAll("a"),
+      ].map((link) => link.textContent.trim()),
+    ).toEqual([
+      "Dashboard",
+      "Add cards",
+      "Orders",
+      "Payments",
+      "Inventory",
+      "Settings",
+      "Jobs",
+    ]);
     await user.click(screen.getByRole("link", { name: "Settings" }));
     expect(
       await screen.findByRole("heading", { name: "Settings" }),

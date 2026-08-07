@@ -16,9 +16,9 @@ export const routes: readonly {
   readonly icon: IconName;
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "add-cards", label: "Add cards", icon: "add" },
   { id: "orders", label: "Orders", icon: "orders" },
   { id: "payments", label: "Payments", icon: "payments" },
-  { id: "add-cards", label: "Add cards", icon: "add" },
   { id: "inventory", label: "Inventory", icon: "inventory" },
   { id: "settings", label: "Settings", icon: "settings" },
   { id: "jobs", label: "Jobs", icon: "jobs" },
