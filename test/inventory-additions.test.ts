@@ -612,7 +612,7 @@ describe("inventory additions", () => {
     });
   });
 
-  it("normalizes competitor and seller shipping for sub-$5 delivered-price comparisons", async () => {
+  it("raises seller shipping to the minimum without lowering a competitor's higher rate", async () => {
     const service = new InventoryAdditionService({
       sellerKey: "synthetic-seller",
       client: {
@@ -644,15 +644,13 @@ describe("inventory additions", () => {
     });
 
     expect(preview).toMatchObject({
-      proposedPrice: 2,
+      proposedPrice: 2.5,
       effectiveShippingPrice: 1.49,
-      proposedDeliveredPrice: 3.49,
+      proposedDeliveredPrice: 3.99,
       competitorShipping: 1.99,
       queueable: true,
     });
-    expect(preview.reason).toContain(
-      "Sub-$5 marketplace shipping is normalized to $1.49 for pricing.",
-    );
+    expect(preview.reason).not.toContain("shipping is normalized");
   });
 
   it("uses the pricing profile's gap rule when pricing a new listing", async () => {

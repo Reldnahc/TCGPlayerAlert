@@ -290,7 +290,7 @@ describe("smart repricing", () => {
     });
   });
 
-  it("normalizes high marketplace shipping when pricing a sub-$5 card", () => {
+  it("preserves seller shipping above the marketplace minimum", () => {
     const ownListing = listing({
       conditionId: 2,
       condition: "Lightly Played",
@@ -343,18 +343,16 @@ describe("smart repricing", () => {
 
     expect(row).toMatchObject({
       status: "ready",
-      proposedPrice: 1.2,
+      proposedPrice: 3.7,
       lowestPrice: 1.21,
       lowestShipping: 3.99,
       competitorPrice: 1.21,
       competitorShipping: 3.99,
-      competitorPricingShipping: 1.49,
       lowestSellerSupport: 2,
       qualifyingListings: 2,
     });
-    expect(row.reason).toContain(
-      "Sub-$5 marketplace shipping is normalized to $1.49 for pricing.",
-    );
+    expect(row.competitorPricingShipping).toBeUndefined();
+    expect(row.reason).not.toContain("shipping is normalized");
 
     const itemPriceRow = calculateRepricingRow(
       { product: product(ownListing), listing: ownListing },
@@ -967,9 +965,14 @@ describe("smart repricing", () => {
       totalProducts: 1,
       products: [product(competitor)],
     });
+    const searchMarketplaceProductListings = vi.fn();
     let nextId = 0;
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        listSellerInventory,
+        searchMarketplaceProducts,
+        searchMarketplaceProductListings,
+      },
       sellerKey,
       now: () => new Date("2026-08-03T12:00:00.000Z"),
       id: () => `id-${String(++nextId)}`,
@@ -1004,6 +1007,7 @@ describe("smart repricing", () => {
       limit: 24,
     });
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProductListings).not.toHaveBeenCalled();
     expect(updates).toEqual([
       expect.objectContaining({
         productConditionId: 1003,
@@ -1024,6 +1028,197 @@ describe("smart repricing", () => {
     expect(() => service.takeUpdates(preview.id, { rowIds: [row.id] })).toThrow(
       "Configuration is invalid",
     );
+  });
+
+  it("uses one exact listing page when a batch price depends on high shipping", async () => {
+    const ownListing = listing({
+      productId: 212043,
+      productConditionId: 2120432,
+      conditionId: 2,
+      condition: "Lightly Played",
+      price: 0.47,
+      shippingPrice: 1.49,
+    });
+    const ownProduct = {
+      ...product(ownListing),
+      productName: "Synthetic Showcase Card",
+      marketPrice: 1.21,
+    };
+    const highShippingSpotlight = listing({
+      listingId: 2,
+      productId: 212043,
+      productConditionId: 2120431,
+      conditionId: 1,
+      condition: "Near Mint",
+      listingType: "standard",
+      sellerKey: "spotlight-seller",
+      price: 1.44,
+      shippingPrice: 3.99,
+    });
+    const actualLow = listing({
+      listingId: 3,
+      productId: 212043,
+      productConditionId: 2120431,
+      conditionId: 1,
+      condition: "Near Mint",
+      listingType: "standard",
+      sellerKey: "actual-low-seller",
+      price: 0.87,
+      shippingPrice: 1.49,
+    });
+    const secondLow = listing({
+      listingId: 4,
+      productId: 212043,
+      productConditionId: 2120432,
+      conditionId: 2,
+      condition: "Lightly Played",
+      listingType: "standard",
+      sellerKey: "second-low-seller",
+      price: 0.99,
+      shippingPrice: 1.49,
+    });
+    const searchMarketplaceProducts = vi.fn(
+      ({ channelId }: { readonly channelId?: number }) =>
+        Promise.resolve(
+          channelId === 0
+            ? {
+                totalProducts: 1,
+                products: [
+                  {
+                    ...ownProduct,
+                    totalListings: 113,
+                    listings: [ownListing, highShippingSpotlight],
+                  },
+                ],
+              }
+            : { totalProducts: 0, products: [] },
+        ),
+    );
+    const searchMarketplaceProductListings = vi.fn().mockResolvedValue({
+      productId: 212043,
+      totalListings: 2,
+      listings: [actualLow, secondLow],
+    });
+    const service = new RepricingService({
+      client: {
+        listSellerInventory: ({ channelId }) =>
+          Promise.resolve(channelId === 0 ? [ownProduct] : []),
+        searchMarketplaceProducts,
+        searchMarketplaceProductListings,
+      },
+      sellerKey,
+      now: () => new Date("2026-08-07T05:00:00.000Z"),
+    });
+    const sellNowRules: RepricingRules = {
+      ...rules,
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+      sparseMarketFallback: "lowest-then-market",
+      ranges: [
+        {
+          minimumListings: 0,
+          priceSource: "lowest",
+          percentage: 100,
+          gapThresholdPercent: 0,
+          gapAction: "follow-lowest",
+          supportMode: "cluster",
+          minimumSellerSupport: 1,
+          supportWindowPercent: 5,
+        },
+      ],
+    };
+
+    const first = await service.preview(sellNowRules);
+    const second = await service.preview(sellNowRules);
+
+    expect(first.rows[0]).toMatchObject({
+      competitorPrice: 0.87,
+      competitorShipping: 1.49,
+      proposedPrice: 0.86,
+      qualifyingListings: 2,
+      comparisonSource: "exact",
+      status: "ready",
+    });
+    expect(first.rows[0]?.reason).toContain("Exact listing verification");
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
+    expect(searchMarketplaceProductListings).toHaveBeenCalledWith({
+      productId: 212043,
+      conditions: ["Near Mint", "Lightly Played"],
+      printings: ["Normal"],
+      languages: ["English"],
+      channelIds: [0, 1],
+      listingTypes: ["standard"],
+      offset: 0,
+      limit: 50,
+      sort: "price+shipping",
+    });
+    expect(second.marketplaceSnapshot.source).toBe("cache");
+    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not queue a high-shipping batch reference when exact verification fails", async () => {
+    const ownListing = listing({
+      conditionId: 2,
+      condition: "Lightly Played",
+      price: 0.47,
+      shippingPrice: 1.49,
+    });
+    const highShippingSpotlight = listing({
+      listingId: 2,
+      productConditionId: ownListing.productConditionId,
+      conditionId: 2,
+      condition: "Lightly Played",
+      listingType: "standard",
+      sellerKey: "spotlight-seller",
+      price: 1.21,
+      shippingPrice: 3.99,
+    });
+    const searchMarketplaceProductListings = vi
+      .fn()
+      .mockRejectedValue(new Error("Synthetic exact-listing failure"));
+    const service = new RepricingService({
+      client: {
+        listSellerInventory: ({ channelId }) =>
+          Promise.resolve(channelId === 0 ? [product(ownListing)] : []),
+        searchMarketplaceProducts: ({ channelId }) =>
+          Promise.resolve(
+            channelId === 0
+              ? {
+                  totalProducts: 1,
+                  products: [product(highShippingSpotlight)],
+                }
+              : { totalProducts: 0, products: [] },
+          ),
+        searchMarketplaceProductListings,
+      },
+      sellerKey,
+    });
+
+    const first = await service.preview({
+      ...rules,
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+    });
+    const second = await service.preview({
+      ...rules,
+      adjustmentCents: 1,
+      allowPriceIncreases: true,
+    });
+    const row = first.rows[0];
+    if (row === undefined) throw new Error("Missing preview row");
+
+    expect(row).toMatchObject({
+      proposedPrice: 0.47,
+      status: "skipped",
+      queueable: false,
+    });
+    expect(row.reason).toContain("Exact marketplace verification failed");
+    expect(() => service.takeUpdates(first.id, { rowIds: [row.id] })).toThrow(
+      "Configuration is invalid",
+    );
+    expect(second.rows[0]?.status).toBe("skipped");
+    expect(searchMarketplaceProductListings).toHaveBeenCalledTimes(1);
   });
 
   it("converts more than 1,000 selected preview rows into one queueable batch", async () => {

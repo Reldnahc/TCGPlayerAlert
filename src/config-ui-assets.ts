@@ -2452,6 +2452,9 @@ export const CONFIG_UI_JS = String.raw`(() => {
     const comparableCount = row.qualifyingListings === undefined
       ? ""
       : " · " + row.qualifyingListings + " comparable" + (row.qualifyingListings === 1 ? "" : "s");
+    const comparisonSource = row.comparisonSource === "exact"
+      ? " · exact listing check"
+      : "";
     const supportDetail = row.supportMode !== "cluster"
       ? ""
       : " · " + row.lowestSellerSupport + " seller" + (row.lowestSellerSupport === 1 ? "" : "s") + " near low"
@@ -2462,8 +2465,8 @@ export const CONFIG_UI_JS = String.raw`(() => {
       ? ""
       : " · pricing uses " + money(row.competitorPricingShipping) + " shipping";
     const lowest = row.lowestPrice === undefined
-      ? "—" + comparableCount
-      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + pricingShippingDetail + (row.gapPercent === undefined || row.gapPercent === 0 ? "" : " · " + row.gapPercent.toFixed(1) + "% to reference") + supportDetail + comparableCount;
+      ? "—" + comparableCount + comparisonSource
+      : money(row.lowestPrice) + (row.lowestShipping > 0 ? " + " + money(row.lowestShipping) + " shipping" : "") + pricingShippingDetail + (row.gapPercent === undefined || row.gapPercent === 0 ? "" : " · " + row.gapPercent.toFixed(1) + "% to reference") + supportDetail + comparableCount + comparisonSource;
     const proposed = el("td", {}, [
       el("span", { className: row.queueable ? "price-new" : "price-old", text: money(row.proposedPrice) }),
     ]);

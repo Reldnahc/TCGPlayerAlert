@@ -286,6 +286,7 @@ describe("configuration UI service", () => {
     expect(CONFIG_UI_JS).toContain(
       '" · pricing uses " + money(row.competitorPricingShipping) + " shipping"',
     );
+    expect(CONFIG_UI_JS).toContain('" · exact listing check"');
     expect(CONFIG_UI_JS).toContain(
       'document.querySelectorAll("#repricing-rows > tr[data-row-id]")',
     );

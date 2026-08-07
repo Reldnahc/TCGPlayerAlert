@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   MarketplaceListing,
   MarketplaceProduct,
+  SearchMarketplaceProductListingsResult,
   SellerInventoryRemoval,
   SellerPriceUpdate,
   TcgplayerSellerClient,
@@ -81,6 +82,7 @@ export interface RepricingPreviewRow {
   readonly gapPercent?: number;
   readonly qualifyingListings?: number;
   readonly comparisonSampleIncomplete?: boolean;
+  readonly comparisonSource?: "batched" | "exact";
   readonly distinctSellers?: number;
   readonly minimumQualifyingListings?: number;
   readonly supportMode?: RepricingSupportMode;
@@ -138,6 +140,7 @@ interface MarketplaceSnapshot {
   readonly inventory: readonly MarketplaceProduct[];
   readonly secondaryInventory: readonly MarketplaceProduct[];
   readonly comparisonRecoveries: Map<string, MarketplaceComparisonSample>;
+  readonly exactComparisonFailures: Set<string>;
   readonly capturedAt: Date;
   readonly expiresAt: Date;
 }
@@ -146,6 +149,7 @@ interface MarketplaceComparisonSample {
   readonly listings: readonly MarketplaceListing[];
   readonly marketplaceTotalListings: number;
   readonly marketplaceReturnedListings: number;
+  readonly source: "spotlight" | "exact";
 }
 
 interface RepricingComparisonEvidence {
@@ -157,7 +161,8 @@ export interface RepricingServiceOptions {
   readonly client: Pick<
     TcgplayerSellerClient,
     "listSellerInventory" | "searchMarketplaceProducts"
-  >;
+  > &
+    Partial<Pick<TcgplayerSellerClient, "searchMarketplaceProductListings">>;
   readonly sellerKey: string;
   readonly now?: () => Date;
   readonly id?: () => string;
@@ -383,7 +388,7 @@ function listingShippingForPricing(
   if (basis === "item") return 0;
   return listing.channelId === 0 &&
     listing.price < TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD
-    ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+    ? Math.max(listing.shippingPrice, TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING)
     : listing.shippingPrice;
 }
 
@@ -403,7 +408,10 @@ function ownShippingForPricing(
   return ownListing.channelId === 0 &&
     referenceListing.channelId === 0 &&
     referenceListing.price < TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD
-    ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+    ? Math.max(
+        ownListing.shippingPrice,
+        TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING,
+      )
     : ownListing.shippingPrice;
 }
 
@@ -566,6 +574,8 @@ export function calculateRepricingRow(
         listing.productId === own.listing.productId &&
         listing.sellerKey !== sellerKey &&
         (listing.channelId === 0 || isVerifiedDirectListing(listing)) &&
+        (listing.listingType === undefined ||
+          listing.listingType === "standard") &&
         listing.printing === own.listing.printing &&
         listing.language === own.listing.language &&
         conditions.includes(listing.condition) &&
@@ -836,7 +846,7 @@ export function calculateRepricingRow(
     rules.priceBasis === "delivered" &&
     referenceListing.channelId === 0 &&
     referenceListing.price < TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD &&
-    referenceListing.shippingPrice !== TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+    referenceListing.shippingPrice < TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
       ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
       : undefined;
   const rawTarget =
@@ -951,6 +961,49 @@ function sellerConditionKey(context: SellerListingContext): string {
   ]);
 }
 
+function comparisonEvidence(
+  context: SellerListingContext,
+  conditions: readonly string[],
+  sample: MarketplaceComparisonSample,
+  sellerConditionCounts: ReadonlyMap<string, number>,
+): RepricingComparisonEvidence {
+  const ownMatchingListings = conditions.reduce(
+    (total, condition) =>
+      total +
+      (sellerConditionCounts.get(
+        JSON.stringify([
+          context.product.productId,
+          context.listing.printing,
+          context.listing.language,
+          condition,
+        ]),
+      ) ?? 0),
+    0,
+  );
+  return {
+    ...(sample.source === "spotlight"
+      ? {
+          reportedQualifyingListings: Math.max(
+            0,
+            sample.marketplaceTotalListings - ownMatchingListings,
+          ),
+        }
+      : {}),
+    incomplete: comparisonSampleIncomplete(sample),
+  };
+}
+
+function requiresExactShippingVerification(
+  row: RepricingPreviewRow,
+  rules: RepricingRules,
+): boolean {
+  return (
+    rules.priceBasis === "delivered" &&
+    row.competitorShipping !== undefined &&
+    row.competitorShipping > TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
+  );
+}
+
 function comparisonRecoveryGroupKey(
   context: SellerListingContext,
   conditions: readonly string[],
@@ -967,6 +1020,7 @@ function emptyComparisonSample(): MarketplaceComparisonSample {
     listings: [],
     marketplaceTotalListings: 0,
     marketplaceReturnedListings: 0,
+    source: "spotlight",
   };
 }
 
@@ -1006,6 +1060,18 @@ function mergeComparisonProduct(
       channelId === 0
         ? eligibleListings.length
         : sample.marketplaceReturnedListings,
+    source: "spotlight",
+  };
+}
+
+function exactComparisonSample(
+  result: SearchMarketplaceProductListingsResult,
+): MarketplaceComparisonSample {
+  return {
+    listings: result.listings,
+    marketplaceTotalListings: result.totalListings,
+    marketplaceReturnedListings: result.listings.length,
+    source: "exact",
   };
 }
 
@@ -1028,6 +1094,10 @@ export class RepricingService {
   private marketplaceCache: MarketplaceSnapshot | undefined;
   private marketplaceLoad: Promise<MarketplaceSnapshot> | undefined;
   private readonly marketplaceRecoveryLoads = new WeakMap<
+    MarketplaceSnapshot,
+    Promise<void>
+  >();
+  private readonly exactComparisonLoads = new WeakMap<
     MarketplaceSnapshot,
     Promise<void>
   >();
@@ -1069,12 +1139,19 @@ export class RepricingService {
       sellerConditionCounts.set(key, (sellerConditionCounts.get(key) ?? 0) + 1);
     }
 
+    const comparableSellerListings = sellerListings.filter(
+      (context) => !secondarySkus.has(context.listing.productConditionId),
+    );
     await this.recoverSparseComparisons(
       snapshot,
-      sellerListings.filter(
-        (context) => !secondarySkus.has(context.listing.productConditionId),
-      ),
+      comparableSellerListings,
       rules,
+    );
+    await this.recoverSuspiciousShippingComparisons(
+      snapshot,
+      comparableSellerListings,
+      rules,
+      sellerConditionCounts,
     );
 
     const updates = new Map<string, SellerPriceUpdate>();
@@ -1113,23 +1190,7 @@ export class RepricingService {
                     comparisonRecoveryKey(context, conditions),
                   );
             const sample = recoveredSample ?? emptyComparisonSample();
-            const ownMatchingListings =
-              conditions === undefined
-                ? 0
-                : conditions.reduce(
-                    (total, condition) =>
-                      total +
-                      (sellerConditionCounts.get(
-                        JSON.stringify([
-                          context.product.productId,
-                          context.listing.printing,
-                          context.listing.language,
-                          condition,
-                        ]),
-                      ) ?? 0),
-                    0,
-                  );
-            return calculateRepricingRow(
+            const calculated = calculateRepricingRow(
               context,
               sample.listings,
               this.sellerKey,
@@ -1137,14 +1198,37 @@ export class RepricingService {
               this.id(),
               recoveredSample === undefined
                 ? {}
-                : {
-                    reportedQualifyingListings: Math.max(
-                      0,
-                      sample.marketplaceTotalListings - ownMatchingListings,
-                    ),
-                    incomplete: comparisonSampleIncomplete(sample),
-                  },
+                : comparisonEvidence(
+                    context,
+                    conditions ?? [],
+                    sample,
+                    sellerConditionCounts,
+                  ),
             );
+            if (
+              conditions !== undefined &&
+              snapshot.exactComparisonFailures.has(
+                comparisonRecoveryKey(context, conditions),
+              ) &&
+              requiresExactShippingVerification(calculated, rules)
+            ) {
+              return {
+                ...calculated,
+                proposedPrice: calculated.currentPrice,
+                minimumApplied: false,
+                status: "skipped" as const,
+                reason:
+                  "Exact marketplace verification failed for a high-shipping reference. Refresh the preview before queuing this listing.",
+                queueable: false,
+              };
+            }
+            return sample.source === "exact"
+              ? {
+                  ...calculated,
+                  comparisonSource: "exact" as const,
+                  reason: `${calculated.reason} Exact listing verification replaced a high-shipping batch reference.`,
+                }
+              : calculated;
           })();
       const removable =
         !hasSecondaryInventory &&
@@ -1278,6 +1362,7 @@ export class RepricingService {
       inventory,
       secondaryInventory,
       comparisonRecoveries: new Map(),
+      exactComparisonFailures: new Set(),
       capturedAt,
       expiresAt: new Date(
         capturedAt.getTime() + this.marketplaceCacheLifetimeMs,
@@ -1324,6 +1409,99 @@ export class RepricingService {
     } finally {
       if (this.marketplaceRecoveryLoads.get(snapshot) === load) {
         this.marketplaceRecoveryLoads.delete(snapshot);
+      }
+    }
+  }
+
+  private async recoverSuspiciousShippingComparisons(
+    snapshot: MarketplaceSnapshot,
+    contexts: readonly SellerListingContext[],
+    rules: RepricingRules,
+    sellerConditionCounts: ReadonlyMap<string, number>,
+  ): Promise<void> {
+    if (contexts.length === 0) return;
+    const existingLoad = this.exactComparisonLoads.get(snapshot);
+    if (existingLoad !== undefined) {
+      await existingLoad;
+      return this.recoverSuspiciousShippingComparisons(
+        snapshot,
+        contexts,
+        rules,
+        sellerConditionCounts,
+      );
+    }
+    const suspicious = new Map<
+      string,
+      {
+        readonly context: SellerListingContext;
+        readonly conditions: readonly string[];
+      }
+    >();
+    for (const context of contexts) {
+      const conditions = allowedConditions(
+        context.listing.condition,
+        rules.conditionPolicy,
+      );
+      if (conditions === undefined) continue;
+      const recoveryKey = comparisonRecoveryKey(context, conditions);
+      const sample = snapshot.comparisonRecoveries.get(recoveryKey);
+      if (
+        sample === undefined ||
+        sample.source === "exact" ||
+        snapshot.exactComparisonFailures.has(recoveryKey)
+      ) {
+        continue;
+      }
+      const provisional = calculateRepricingRow(
+        context,
+        sample.listings,
+        this.sellerKey,
+        rules,
+        `shipping-verification:${recoveryKey}`,
+        comparisonEvidence(context, conditions, sample, sellerConditionCounts),
+      );
+      if (requiresExactShippingVerification(provisional, rules)) {
+        suspicious.set(recoveryKey, { context, conditions });
+      }
+    }
+    if (suspicious.size === 0) return;
+    const searchExact = this.client.searchMarketplaceProductListings;
+    if (searchExact === undefined) {
+      for (const recoveryKey of suspicious.keys()) {
+        snapshot.exactComparisonFailures.add(recoveryKey);
+      }
+      return;
+    }
+    const load = Promise.all(
+      [...suspicious].map(async ([recoveryKey, { context, conditions }]) => {
+        try {
+          const result = await searchExact.call(this.client, {
+            productId: context.product.productId,
+            conditions,
+            printings: [context.listing.printing],
+            languages: [context.listing.language],
+            channelIds: [0, 1],
+            listingTypes: ["standard"],
+            offset: 0,
+            limit: 50,
+            sort: "price+shipping",
+          });
+          snapshot.comparisonRecoveries.set(
+            recoveryKey,
+            exactComparisonSample(result),
+          );
+          snapshot.exactComparisonFailures.delete(recoveryKey);
+        } catch {
+          snapshot.exactComparisonFailures.add(recoveryKey);
+        }
+      }),
+    ).then(() => undefined);
+    this.exactComparisonLoads.set(snapshot, load);
+    try {
+      await load;
+    } finally {
+      if (this.exactComparisonLoads.get(snapshot) === load) {
+        this.exactComparisonLoads.delete(snapshot);
       }
     }
   }
