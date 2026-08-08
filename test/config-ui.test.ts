@@ -9,6 +9,7 @@ import {
   type AppConfig,
   type ConfigurationUiServer,
   type FeedbackManagementService,
+  type MessageManagementService,
   type OrderManagementService,
   type OrderSyncCoordinator,
   type PaymentManagementService,
@@ -416,6 +417,84 @@ describe("configuration UI", () => {
       }),
     );
     expect(invalid.status).toBe(400);
+  });
+
+  it("serves the read-only seller inbox, unread count, and thread detail", async () => {
+    const current = await fixture();
+    const unreadCount = vi.fn(() => Promise.resolve(2));
+    const list = vi.fn(() =>
+      Promise.resolve({
+        page: 2,
+        pageSize: 25,
+        totalPages: 3,
+        totalThreads: 51,
+        unreadCount: 2,
+        threads: [],
+        portalUrl: "https://sellerportal.tcgplayer.com/messages",
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+    const get = vi.fn((threadId: number) =>
+      Promise.resolve({
+        threadId,
+        subject: "Synthetic conversation",
+        totalMessageCount: 1,
+        messages: [],
+        orderType: "SellerOrder",
+        orderNumber: "SYNTHETIC-ORDER-1",
+        deleted: false,
+        page: 1,
+        pageSize: 25,
+        totalPages: 1,
+        portalUrl: `https://sellerportal.tcgplayer.com/messages/${String(threadId)}`,
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+    const messageService = {
+      unreadCount,
+      list,
+      get,
+    } as unknown as MessageManagementService;
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      messageService,
+    });
+
+    const count = await fetch(
+      `${server.url}/api/messages/unread-count?refresh=1`,
+    );
+    const page = await fetch(
+      `${server.url}/api/messages?page=2&orderNumber=SYNTHETIC-ORDER-1&deleted=1&refresh=1`,
+    );
+    const detail = await fetch(`${server.url}/api/messages/123?page=2`);
+    const invalid = await fetch(`${server.url}/api/messages/not-a-thread`);
+
+    expect(count.status).toBe(200);
+    expect(await count.json()).toEqual({ unreadCount: 2 });
+    expect(unreadCount).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
+    );
+    expect(page.status).toBe(200);
+    expect(await page.json()).toMatchObject({
+      totalThreads: 51,
+      unreadCount: 2,
+    });
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 2,
+        orderNumber: "SYNTHETIC-ORDER-1",
+        includeDeleted: true,
+        force: true,
+      }),
+    );
+    expect(detail.status).toBe(200);
+    expect(get).toHaveBeenCalledWith(
+      123,
+      expect.objectContaining({ page: 2, force: false }),
+    );
+    expect(invalid.status).toBe(404);
   });
 
   it("prints synthetic output using the submitted unsaved printer settings", async () => {

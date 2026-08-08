@@ -49,6 +49,7 @@ export {
   createInventoryAdditionService,
   createOrderManagementService,
   createPaymentManagementService,
+  createMessageManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createReadyOrderSource,
@@ -67,6 +68,8 @@ export { PaymentManagementService } from "./payment-management.js";
 export type * from "./payment-management.js";
 export { FeedbackManagementService } from "./feedback-management.js";
 export type * from "./feedback-management.js";
+export { MessageManagementService } from "./message-management.js";
+export type * from "./message-management.js";
 export {
   createTcgplayerInventoryAdditionExecutor,
   InventoryAdditionQueueStore,

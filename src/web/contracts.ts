@@ -19,6 +19,10 @@ import type {
 import type { ManagedPaymentsPage } from "../payment-management.js";
 import type { ManagedSellerFeedbackPage } from "../feedback-management.js";
 import type {
+  ManagedSellerMessagesPage,
+  ManagedSellerMessageThread,
+} from "../message-management.js";
+import type {
   PriceUpdateJob,
   PriceUpdateQueueSnapshot,
 } from "../price-update-queue.js";
@@ -41,6 +45,11 @@ export type PirateShipResult = PirateShipPreparation;
 export type PaymentsPage = ManagedPaymentsPage;
 export type PaymentDetail = SellerPayoutDetail;
 export type FeedbackPage = ManagedSellerFeedbackPage;
+export type MessagesPage = ManagedSellerMessagesPage;
+export type MessageThread = ManagedSellerMessageThread;
+export interface UnreadMessages {
+  readonly unreadCount: number;
+}
 export type CatalogSearch = CatalogSearchResult;
 export type CatalogProduct = CatalogProductDetails;
 export type AdditionPreview = InventoryAdditionPreview;

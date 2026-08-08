@@ -586,6 +586,94 @@ const server = await startConfigurationUi({
         fetchedAt: now,
       }),
   },
+  messageService: {
+    unreadCount: () => Promise.resolve(2),
+    list: ({ page = 1, orderNumber, includeDeleted = false }) => {
+      const threads = [
+        {
+          threadId: 101,
+          unreadMessageCount: 2,
+          totalMessageCount: 3,
+          subject: "Question about shipping",
+          orderType: "Marketplace",
+          orderNumber: orders[0].orderNumber,
+          orderStatus: "Ready to Ship",
+          createdAt: "2026-08-07T15:05:00.000Z",
+          respondedAt: "2026-08-07T16:10:00.000Z",
+          deleted: false,
+          senderDisplayName: "Taylor M.",
+          receiverDisplayName: "You",
+        },
+        {
+          threadId: 102,
+          unreadMessageCount: 0,
+          totalMessageCount: 1,
+          subject: "Thanks for the careful packaging",
+          orderType: "Marketplace",
+          orderNumber: orders[1].orderNumber,
+          orderStatus: "Shipped",
+          createdAt: "2026-08-06T20:15:00.000Z",
+          deleted: false,
+          senderDisplayName: "Jordan L.",
+          receiverDisplayName: "You",
+        },
+      ].filter(
+        (thread) =>
+          (includeDeleted || !thread.deleted) &&
+          (orderNumber === undefined || thread.orderNumber === orderNumber),
+      );
+      return Promise.resolve({
+        page,
+        pageSize: 25,
+        totalPages: 1,
+        totalThreads: threads.length,
+        unreadCount: 2,
+        threads,
+        portalUrl: "https://sellerportal.tcgplayer.com/messages",
+        fetchedAt: now,
+      });
+    },
+    get: (threadId, { page = 1 } = {}) =>
+      Promise.resolve({
+        threadId,
+        subject: "Question about shipping",
+        totalMessageCount: 3,
+        messages: [
+          {
+            messageId: 1001,
+            body: "Will this order include tracking?",
+            createdAt: "2026-08-07T15:05:00.000Z",
+            responseRequired: true,
+            isRead: false,
+            senderDisplayName: "Taylor M.",
+          },
+          {
+            messageId: 1002,
+            body: "Yes, tracking will be added when the order ships.",
+            createdAt: "2026-08-07T15:22:00.000Z",
+            responseRequired: false,
+            isRead: true,
+            senderDisplayName: "You",
+          },
+          {
+            messageId: 1003,
+            body: "Perfect, thank you!",
+            createdAt: "2026-08-07T16:10:00.000Z",
+            responseRequired: false,
+            isRead: false,
+            senderDisplayName: "Taylor M.",
+          },
+        ],
+        orderType: "Marketplace",
+        orderNumber: orders[0].orderNumber,
+        deleted: false,
+        page,
+        pageSize: 25,
+        totalPages: 1,
+        portalUrl: `https://sellerportal.tcgplayer.com/messages/${String(threadId)}`,
+        fetchedAt: now,
+      }),
+  },
   executePrintTest: () => Promise.resolve(),
 });
 

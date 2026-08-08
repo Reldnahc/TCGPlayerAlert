@@ -29,6 +29,7 @@ import {
 } from "./order-management.js";
 import { PaymentManagementService } from "./payment-management.js";
 import { FeedbackManagementService } from "./feedback-management.js";
+import { MessageManagementService } from "./message-management.js";
 import {
   TcgplayerReadyOrderSource,
   type ReadyOrderSource,
@@ -337,6 +338,24 @@ export function createFeedbackManagementService(
     environment,
   );
   return new FeedbackManagementService({
+    client: createTcgplayerSellerClient({ session: { authCookie } }),
+    sellerKey,
+  });
+}
+
+export function createMessageManagementService(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): MessageManagementService {
+  const authCookie = secretFromEnvironment(
+    config.provider.authCookieEnv,
+    environment,
+  );
+  const sellerKey = secretFromEnvironment(
+    config.provider.sellerKeyEnv,
+    environment,
+  );
+  return new MessageManagementService({
     client: createTcgplayerSellerClient({ session: { authCookie } }),
     sellerKey,
   });

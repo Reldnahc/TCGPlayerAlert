@@ -156,6 +156,38 @@ function baseFetch(
         fetchedAt: "2026-08-07T12:00:00.000Z",
       }),
     );
+  if (path.startsWith("/api/messages/unread-count"))
+    return Promise.resolve(json({ unreadCount: 0 }));
+  if (/^\/api\/messages\/\d+/u.test(path))
+    return Promise.resolve(
+      json({
+        threadId: 1,
+        subject: "Synthetic conversation",
+        totalMessageCount: 0,
+        messages: [],
+        orderType: "SellerOrder",
+        orderNumber: "",
+        deleted: false,
+        page: 1,
+        pageSize: 25,
+        totalPages: 1,
+        portalUrl: "https://sellerportal.tcgplayer.com/messages/1",
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+  if (path.startsWith("/api/messages"))
+    return Promise.resolve(
+      json({
+        page: 1,
+        pageSize: 25,
+        totalPages: 1,
+        totalThreads: 0,
+        unreadCount: 0,
+        threads: [],
+        portalUrl: "https://sellerportal.tcgplayer.com/messages",
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
   throw new Error(`Unexpected request: ${path}`);
 }
 
@@ -344,6 +376,7 @@ describe("operator console", () => {
       "Dashboard",
       "Add cards",
       "Orders",
+      "Messages",
       "Payments",
       "Feedback",
       "Inventory",
@@ -977,5 +1010,101 @@ describe("operator console", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("shows unread messages in navigation and loads conversations read-only", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path.startsWith("/api/messages/unread-count")) {
+          return Promise.resolve(json({ unreadCount: 2 }));
+        }
+        if (path === "/api/messages?page=1") {
+          return Promise.resolve(
+            json({
+              page: 1,
+              pageSize: 25,
+              totalPages: 1,
+              totalThreads: 1,
+              unreadCount: 2,
+              threads: [
+                {
+                  threadId: 123,
+                  unreadMessageCount: 2,
+                  totalMessageCount: 2,
+                  senderDisplayName: "Synthetic Buyer",
+                  receiverDisplayName: "You",
+                  subject: "Synthetic order question",
+                  orderType: "SellerOrder",
+                  orderNumber: "SYNTHETIC-ORDER-1",
+                  orderStatus: "Shipped",
+                  createdAt: "2026-08-07T12:00:00.000Z",
+                  deleted: false,
+                },
+              ],
+              portalUrl: "https://sellerportal.tcgplayer.com/messages",
+              fetchedAt: "2026-08-07T12:05:00.000Z",
+            }),
+          );
+        }
+        if (path === "/api/messages/123?page=1") {
+          return Promise.resolve(
+            json({
+              threadId: 123,
+              subject: "Synthetic order question",
+              totalMessageCount: 2,
+              messages: [
+                {
+                  messageId: 456,
+                  body: "Synthetic message body.",
+                  createdAt: "2026-08-07T12:00:00.000Z",
+                  senderDisplayName: "Synthetic Buyer",
+                  responseRequired: true,
+                  isRead: false,
+                },
+              ],
+              orderType: "SellerOrder",
+              orderNumber: "SYNTHETIC-ORDER-1",
+              deleted: false,
+              page: 1,
+              pageSize: 25,
+              totalPages: 1,
+              portalUrl: "https://sellerportal.tcgplayer.com/messages/123",
+              fetchedAt: "2026-08-07T12:05:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+
+    const messagesLink = await screen.findByRole("link", {
+      name: "Messages, 2 unread messages",
+    });
+    expect(messagesLink.querySelector(".nav__unread")?.textContent).toBe("2");
+    await user.click(messagesLink);
+
+    expect(
+      await screen.findByRole("heading", { name: "Messages" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("Synthetic message body.")).toBeTruthy();
+    expect(screen.getByText("Synthetic Buyer")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Open conversation" })
+        .getAttribute("href"),
+    ).toBe("https://sellerportal.tcgplayer.com/messages/123");
+    expect(
+      fetchMock.mock.calls.every(([, request]) => request?.method !== "POST"),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        requestPath(input).includes("mark-as-read"),
+      ),
+    ).toBe(false);
   });
 });

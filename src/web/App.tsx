@@ -10,10 +10,12 @@ import { JobsPage } from "./pages/JobsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
 import { PaymentsPage } from "./pages/PaymentsPage.js";
 import { FeedbackPage } from "./pages/FeedbackPage.js";
+import { MessagesPage } from "./pages/MessagesPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { OrdersProvider } from "./state/OrdersContext.js";
 import { SettingsProvider, useSettings } from "./state/SettingsContext.js";
 import { ToastProvider, useToast } from "./state/ToastContext.js";
+import { MessagesProvider, useMessages } from "./state/MessagesContext.js";
 import { errorMessage } from "./utils.js";
 
 const ALIASES: Readonly<Record<string, RouteId>> = {
@@ -37,6 +39,7 @@ function Console() {
   const { settings, loading, saving, dirty, error, save, reload } =
     useSettings();
   const toast = useToast();
+  const { unreadCount } = useMessages();
   useEffect(() => {
     const sync = () => {
       const next = routeFromHash();
@@ -90,6 +93,7 @@ function Console() {
       orders: OrdersPage,
       payments: PaymentsPage,
       feedback: FeedbackPage,
+      messages: MessagesPage,
       "add-cards": AddCardsPage,
       inventory: InventoryPage,
       settings: SettingsPage,
@@ -111,7 +115,11 @@ function Console() {
   }
 
   return (
-    <AppShell route={route} onNavigate={navigate}>
+    <AppShell
+      route={route}
+      onNavigate={navigate}
+      unreadMessageCount={unreadCount}
+    >
       {content}
       {dirty ? (
         <div class="save-dock">
@@ -138,7 +146,9 @@ export function App() {
     <ToastProvider>
       <SettingsProvider>
         <OrdersProvider>
-          <Console />
+          <MessagesProvider>
+            <Console />
+          </MessagesProvider>
         </OrdersProvider>
       </SettingsProvider>
     </ToastProvider>

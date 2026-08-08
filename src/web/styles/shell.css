@@ -52,6 +52,7 @@
   padding: 12px 9px;
 }
 .nav__item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -64,6 +65,22 @@
   text-decoration: none;
   font-size: 13px;
   font-weight: 600;
+}
+.nav__unread {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: auto;
+  place-items: center;
+  border: 2px solid var(--bg-sidebar);
+  border-radius: 999px;
+  padding: 0 4px;
+  color: white;
+  background: #d83a31;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
 }
 .nav__item:hover {
   color: white;
@@ -229,6 +246,15 @@
   .nav__item {
     justify-content: center;
     padding: 0;
+  }
+  .nav__unread {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    font-size: 8px;
   }
   .page-header {
     align-items: flex-start;

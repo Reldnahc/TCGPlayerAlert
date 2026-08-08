@@ -6,6 +6,8 @@ import type {
   FeedbackPage,
   InventoryJob,
   InventoryQueueResponse,
+  MessagesPage,
+  MessageThread,
   OrderList,
   PaymentDetail,
   PaymentsPage,
@@ -21,6 +23,7 @@ import type {
   SettingsUpdate,
   ShipmentResult,
   TrackingResult,
+  UnreadMessages,
 } from "./contracts.js";
 
 export class UiApiError extends Error {
@@ -251,6 +254,43 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(
       `/api/feedback?${query.toString()}`,
+      signal === undefined ? {} : { signal },
+    );
+  },
+  messageCount: (
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<UnreadMessages> =>
+    requestJson(
+      `/api/messages/unread-count${force ? "?refresh=1" : ""}`,
+      signal === undefined ? {} : { signal },
+    ),
+  messages: (
+    page: number,
+    orderNumber: string,
+    includeDeleted: boolean,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<MessagesPage> => {
+    const query = new URLSearchParams({ page: String(page) });
+    if (orderNumber !== "") query.set("orderNumber", orderNumber);
+    if (includeDeleted) query.set("deleted", "1");
+    if (force) query.set("refresh", "1");
+    return requestJson(
+      `/api/messages?${query.toString()}`,
+      signal === undefined ? {} : { signal },
+    );
+  },
+  message: (
+    threadId: number,
+    page: number,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<MessageThread> => {
+    const query = new URLSearchParams({ page: String(page) });
+    if (force) query.set("refresh", "1");
+    return requestJson(
+      `/api/messages/${String(threadId)}?${query.toString()}`,
       signal === undefined ? {} : { signal },
     );
   },

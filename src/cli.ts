@@ -13,6 +13,7 @@ import {
   createInventoryAdditionService,
   createOrderManagementService,
   createFeedbackManagementService,
+  createMessageManagementService,
   createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
@@ -96,6 +97,7 @@ try {
       orderService: createOrderManagementService(config, configPath),
       paymentService: createPaymentManagementService(config),
       feedbackService: createFeedbackManagementService(config),
+      messageService: createMessageManagementService(config),
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
@@ -166,6 +168,7 @@ try {
       orderSync,
       paymentService: createPaymentManagementService(initialConfig),
       feedbackService: createFeedbackManagementService(initialConfig),
+      messageService: createMessageManagementService(initialConfig),
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });

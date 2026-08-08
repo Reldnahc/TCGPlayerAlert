@@ -6,6 +6,7 @@ export type RouteId =
   | "orders"
   | "payments"
   | "feedback"
+  | "messages"
   | "add-cards"
   | "inventory"
   | "settings"
@@ -19,6 +20,7 @@ export const routes: readonly {
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "add-cards", label: "Add cards", icon: "add" },
   { id: "orders", label: "Orders", icon: "orders" },
+  { id: "messages", label: "Messages", icon: "messages" },
   { id: "payments", label: "Payments", icon: "payments" },
   { id: "feedback", label: "Feedback", icon: "feedback" },
   { id: "inventory", label: "Inventory", icon: "inventory" },
@@ -29,10 +31,12 @@ export const routes: readonly {
 export function AppShell({
   route,
   onNavigate,
+  unreadMessageCount,
   children,
 }: {
   readonly route: RouteId;
   readonly onNavigate: (route: RouteId) => void;
+  readonly unreadMessageCount: number;
   readonly children: ComponentChildren;
 }) {
   return (
@@ -57,9 +61,19 @@ export function AppShell({
                 onNavigate(item.id);
               }}
               title={item.label}
+              aria-label={
+                item.id === "messages" && unreadMessageCount > 0
+                  ? `Messages, ${String(unreadMessageCount)} unread message${unreadMessageCount === 1 ? "" : "s"}`
+                  : item.label
+              }
             >
               <Icon name={item.icon} />
               <span>{item.label}</span>
+              {item.id === "messages" && unreadMessageCount > 0 ? (
+                <i class="nav__unread" aria-hidden="true">
+                  {unreadMessageCount > 99 ? "99+" : String(unreadMessageCount)}
+                </i>
+              ) : null}
             </a>
           ))}
         </nav>

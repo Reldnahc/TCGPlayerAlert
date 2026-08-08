@@ -45,6 +45,7 @@ import type {
 import type { OrderSyncCoordinator } from "./order-sync.js";
 import type { PaymentManagementService } from "./payment-management.js";
 import type { FeedbackManagementService } from "./feedback-management.js";
+import type { MessageManagementService } from "./message-management.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   Object.values(SellerPayoutStatus),
@@ -252,6 +253,7 @@ export interface StartConfigurationUiOptions {
   readonly orderSync?: OrderSyncCoordinator;
   readonly paymentService?: PaymentManagementService;
   readonly feedbackService?: FeedbackManagementService;
+  readonly messageService?: MessageManagementService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
   readonly executePrintTest?: ConfigurationPrintTest;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
@@ -296,6 +298,7 @@ export async function startConfigurationUi(
       options.orderSync,
       options.paymentService,
       options.feedbackService,
+      options.messageService,
       options.executeAddressLabel,
       options.executePrintTest,
       webAssets,
@@ -982,6 +985,7 @@ async function handleRequest(
   orderSync: OrderSyncCoordinator | undefined,
   paymentService: PaymentManagementService | undefined,
   feedbackService: FeedbackManagementService | undefined,
+  messageService: MessageManagementService | undefined,
   executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
   webAssets: ConfigurationUiAssets,
@@ -1114,6 +1118,98 @@ async function handleRequest(
             : { rating: rating as 1 | 2 | 3 | 4 | 5 }),
           ...(commentsValue === "1" ? { commentsOnly: true } : {}),
           ...(days === undefined ? {} : { days }),
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
+      url.pathname === "/api/messages/unread-count"
+    ) {
+      if (messageService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller messages are unavailable.",
+        });
+        return;
+      }
+      const count = await withRequestAbort(request, response, (signal) =>
+        messageService.unreadCount({
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, { unreadCount: count });
+    } else if (request.method === "GET" && url.pathname === "/api/messages") {
+      if (messageService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller messages are unavailable.",
+        });
+        return;
+      }
+      const pageValue = url.searchParams.get("page");
+      const page = pageValue === null ? 1 : Number(pageValue);
+      if (!Number.isInteger(page) || page < 1 || page > 1_000_000) {
+        sendJson(response, 400, {
+          message: "The message page is invalid.",
+        });
+        return;
+      }
+      const orderNumber = url.searchParams.get("orderNumber") ?? undefined;
+      if (
+        orderNumber !== undefined &&
+        (!safeText(orderNumber) || orderNumber.length > 256)
+      ) {
+        sendJson(response, 400, {
+          message: "The message order filter is invalid.",
+        });
+        return;
+      }
+      const deletedValue = url.searchParams.get("deleted");
+      if (deletedValue !== null && deletedValue !== "1") {
+        sendJson(response, 400, {
+          message: "The deleted-message filter is invalid.",
+        });
+        return;
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        messageService.list({
+          page,
+          ...(orderNumber === undefined ? {} : { orderNumber }),
+          ...(deletedValue === "1" ? { includeDeleted: true } : {}),
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
+      /^\/api\/messages\/\d{1,16}$/u.test(url.pathname)
+    ) {
+      if (messageService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller messages are unavailable.",
+        });
+        return;
+      }
+      const threadId = Number(url.pathname.slice("/api/messages/".length));
+      const pageValue = url.searchParams.get("page");
+      const page = pageValue === null ? 1 : Number(pageValue);
+      if (
+        !Number.isSafeInteger(threadId) ||
+        threadId < 1 ||
+        !Number.isInteger(page) ||
+        page < 1 ||
+        page > 1_000_000
+      ) {
+        sendJson(response, 400, {
+          message: "The message thread is invalid.",
+        });
+        return;
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        messageService.get(threadId, {
+          page,
           force: url.searchParams.get("refresh") === "1",
           signal,
         }),
