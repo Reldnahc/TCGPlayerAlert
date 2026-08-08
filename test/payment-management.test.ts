@@ -177,6 +177,17 @@ describe("PaymentManagementService", () => {
       Promise.resolve({
         payments: [
           {
+            estimatedArrivalDate: null,
+            initiatedDate: null,
+            ordersCount: 1,
+            totalSales: 2_000,
+            totalFees: 100,
+            refundedOrders: 0,
+            refundedFees: 0,
+            adjustments: 0,
+            amount: 1_900,
+          },
+          {
             estimatedArrivalDate: "2026-08-15",
             initiatedDate: "2026-08-13",
             ordersCount: 2,
@@ -209,7 +220,7 @@ describe("PaymentManagementService", () => {
       experience: "legacy",
       page: 1,
       totalPages: 3,
-      upcomingPayments: [{ amount: 5_700 }],
+      upcomingPayments: [{ amount: 1_900 }, { amount: 5_700 }],
       pastPayments: [{ amount: 12_345 }],
     });
     expect(secondPage).toMatchObject({ experience: "legacy", page: 2 });

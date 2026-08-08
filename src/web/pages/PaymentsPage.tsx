@@ -394,9 +394,15 @@ function LegacyPaymentsWorkspace({
   readonly onPage: (page: number) => void;
 }) {
   const upcoming = [...data.upcomingPayments].sort((left, right) =>
-    left.estimatedArrivalDate.localeCompare(right.estimatedArrivalDate),
+    compareCalendarDates(left.estimatedArrivalDate, right.estimatedArrivalDate),
   );
-  const nextPayment = upcoming[0];
+  const scheduledCount = upcoming.filter(
+    (payment) => payment.estimatedArrivalDate !== null,
+  ).length;
+  const unscheduledCount = upcoming.length - scheduledCount;
+  const nextPayment =
+    upcoming.find((payment) => payment.estimatedArrivalDate !== null) ??
+    upcoming[0];
   const upcomingTotal = upcoming.reduce(
     (total, payment) => total + payment.amount,
     0,
@@ -430,13 +436,19 @@ function LegacyPaymentsWorkspace({
             detail={
               nextPayment === undefined
                 ? "No payment scheduled"
-                : `Estimated ${calendarDate(nextPayment.estimatedArrivalDate)}`
+                : nextPayment.estimatedArrivalDate === null
+                  ? "Not scheduled"
+                  : `Estimated ${calendarDate(nextPayment.estimatedArrivalDate)}`
             }
           />
           <Metric
             label="Upcoming total"
             value={moneyFromCents(upcomingTotal)}
-            detail={`${String(upcoming.length)} scheduled payment${upcoming.length === 1 ? "" : "s"}`}
+            detail={
+              unscheduledCount === 0
+                ? `${String(scheduledCount)} scheduled payment${scheduledCount === 1 ? "" : "s"}`
+                : `${String(scheduledCount)} scheduled · ${String(unscheduledCount)} not scheduled`
+            }
           />
           <Metric
             label="Upcoming orders"
@@ -555,7 +567,7 @@ function LegacyPaymentsTable({
           <tbody>
             {payments.map((payment, index) => (
               <tr
-                key={`${payment.estimatedArrivalDate}:${payment.initiatedDate}:${String(index)}`}
+                key={`${String(payment.estimatedArrivalDate)}:${String(payment.initiatedDate)}:${String(index)}`}
               >
                 <td>{calendarDate(payment.estimatedArrivalDate)}</td>
                 <td>{calendarDate(payment.initiatedDate)}</td>
@@ -587,7 +599,18 @@ function LegacyPaymentsTable({
   );
 }
 
-function calendarDate(value: string): string {
+function compareCalendarDates(
+  left: string | null,
+  right: string | null,
+): number {
+  if (left === right) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return left.localeCompare(right);
+}
+
+function calendarDate(value: string | null): string {
+  if (value === null) return "Not scheduled";
   const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
   if (match === null) return value;
   const date = new Date(

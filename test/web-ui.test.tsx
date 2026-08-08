@@ -869,6 +869,17 @@ describe("operator console", () => {
               totalPages: 2,
               upcomingPayments: [
                 {
+                  estimatedArrivalDate: null,
+                  initiatedDate: null,
+                  ordersCount: 1,
+                  totalSales: 2_000,
+                  totalFees: 100,
+                  refundedOrders: 0,
+                  refundedFees: 0,
+                  adjustments: 0,
+                  amount: 1_900,
+                },
+                {
                   estimatedArrivalDate: "2026-08-15",
                   initiatedDate: "2026-08-13",
                   ordersCount: 2,
@@ -910,6 +921,8 @@ describe("operator console", () => {
     expect(await screen.findByText("Estimated future payments")).toBeTruthy();
     expect(screen.getByText("Past payment history")).toBeTruthy();
     expect(screen.getAllByText("$57.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Not scheduled").length).toBeGreaterThan(0);
+    expect(screen.getByText("1 scheduled · 1 not scheduled")).toBeTruthy();
     expect(screen.getByText("$123.45")).toBeTruthy();
     expect(screen.queryByLabelText("Payout status")).toBeNull();
     expect(
