@@ -30,6 +30,8 @@ Supported template fields are:
 
 `omitLineValues` removes exact rendered lines case-insensitively. For example, `["US", "USA"]` suppresses domestic country-only lines without removing an international country such as `Canada`.
 
+The Dashboard also provides a manual address-label tool. It accepts pasted multiline text and prints the non-empty lines in their original order using the saved address-label printer, dimensions, margin, font size, orientation, and `omitLineValues`. Manual printing remains available when address-label automation is disabled because it is an explicit operator action. Input is limited to eight lines and 1,024 characters and is never added to application state, responses, or logs. Like order labels, it passes through the random short-lived spool workspace described below and is removed after submission.
+
 `print-packing-slip` accepts the validated PDF returned by the seller provider. The `windows-pdf` adapter renders each page at the configured DPI and preserves the PDF page aspect ratio. Its scale options are:
 
 - `actual-size` - retain the physical PDF page size even if it clips.

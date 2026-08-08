@@ -73,16 +73,26 @@ function renderAddressLines(
   order: FulfillmentOrder,
   config: AddressLabelActionConfig,
 ): string[] {
+  return printableAddressLines(
+    config.lines.map((template) => renderLine(template, order)),
+    config,
+  );
+}
+
+function printableAddressLines(
+  lines: readonly string[],
+  config: AddressLabelActionConfig,
+): string[] {
   const omittedValues = new Set(
     (config.omitLineValues ?? []).map((value) => value.trim().toUpperCase()),
   );
-  return config.lines
-    .map((template) => renderLine(template, order).trim())
+  return lines
+    .map((line) => line.trim())
     .filter((line) => line && !omittedValues.has(line.toUpperCase()));
 }
 
-export async function renderAddressLabel(
-  order: FulfillmentOrder,
+async function renderAddressLabelLines(
+  lines: readonly string[],
   config: AddressLabelActionConfig,
 ): Promise<Uint8Array> {
   const document = await PDFDocument.create();
@@ -93,7 +103,7 @@ export async function renderAddressLabel(
   const font = await document.embedFont(StandardFonts.Helvetica);
   const availableWidth = width - margin * 2;
   const lineHeight = config.page.fontSize * 1.18;
-  const lines = renderAddressLines(order, config)
+  const wrappedLines = lines
     .flatMap((line) =>
       wrapLine(line, availableWidth, config.page.fontSize, (text, size) =>
         font.widthOfTextAtSize(text, size),
@@ -101,7 +111,7 @@ export async function renderAddressLabel(
     )
     .filter(Boolean);
   let y = height - margin - config.page.fontSize;
-  for (const line of lines) {
+  for (const line of wrappedLines) {
     if (y < margin) {
       throw new ApplicationError(
         "CONFIGURATION_ERROR",
@@ -120,18 +130,74 @@ export async function renderAddressLabel(
   return document.save({ useObjectStreams: false });
 }
 
+export async function renderAddressLabel(
+  order: FulfillmentOrder,
+  config: AddressLabelActionConfig,
+): Promise<Uint8Array> {
+  return renderAddressLabelLines(renderAddressLines(order, config), config);
+}
+
 function addressLabelPrintJob(
-  context: ActionContext,
+  idempotencyKey: string,
   config: AddressLabelActionConfig,
   jobName: string,
+  lines: readonly string[],
 ): AddressLabelPrintJob {
   return {
-    idempotencyKey: context.idempotencyKey,
+    idempotencyKey,
     jobName,
     mediaType: "application/vnd.tcgplayer-alert.address-label+json",
     page: config.page,
-    lines: renderAddressLines(context.order, config),
+    lines,
   };
+}
+
+async function submitAddressLabel(
+  config: AddressLabelActionConfig,
+  printer: Printer,
+  lines: readonly string[],
+  idempotencyKey: string,
+  jobName: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const job = printer.acceptedMediaTypes.has(
+    "application/vnd.tcgplayer-alert.address-label+json",
+  )
+    ? addressLabelPrintJob(idempotencyKey, config, jobName, lines)
+    : printer.acceptedMediaTypes.has("application/pdf")
+      ? {
+          idempotencyKey,
+          jobName,
+          mediaType: "application/pdf" as const,
+          bytes: await renderAddressLabelLines(lines, config),
+        }
+      : undefined;
+  if (job === undefined) throw unsupportedPrinter("manual-address-label");
+  await printer.submit(job, signal);
+}
+
+export async function executeAddressLabelLines(
+  config: AddressLabelActionConfig,
+  printer: Printer,
+  lines: readonly string[],
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const printable = printableAddressLines(lines, config);
+  if (printable.length === 0) {
+    throw new ApplicationError(
+      "CONFIGURATION_ERROR",
+      "The address label requires at least one printable line.",
+    );
+  }
+  await submitAddressLabel(
+    config,
+    printer,
+    printable,
+    idempotencyKey,
+    `address-label-${printIdentifier(idempotencyKey)}`,
+    signal,
+  );
 }
 
 export async function renderSyntheticPrintTest(
@@ -272,17 +338,14 @@ class AddressLabelAction implements WorkflowAction {
   ) {}
 
   async execute(context: ActionContext): Promise<void> {
-    const jobName = `address-label-${printIdentifier(context.idempotencyKey)}`;
-    const job = this.printer.acceptedMediaTypes.has(
-      "application/vnd.tcgplayer-alert.address-label+json",
-    )
-      ? addressLabelPrintJob(context, this.config, jobName)
-      : pdfPrintJob(
-          context,
-          jobName,
-          await renderAddressLabel(context.order, this.config),
-        );
-    await this.printer.submit(job, context.signal);
+    await submitAddressLabel(
+      this.config,
+      this.printer,
+      renderAddressLines(context.order, this.config),
+      context.idempotencyKey,
+      `address-label-${printIdentifier(context.idempotencyKey)}`,
+      context.signal,
+    );
   }
 }
 

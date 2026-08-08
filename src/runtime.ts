@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { loadConfig, type AppConfig } from "./config.js";
 import { createTcgplayerSellerClient } from "tcgplayer-private-api";
-import { createActions, executeSyntheticPrintTest } from "./actions.js";
+import {
+  createActions,
+  executeAddressLabelLines,
+  executeSyntheticPrintTest,
+} from "./actions.js";
 import { ConfigurationError } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { createPrinter, type Printer } from "./printing.js";
@@ -92,6 +96,37 @@ export async function executeConfiguredSyntheticPrintTest(
     throw new ConfigurationError(["The selected print action is unavailable."]);
   }
   await executeSyntheticPrintTest(action, testActionConfig);
+}
+
+export async function executeConfiguredAddressLabel(
+  config: AppConfig,
+  lines: readonly string[],
+  options: {
+    readonly printers?: Readonly<Record<string, Printer>>;
+    readonly signal?: AbortSignal;
+  } = {},
+): Promise<void> {
+  const selected = Object.values(config.actions).find(
+    (action) => action.type === "print-address-label",
+  );
+  if (selected === undefined) {
+    throw new ConfigurationError(["No address-label action is configured."]);
+  }
+  const printer = (options.printers ?? createPrinters(config))[
+    selected.printer
+  ];
+  if (printer === undefined) {
+    throw new ConfigurationError([
+      "The configured address-label printer is unavailable.",
+    ]);
+  }
+  await executeAddressLabelLines(
+    selected,
+    printer,
+    lines,
+    `manual-address-label:${randomUUID()}`,
+    options.signal,
+  );
 }
 
 export async function executeConfiguredOrderPrint(

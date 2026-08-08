@@ -160,6 +160,49 @@ afterEach(() => {
 });
 
 describe("operator console", () => {
+  it("prints a pasted address from the dashboard", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        if (
+          requestPath(input) === "/api/address-labels/print" &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(json({ printed: true }));
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const address = await screen.findByRole("textbox", {
+      name: "Paste address",
+    });
+    await user.type(
+      address,
+      "Synthetic Recipient{enter}123 Example Street{enter}Example City, IL 00000",
+    );
+    await user.click(screen.getByRole("button", { name: "Print label" }));
+
+    const request = fetchMock.mock.calls.find(
+      ([input]) => requestPath(input) === "/api/address-labels/print",
+    );
+    expect(request?.[1]).toMatchObject({ method: "POST" });
+    const body = request?.[1]?.body;
+    if (typeof body !== "string") {
+      throw new Error("Expected the address to be submitted as JSON.");
+    }
+    expect(JSON.parse(body) as unknown).toEqual({
+      address:
+        "Synthetic Recipient\n123 Example Street\nExample City, IL 00000",
+    });
+    expect(
+      await screen.findByText("Address label sent to the printer."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Unsaved configuration changes")).toBeNull();
+  });
+
   it("navigates all work areas and only offers Save after a persistent change", async () => {
     const fetchMock = vi.fn(baseFetch);
     vi.stubGlobal("fetch", fetchMock);

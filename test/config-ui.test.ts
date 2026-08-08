@@ -425,4 +425,38 @@ describe("configuration UI", () => {
       '"fontSize": 16',
     );
   });
+
+  it("validates and prints a pasted address without returning it", async () => {
+    const current = await fixture();
+    const executeAddressLabel = vi
+      .fn<(lines: readonly string[], signal?: AbortSignal) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      executeAddressLabel,
+    });
+    const serverUrl = server.url;
+    const print = (address: string) =>
+      fetch(`${serverUrl}/api/address-labels/print`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: serverUrl },
+        body: JSON.stringify({ address }),
+      });
+
+    const response = await print(
+      " Synthetic Recipient\r\n123 Example Street\n\nExample City, IL 00000 ",
+    );
+    const invalid = await print("1\n2\n3\n4\n5\n6\n7\n8\n9");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ printed: true });
+    expect(executeAddressLabel).toHaveBeenCalledWith(
+      ["Synthetic Recipient", "123 Example Street", "Example City, IL 00000"],
+      expect.any(AbortSignal),
+    );
+    expect(invalid.status).toBe(400);
+    expect(executeAddressLabel).toHaveBeenCalledOnce();
+  });
 });

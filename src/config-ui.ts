@@ -231,6 +231,11 @@ export type ConfigurationPrintTest = (
   actionId: string,
 ) => Promise<void>;
 
+export type ConfigurationAddressLabelPrint = (
+  lines: readonly string[],
+  signal?: AbortSignal,
+) => Promise<void>;
+
 export interface StartConfigurationUiOptions {
   readonly configPath: string;
   readonly port?: number;
@@ -245,6 +250,7 @@ export interface StartConfigurationUiOptions {
   readonly orderService?: OrderManagementService;
   readonly paymentService?: PaymentManagementService;
   readonly feedbackService?: FeedbackManagementService;
+  readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
   readonly executePrintTest?: ConfigurationPrintTest;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
@@ -287,6 +293,7 @@ export async function startConfigurationUi(
       options.orderService,
       options.paymentService,
       options.feedbackService,
+      options.executeAddressLabel,
       options.executePrintTest,
       webAssets,
     );
@@ -971,6 +978,7 @@ async function handleRequest(
   orderService: OrderManagementService | undefined,
   paymentService: PaymentManagementService | undefined,
   feedbackService: FeedbackManagementService | undefined,
+  executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
   webAssets: ConfigurationUiAssets,
 ): Promise<void> {
@@ -1169,6 +1177,22 @@ async function handleRequest(
         );
         sendBytes(response, 200, "application/pdf", document.bytes);
       }
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/address-labels/print"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (executeAddressLabel === undefined) {
+        sendJson(response, 503, {
+          message: "Address-label printing is unavailable.",
+        });
+        return;
+      }
+      const lines = parsePastedAddress(await readJsonBody(request));
+      await withRequestAbort(request, response, (signal) =>
+        executeAddressLabel(lines, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, { printed: true });
     } else if (
       request.method === "POST" &&
       /^\/api\/orders\/[^/]{1,384}\/print$/u.test(url.pathname)
@@ -1532,7 +1556,7 @@ async function handleRequest(
       sendJson(response, 404, { message: "Not found." });
     }
   } catch (error) {
-    if (request.destroyed || response.destroyed) return;
+    if ((request.destroyed && !request.complete) || response.destroyed) return;
     if (error instanceof ConfigurationConflictError) {
       sendJson(response, 409, {
         message: "Settings changed on disk. Refresh and try again.",
@@ -1584,7 +1608,7 @@ async function streamRepricingPreview(
     );
     write({ type: "complete", preview });
   } catch (error) {
-    if (request.destroyed || response.destroyed) return;
+    if ((request.destroyed && !request.complete) || response.destroyed) return;
     write({ type: "error", ...streamError(error) });
   } finally {
     if (!response.destroyed) response.end();
@@ -1751,6 +1775,29 @@ function parseManualPrintAction(value: unknown): ManualPrintActionType {
     throw new ConfigurationError(["A valid order print action is required."]);
   }
   return actionType;
+}
+
+function parsePastedAddress(value: unknown): readonly string[] {
+  const address = objectValue(value)?.address;
+  if (typeof address !== "string" || address.length > 1024) {
+    throw new ConfigurationError([
+      "The pasted address must be 1,024 characters or fewer.",
+    ]);
+  }
+  const lines = address
+    .split(/\r\n?|\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (
+    lines.length === 0 ||
+    lines.length > 8 ||
+    lines.some((line) => line.length > 128 || containsControlCharacter(line))
+  ) {
+    throw new ConfigurationError([
+      "The pasted address must contain one to eight valid lines of at most 128 characters each.",
+    ]);
+  }
+  return lines;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {

@@ -208,6 +208,11 @@ export const uiApi = {
       method: "POST",
       body: JSON.stringify(settings),
     }),
+  printAddressLabel: (address: string): Promise<void> =>
+    requestJson("/api/address-labels/print", {
+      method: "POST",
+      body: JSON.stringify({ address }),
+    }),
   orders: (
     scope: "all" | "ready-to-ship",
     force = false,

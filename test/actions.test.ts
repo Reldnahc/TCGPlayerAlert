@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createActions,
+  executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   renderAddressLabel,
   type PrintJob,
@@ -91,6 +92,53 @@ describe("address-label action", () => {
     });
     expect(submitted[1]).toMatchObject({
       lines: ["Example Recipient", "123 Example Street", "Unit 4", "Canada"],
+    });
+  });
+
+  it("prints pasted lines with the configured layout and country omission", async () => {
+    const submitted: PrintJob[] = [];
+    const printer: Printer = {
+      acceptedMediaTypes: new Set([
+        "application/vnd.tcgplayer-alert.address-label+json",
+      ]),
+      submit: (job) => {
+        submitted.push(job);
+        return Promise.resolve();
+      },
+    };
+    const config = appConfig({
+      actions: {
+        label: {
+          type: "print-address-label",
+          enabled: false,
+          printer: "synthetic",
+          page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
+          lines: ["{recipientName}"],
+          omitLineValues: ["US", "USA"],
+        },
+      },
+    });
+
+    await executeConfiguredAddressLabel(
+      config,
+      [
+        " Example Recipient ",
+        "123 Example Street",
+        "Example City, IL 00000",
+        "USA",
+      ],
+      { printers: { synthetic: printer } },
+    );
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]).toMatchObject({
+      mediaType: "application/vnd.tcgplayer-alert.address-label+json",
+      page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
+      lines: [
+        "Example Recipient",
+        "123 Example Street",
+        "Example City, IL 00000",
+      ],
     });
   });
 

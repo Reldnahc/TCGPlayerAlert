@@ -1,5 +1,6 @@
 export {
   createActions,
+  executeAddressLabelLines,
   executeSyntheticPrintTest,
   renderAddressLabel,
   renderSyntheticPrintTest,
@@ -51,6 +52,7 @@ export {
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
   createPrinters,
+  executeConfiguredAddressLabel,
   createRepricingService,
   createWorkflow,
   executeConfiguredSyntheticPrintTest,

@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { loadConfig } from "./config.js";
-import { startConfigurationUi } from "./config-ui.js";
+import {
+  startConfigurationUi,
+  type ConfigurationAddressLabelPrint,
+} from "./config-ui.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
 import {
@@ -13,6 +16,7 @@ import {
   createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
+  executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
   createWorkflow,
@@ -26,6 +30,13 @@ const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
 const configPath = option("--config") ?? "config/local.json";
 const uiPort = portOption(option("--port"));
+const executeAddressLabel: ConfigurationAddressLabelPrint = async (
+  lines,
+  signal,
+) =>
+  executeConfiguredAddressLabel(await loadConfig(configPath), lines, {
+    ...(signal === undefined ? {} : { signal }),
+  });
 
 try {
   if (command === "config" && argumentsList[1] === "validate") {
@@ -83,6 +94,7 @@ try {
       orderService: createOrderManagementService(config, configPath),
       paymentService: createPaymentManagementService(config),
       feedbackService: createFeedbackManagementService(config),
+      executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
@@ -135,6 +147,7 @@ try {
       orderService: createOrderManagementService(initialConfig, configPath),
       paymentService: createPaymentManagementService(initialConfig),
       feedbackService: createFeedbackManagementService(initialConfig),
+      executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     const priceWorkerPromise = priceWorker
