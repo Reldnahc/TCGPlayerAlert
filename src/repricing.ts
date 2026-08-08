@@ -10,6 +10,10 @@ import type {
 } from "tcgplayer-private-api";
 import { ConfigurationError } from "./errors.js";
 import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
+import {
   effectiveMinimumPrice,
   parseGamePricingModules,
   type GamePricingModuleConfig,
@@ -184,7 +188,7 @@ export interface RepricingServiceOptions {
     "listSellerInventory" | "searchMarketplaceProducts"
   > &
     Partial<Pick<TcgplayerSellerClient, "searchMarketplaceProductListings">>;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly now?: () => Date;
   readonly id?: () => string;
   readonly previewLifetimeMs?: number;
@@ -1131,7 +1135,8 @@ function chunks<T>(values: readonly T[], size: number): readonly T[][] {
 
 export class RepricingService {
   private readonly client: RepricingServiceOptions["client"];
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
+  private activeSellerKey: string | undefined;
   private readonly now: () => Date;
   private readonly id: () => string;
   private readonly previewLifetimeMs: number;
@@ -1162,6 +1167,7 @@ export class RepricingService {
     value: unknown,
     options: RepricingPreviewOptions = {},
   ): Promise<RepricingPreview> {
+    const sellerKey = this.currentSellerKey();
     const rules = parseRepricingRules(value);
     this.removeExpiredPreviews();
     const { snapshot, source } = await this.marketplaceSnapshot(
@@ -1173,7 +1179,7 @@ export class RepricingService {
     const sellerListings: SellerListingContext[] = inventory.flatMap(
       (product) =>
         product.listings
-          .filter((listing) => listing.sellerKey === this.sellerKey)
+          .filter((listing) => listing.sellerKey === sellerKey)
           .map((listing) => ({ product, listing })),
     );
     const secondarySkus = new Set(
@@ -1253,7 +1259,7 @@ export class RepricingService {
             const calculated = calculateRepricingRow(
               context,
               sample.listings,
-              this.sellerKey,
+              sellerKey,
               rules,
               this.id(),
               recoveredSample === undefined
@@ -1464,7 +1470,7 @@ export class RepricingService {
     const [inventory, secondaryInventory] = await Promise.all([
       this.client.listSellerInventory(
         {
-          sellerKey: this.sellerKey,
+          sellerKey: this.currentSellerKey(),
           channelId: 0,
         },
         {
@@ -1474,7 +1480,7 @@ export class RepricingService {
       ),
       this.client.listSellerInventory(
         {
-          sellerKey: this.sellerKey,
+          sellerKey: this.currentSellerKey(),
           channelId: 1,
         },
         {
@@ -1598,7 +1604,7 @@ export class RepricingService {
       const provisional = calculateRepricingRow(
         context,
         sample.listings,
-        this.sellerKey,
+        this.currentSellerKey(),
         rules,
         `shipping-verification:${recoveryKey}`,
         comparisonEvidence(context, conditions, sample, sellerConditionCounts),
@@ -1811,5 +1817,22 @@ export class RepricingService {
     for (const [id, preview] of this.previews) {
       if (preview.expiresAt <= now) this.previews.delete(id);
     }
+  }
+
+  private currentSellerKey(): string {
+    const sellerKey = resolveSellerKey(this.sellerKey).trim();
+    if (sellerKey.length === 0 || sellerKey.length > 256) {
+      throw new ConfigurationError(["Seller key is invalid."]);
+    }
+    if (
+      this.activeSellerKey !== undefined &&
+      this.activeSellerKey.toLowerCase() !== sellerKey.toLowerCase()
+    ) {
+      this.previews.clear();
+      this.marketplaceCache = undefined;
+      this.marketplaceLoad = undefined;
+    }
+    this.activeSellerKey = sellerKey;
+    return sellerKey;
   }
 }

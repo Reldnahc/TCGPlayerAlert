@@ -16,6 +16,11 @@ import { OrdersProvider } from "./state/OrdersContext.js";
 import { SettingsProvider, useSettings } from "./state/SettingsContext.js";
 import { ToastProvider, useToast } from "./state/ToastContext.js";
 import { MessagesProvider, useMessages } from "./state/MessagesContext.js";
+import {
+  AuthenticationProvider,
+  useAuthentication,
+} from "./state/AuthenticationContext.js";
+import { SellerConnectionCard } from "./components/SellerConnectionCard.js";
 import { errorMessage } from "./utils.js";
 
 const ALIASES: Readonly<Record<string, RouteId>> = {
@@ -40,6 +45,8 @@ function Console() {
     useSettings();
   const toast = useToast();
   const { unreadCount } = useMessages();
+  const { status: sellerConnection } = useAuthentication();
+  const sellerConnectionState = sellerConnection?.state ?? "disconnected";
   useEffect(() => {
     const sync = () => {
       const next = routeFromHash();
@@ -119,6 +126,13 @@ function Console() {
       route={route}
       onNavigate={navigate}
       unreadMessageCount={unreadCount}
+      sellerConnectionState={sellerConnectionState}
+      connectionBanner={
+        sellerConnectionState === "connected" ||
+        route === "settings" ? undefined : (
+          <SellerConnectionCard compact />
+        )
+      }
     >
       {content}
       {dirty ? (
@@ -144,13 +158,15 @@ function Console() {
 export function App() {
   return (
     <ToastProvider>
-      <SettingsProvider>
-        <OrdersProvider>
-          <MessagesProvider>
-            <Console />
-          </MessagesProvider>
-        </OrdersProvider>
-      </SettingsProvider>
+      <AuthenticationProvider>
+        <SettingsProvider>
+          <OrdersProvider>
+            <MessagesProvider>
+              <Console />
+            </MessagesProvider>
+          </OrdersProvider>
+        </SettingsProvider>
+      </AuthenticationProvider>
     </ToastProvider>
   );
 }

@@ -277,6 +277,35 @@ describe("price-update queue", () => {
     });
   });
 
+  it("keeps a claimed update pending when the seller session expires", async () => {
+    const { queue } = await queueFixture();
+    await queue.enqueue(syntheticUpdate);
+    const controller = new AbortController();
+    const worker = new PriceUpdateWorker({
+      queue,
+      executor: {
+        apply: vi.fn(() => {
+          controller.abort();
+          throw new TcgplayerApiError(
+            "AUTHENTICATION_REQUIRED",
+            "Synthetic expired session.",
+          );
+        }),
+      },
+      settings,
+      logger,
+      idleDelayMs: 1,
+    });
+
+    await worker.run(controller.signal);
+
+    expect((await queue.snapshot()).jobs[0]).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      errorCode: "AUTHENTICATION_REQUIRED",
+    });
+  });
+
   it("marks a job left applying by an interrupted process for review", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(syntheticUpdate);

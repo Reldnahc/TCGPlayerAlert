@@ -21,6 +21,8 @@ import type {
   QueuedJobs,
   Settings,
   SettingsUpdate,
+  SellerConnectionStatus,
+  SellerPairingChallenge,
   ShipmentResult,
   TrackingResult,
   UnreadMessages,
@@ -200,6 +202,12 @@ async function streamingRepricingPreview(
 }
 
 export const uiApi = {
+  sellerConnection: (): Promise<SellerConnectionStatus> =>
+    requestJson("/api/auth/status"),
+  startSellerPairing: (): Promise<SellerPairingChallenge> =>
+    requestJson("/api/auth/pairing", { method: "POST", body: "{}" }),
+  disconnectSeller: (): Promise<SellerConnectionStatus> =>
+    requestJson("/api/auth/disconnect", { method: "POST", body: "{}" }),
   settings: (): Promise<Settings> => requestJson("/api/settings"),
   saveSettings: (settings: SettingsUpdate): Promise<Settings> =>
     requestJson("/api/settings", {

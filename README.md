@@ -19,7 +19,7 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 ## Requirements
 
 - Node.js 20.19 or newer
-- An authorized TCGplayer seller session and seller key
+- An authorized TCGplayer seller account signed in through a supported browser
 - Windows PowerShell 5.1 and installed printer drivers for the initial Windows adapters
 
 ## Bootstrap with the local API package
@@ -34,18 +34,28 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.9.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.10.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
-The repository creates ignored local files for you:
+The repository uses ignored local files:
 
-- `.env.local` for `TCGPLAYER_AUTH_COOKIE` and `TCGPLAYER_SELLER_KEY`
+- `.env.local` as an optional migration fallback for
+  `TCGPLAYER_AUTH_COOKIE` and `TCGPLAYER_SELLER_KEY`
 - `config/local.json` for scheduling, rules, actions, and printers
 
 Do not commit either file. The committed [.env.example](.env.example) and [local.example.json](config/local.example.json) contain no secrets or personal printer settings.
 
-### User-controlled login proof of concept
+Create the local files on a new checkout:
+
+```powershell
+Copy-Item .env.example .env.local
+Copy-Item config/local.example.json config/local.json
+```
+
+The environment file may remain blank when using the browser connector.
+
+### Browser-managed seller connection
 
 Build the browser-specific connector packages:
 
@@ -63,7 +73,7 @@ For Edge, Chrome, Brave, Vivaldi, and other Chromium-family browsers:
 For Firefox:
 
 1. Open a normal Firefox window in the profile where you use the TCGplayer
-   Seller Portal. Do not use a private window for this proof.
+   Seller Portal. Do not use a private window for the connector.
 2. Enter `about:debugging#/runtime/this-firefox` in Firefox's address bar.
 3. Select **Load Temporary Add-on**.
 4. In the file picker, select this exact built file:
@@ -75,36 +85,50 @@ For Firefox:
    menu beside **TCGPlayerAlert Session Connector**, and select **Pin to
    Toolbar**.
 
-The absolute manifest path in a default checkout is
+The absolute Firefox manifest path in a default checkout is
 `C:\Users\cwmle\Documents\TCGPlayerAlert\TCGPlayerAlert\dist\browser-extension\firefox\manifest.json`.
-Firefox removes temporary add-ons when it restarts, so repeat these installation
-steps after every Firefox restart. Production distribution will require a
-signed Mozilla package.
+Firefox removes temporary development add-ons when it restarts, so repeat these
+installation steps after every Firefox restart until the Firefox build is
+signed through Mozilla. That affects installation persistence only; the saved
+application connection survives restarts.
 
-Then start the disposable pairing proof:
-
-```powershell
-npm run auth:poc
-```
-
-The command opens TCGplayer in your ordinary default browser without browser automation or a temporary profile. If Firefox is not your default browser, manually open `https://store.tcgplayer.com/admin` in the same Firefox profile where you loaded the connector. Complete login, MFA, and any CAPTCHA normally. Keep the PowerShell command running, select the pinned connector, paste the one-time code printed by the command, leave the port at `47841`, and select **Connect**. A successful popup says that the session was validated, and PowerShell reports that the proof completed. The extension reads only `TCGAuthTicket_Production` after that click and sends it only to the paired loopback proof service. The application validates the seller session without displaying the cookie or seller key and then discards it. This proof does **not** save or replace `.env.local`; protected credential storage and reconnect UX remain a later stage. Press `Ctrl+C` to cancel the listener.
-
-If Firefox reports that no seller session was found, confirm that the Seller
-Portal is signed in in that same Firefox profile, reload the Seller Portal tab,
-and try **Connect** again. If the connector cannot reach the application, make
-sure `npm run auth:poc` is still running and that its displayed port is `47841`.
-Each new run creates a new pairing code; an older code will not work.
-
-Build once, then launch the local settings screen:
+Build once, then launch the application:
 
 ```powershell
 npm run build
-npm run configure
+npm run start
 ```
+
+Open the printed `http://127.0.0.1:47831` address. In the TCGplayer connection
+panel:
+
+1. Select **Connect** to generate a ten-minute pairing code.
+2. Open `https://store.tcgplayer.com/admin` in the browser profile containing
+   the connector and sign in normally. Complete MFA or CAPTCHA yourself.
+3. Open the pinned connector, enter the displayed code and local port, and
+   select **Connect browser**.
+4. Wait for the application status to change to **connected**.
+
+The validated seller session is encrypted with Windows DPAPI for the current
+Windows account and stored in the ignored `.data` directory. The cookie and
+seller key are never returned to the web UI or written to configuration or
+logs. The extension stores only its random connector token. It sends a current
+cookie when TCGplayer changes that exact cookie and checks every five minutes
+while the browser is running, without contacting TCGplayer itself.
+
+When TCGplayer rejects a session, the application marks it expired, pauses
+scheduled synchronization, and leaves queued mutations pending. If the browser
+still has a renewed session, the connector replaces it automatically. If
+TCGplayer logged the browser out, sign in normally and select **Refresh
+session** in the connector. Use **Disconnect** in Settings to clear the
+application credential and invalidate the connector token.
+
+`npm run configure` remains available when only the console is needed without
+the scheduled poller or queue workers.
 
 For UI development without seller credentials, live API calls, or printer output, run `npm run preview:web`. It starts the same compiled console on `http://127.0.0.1:47839` with sanitized in-memory orders, payments, feedback, messages, catalog results, inventory, and jobs.
 
-Open the printed `http://127.0.0.1:47831` address. The interface uses a persistent, keyboard-accessible left navigation rail for Dashboard, Add cards, Orders, Messages, Payments, Feedback, Inventory, Settings, and Jobs. Dashboard shows ready-to-ship orders, product/shipping/order totals calculated from those summaries, and compact address-label and packing-slip switches that mirror the full controls in Settings. Its order rows show the buyer, order number, date, shipping type, amount breakdown, and grouped fulfillment actions without loading per-order details. Scheduled polling and Dashboard **Sync now** use the same synchronization coordinator and authoritative ready-order snapshot, so Dashboard reads do not issue a duplicate ready-order search or bypass fulfillment reconciliation. An open Dashboard periodically rereads that local memory snapshot so a completed scheduled sync becomes visible without contacting TCGplayer again. The Orders page remains a separate last-three-months view and never supplies the Dashboard queue. It provides explicit controls to print or download fulfillment documents, add tracking, mark an order shipped, or open it in the TCGplayer Seller Portal. Settings keeps the Mark shipped confirmation enabled by default and allows an operator to turn it off for both Dashboard and Orders. Order labels are displayed exactly as returned by TCGplayer. Shipment controls use the private API package's normalized `SellerOrderStatus` enum, which has an explicit `Unknown` value for unrecognized labels; the application does not interpret display text or create lifecycle labels. After a successful shipment mutation, the shared ready-order snapshot removes the accepted order immediately and the active view reconciles through its appropriate source. Order summaries remain in memory to avoid repeated Seller Portal requests; they are not written to application state or logs.
+The interface uses a persistent, keyboard-accessible left navigation rail for Dashboard, Add cards, Orders, Messages, Payments, Feedback, Inventory, Settings, and Jobs. Dashboard shows ready-to-ship orders, product/shipping/order totals calculated from those summaries, and compact address-label and packing-slip switches that mirror the full controls in Settings. Its order rows show the buyer, order number, date, shipping type, amount breakdown, and grouped fulfillment actions without loading per-order details. Scheduled polling and Dashboard **Sync now** use the same synchronization coordinator and authoritative ready-order snapshot, so Dashboard reads do not issue a duplicate ready-order search or bypass fulfillment reconciliation. An open Dashboard periodically rereads that local memory snapshot so a completed scheduled sync becomes visible without contacting TCGplayer again. The Orders page remains a separate last-three-months view and never supplies the Dashboard queue. It provides explicit controls to print or download fulfillment documents, add tracking, mark an order shipped, or open it in the TCGplayer Seller Portal. Settings keeps the Mark shipped confirmation enabled by default and allows an operator to turn it off for both Dashboard and Orders. Order labels are displayed exactly as returned by TCGplayer. Shipment controls use the private API package's normalized `SellerOrderStatus` enum, which has an explicit `Unknown` value for unrecognized labels; the application does not interpret display text or create lifecycle labels. After a successful shipment mutation, the shared ready-order snapshot removes the accepted order immediately and the active view reconciles through its appropriate source. Order summaries remain in memory to avoid repeated Seller Portal requests; they are not written to application state or logs.
 
 Payments is strictly read-only and detects the payment experience assigned to the authenticated seller. Legacy sellers see TCGplayer's estimated future payments and paginated past-payment history with the displayed sales, fees, refunds, adjustments, and payment totals. A real upcoming row that TCGplayer has not scheduled yet remains visible with `Not scheduled` dates and is excluded from the next-scheduled-date selection. Sellers on the newer Money Movement experience see previous-payout, next-payout, and unpaid-balance summaries; selecting the unpaid balance opens searchable upcoming transactions, while selecting a payout opens its completed transaction details. Payment capability, pages, and upcoming balances are cached for one minute; Money Movement payout details are cached for five minutes. Refresh bypasses the relevant cache. The application neither stores payment data nor requests or displays payment instruments, masked bank details, payment setup, payout approval/rejection/retry, or any other payment mutation. The Seller Portal link follows the account's actual payment experience.
 

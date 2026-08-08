@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dirname, resolve } from "node:path";
 import { loadConfig, type AppConfig } from "./config.js";
 import { createTcgplayerSellerClient } from "tcgplayer-private-api";
 import {
@@ -34,24 +35,25 @@ import {
   TcgplayerReadyOrderSource,
   type ReadyOrderSource,
 } from "./ready-orders.js";
+import { createPlatformCredentialStore } from "./credential-store.js";
+import {
+  environmentSellerCredentialAccess,
+  type SellerCredentialAccess,
+} from "./seller-credentials.js";
+import { SellerSessionManager } from "./seller-session.js";
 
 export function createWorkflow(
   config: AppConfig,
   logger: Logger,
   environment: NodeJS.ProcessEnv = process.env,
   readyOrders?: ReadyOrderSource,
+  credentials?: SellerCredentialAccess,
 ): FulfillmentWorkflow {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   const provider = new TcgplayerOrderProvider({
-    authCookie,
-    sellerKey,
+    session: access.session,
+    onAuthenticationRequired: access.onAuthenticationRequired,
+    sellerKey: access.sellerKey,
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes:
@@ -142,6 +144,7 @@ export async function executeConfiguredOrderPrint(
   actionType: ManualPrintActionType,
   environment: NodeJS.ProcessEnv = process.env,
   signal?: AbortSignal,
+  credentials?: SellerCredentialAccess,
 ): Promise<void> {
   const selected = Object.entries(config.actions).find(
     ([, action]) => action.type === actionType,
@@ -164,7 +167,7 @@ export async function executeConfiguredOrderPrint(
       "The selected order print action is unavailable.",
     ]);
   }
-  const provider = createOrderProvider(config, environment);
+  const provider = createOrderProvider(config, environment, credentials);
   const order = await provider.confirmOrder(orderNumber, signal);
   const packingSlip = action.requiresPackingSlip
     ? await provider.getPackingSlip(orderNumber, signal)
@@ -189,25 +192,23 @@ export function createPriceUpdateQueue(
 export function createPriceUpdateExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ) {
-  return createTcgplayerPriceUpdateExecutor(config, environment);
+  return createTcgplayerPriceUpdateExecutor(config, environment, credentials);
 }
 
 export function createRepricingService(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): RepricingService {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   return new RepricingService({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
   });
 }
 
@@ -223,25 +224,27 @@ export function createInventoryAdditionQueue(
 export function createInventoryAdditionExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ) {
-  return createTcgplayerInventoryAdditionExecutor(config, environment);
+  return createTcgplayerInventoryAdditionExecutor(
+    config,
+    environment,
+    credentials,
+  );
 }
 
 export function createInventoryAdditionService(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): InventoryAdditionService {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   return new InventoryAdditionService({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
   });
 }
 
@@ -250,22 +253,19 @@ export function createOrderManagementService(
   configPath: string,
   environment: NodeJS.ProcessEnv = process.env,
   readyOrders?: ReadyOrderSource,
+  credentials?: SellerCredentialAccess,
 ): OrderManagementService {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   const timezoneOffsetMinutes =
     config.timezoneOffsetMinutes === "local"
       ? new Date().getTimezoneOffset()
       : config.timezoneOffsetMinutes;
   return new OrderManagementService({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes,
@@ -282,6 +282,7 @@ export function createOrderManagementService(
         actionType,
         environment,
         signal,
+        access,
       );
     },
   });
@@ -290,18 +291,15 @@ export function createOrderManagementService(
 export function createReadyOrderSource(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): TcgplayerReadyOrderSource {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   return new TcgplayerReadyOrderSource({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
   });
@@ -310,67 +308,58 @@ export function createReadyOrderSource(
 export function createPaymentManagementService(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): PaymentManagementService {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   return new PaymentManagementService({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
   });
 }
 
 export function createFeedbackManagementService(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): FeedbackManagementService {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   return new FeedbackManagementService({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
   });
 }
 
 export function createMessageManagementService(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): MessageManagementService {
-  const authCookie = secretFromEnvironment(
-    config.provider.authCookieEnv,
-    environment,
-  );
-  const sellerKey = secretFromEnvironment(
-    config.provider.sellerKeyEnv,
-    environment,
-  );
+  const access = credentialAccess(config, environment, credentials);
   return new MessageManagementService({
-    client: createTcgplayerSellerClient({ session: { authCookie } }),
-    sellerKey,
+    client: createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    }),
+    sellerKey: access.sellerKey,
   });
 }
 
 function createOrderProvider(
   config: AppConfig,
   environment: NodeJS.ProcessEnv,
+  credentials?: SellerCredentialAccess,
 ): TcgplayerOrderProvider {
+  const access = credentialAccess(config, environment, credentials);
   return new TcgplayerOrderProvider({
-    authCookie: secretFromEnvironment(
-      config.provider.authCookieEnv,
-      environment,
-    ),
-    sellerKey: secretFromEnvironment(config.provider.sellerKeyEnv, environment),
+    session: access.session,
+    onAuthenticationRequired: access.onAuthenticationRequired,
+    sellerKey: access.sellerKey,
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes:
@@ -380,13 +369,34 @@ function createOrderProvider(
   });
 }
 
-function secretFromEnvironment(
-  name: string,
+export async function createSellerSessionManager(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<SellerSessionManager> {
+  const stateDirectory = dirname(resolve(config.stateFile));
+  const manager = new SellerSessionManager({
+    store: createPlatformCredentialStore(
+      resolve(stateDirectory, "tcgplayer-session.dpapi"),
+    ),
+    environment,
+    authCookieEnvironmentName: config.provider.authCookieEnv,
+    sellerKeyEnvironmentName: config.provider.sellerKeyEnv,
+  });
+  await manager.initialize();
+  return manager;
+}
+
+function credentialAccess(
+  config: AppConfig,
   environment: NodeJS.ProcessEnv,
-): string {
-  const value = environment[name]?.trim();
-  if (!value) {
-    throw new ConfigurationError([`Environment variable ${name} is required.`]);
-  }
-  return value;
+  credentials: SellerCredentialAccess | undefined,
+): SellerCredentialAccess {
+  return (
+    credentials ??
+    environmentSellerCredentialAccess(
+      config.provider.authCookieEnv,
+      config.provider.sellerKeyEnv,
+      environment,
+    )
+  );
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted as a proof of concept
+Superseded by ADR 0015
 
 ## Context
 

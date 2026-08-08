@@ -32,11 +32,15 @@ export function AppShell({
   route,
   onNavigate,
   unreadMessageCount,
+  sellerConnectionState,
+  connectionBanner,
   children,
 }: {
   readonly route: RouteId;
   readonly onNavigate: (route: RouteId) => void;
   readonly unreadMessageCount: number;
+  readonly sellerConnectionState: "connected" | "expired" | "disconnected";
+  readonly connectionBanner?: ComponentChildren;
   readonly children: ComponentChildren;
 }) {
   return (
@@ -79,13 +83,24 @@ export function AppShell({
         </nav>
         <footer class="sidebar__footer">
           <span class="connection">
-            <i class="connection__dot" />
-            Local service
+            <i
+              class={`connection__dot connection__dot--${sellerConnectionState}`}
+            />
+            {sellerConnectionState === "connected"
+              ? "TCGplayer connected"
+              : sellerConnectionState === "expired"
+                ? "Session expired"
+                : "TCGplayer disconnected"}
           </span>
           <span>Credentials remain server-side</span>
         </footer>
       </aside>
-      <section class="workspace">{children}</section>
+      <section
+        class={`workspace${connectionBanner === undefined ? "" : " workspace--with-banner"}`}
+      >
+        {connectionBanner}
+        {children}
+      </section>
     </div>
   );
 }

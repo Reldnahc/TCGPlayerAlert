@@ -1,57 +1,54 @@
-/* global browser, chrome, document, fetch */
+/* global browser, chrome, document */
 
-const AUTH_COOKIE_NAME = "TCGAuthTicket_Production";
-const SELLER_PORTAL_URL = "https://store.tcgplayer.com/admin";
 const form = document.querySelector("#pairing-form");
 const codeInput = document.querySelector("#pairing-code");
 const portInput = document.querySelector("#pairing-port");
 const button = document.querySelector("#connect");
+const hint = document.querySelector("#pairing-hint");
 const status = document.querySelector("#status");
+let paired = false;
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   void connect();
 });
 
+void loadStatus();
+
+async function loadStatus() {
+  const result = await sendMessage({ type: "connection-status" });
+  paired = result?.paired === true;
+  if (Number.isInteger(result?.port)) portInput.value = String(result.port);
+  button.textContent = paired ? "Refresh session" : "Connect browser";
+  codeInput.hidden = paired;
+  document.querySelector('label[for="pairing-code"]').hidden = paired;
+  hint.textContent = paired
+    ? "This browser is paired. Refresh sends its current seller session now; later cookie changes are sent automatically."
+    : "Generate this code from the connection panel in TCGPlayerAlert.";
+}
+
 async function connect() {
   setBusy(true);
-  setStatus("Checking the signed-in seller session…");
+  setStatus(
+    paired
+      ? "Refreshing the seller session…"
+      : "Checking the signed-in seller session…",
+  );
   try {
-    const pairingCode = codeInput.value.trim();
     const port = Number(portInput.value);
-    if (pairingCode === "") throw new Error("Enter the one-time pairing code.");
-    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-      throw new Error("Enter a valid local port.");
+    const message = paired
+      ? { type: "renew-session", port }
+      : { type: "pair-session", pairingCode: codeInput.value.trim(), port };
+    const result = await sendMessage(message);
+    if (result?.pairingRequired === true) {
+      paired = false;
+      await loadStatus();
     }
-
-    const cookie = await getSellerCookie();
-    if (cookie?.value === undefined || cookie.value === "") {
-      throw new Error(
-        "No signed-in seller session was found. Sign in to the Seller Portal and try again.",
-      );
-    }
-
-    const response = await fetch(
-      `http://127.0.0.1:${String(port)}/v1/session`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "omit",
-        body: JSON.stringify({ pairingCode, authCookie: cookie.value }),
-      },
-    );
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(
-        typeof result.message === "string"
-          ? result.message
-          : "The local application rejected the connection.",
-      );
-    }
-    setStatus(
-      "Connected. The proof validated the session without saving it.",
-      "success",
-    );
+    if (result?.ok !== true)
+      throw new Error(result?.message ?? "The connection failed.");
+    paired = true;
+    setStatus(result.message, "success");
+    await loadStatus();
   } catch (cause) {
     setStatus(
       cause instanceof Error ? cause.message : "The connection failed.",
@@ -61,21 +58,27 @@ async function connect() {
   }
 }
 
-function getSellerCookie() {
-  const details = { url: SELLER_PORTAL_URL, name: AUTH_COOKIE_NAME };
-  if (typeof browser !== "undefined") return browser.cookies.get(details);
-  return new Promise((resolve, reject) => {
-    chrome.cookies.get(details, (cookie) => {
+function sendMessage(message) {
+  if (typeof browser !== "undefined")
+    return browser.runtime.sendMessage(message);
+  return new Promise((resolvePromise, rejectPromise) => {
+    chrome.runtime.sendMessage(message, (response) => {
       const error = chrome.runtime.lastError;
-      if (error === undefined) resolve(cookie);
-      else reject(new Error(error.message));
+      if (error === undefined) resolvePromise(response);
+      else rejectPromise(new Error(error.message));
     });
   });
 }
 
 function setBusy(busy) {
   button.disabled = busy;
-  button.textContent = busy ? "Connecting…" : "Connect";
+  button.textContent = busy
+    ? paired
+      ? "Refreshing…"
+      : "Connecting…"
+    : paired
+      ? "Refresh session"
+      : "Connect browser";
 }
 
 function setStatus(message, tone = "danger") {

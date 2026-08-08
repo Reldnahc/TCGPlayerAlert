@@ -6,6 +6,10 @@ import type {
   TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
+import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
 
 export interface ManagedSellerMessage extends Omit<SellerMessage, "sender"> {
   readonly senderDisplayName: string;
@@ -63,7 +67,7 @@ type MessageManagementClient = Pick<
 
 export interface MessageManagementServiceOptions {
   readonly client: MessageManagementClient;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly pageSize?: number;
   readonly cacheMilliseconds?: number;
   readonly now?: () => Date;
@@ -76,7 +80,8 @@ interface Cached<T> {
 
 export class MessageManagementService {
   private readonly client: MessageManagementClient;
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
+  private cachedSellerKey: string | undefined;
   private readonly pageSize: number;
   private readonly cacheMilliseconds: number;
   private readonly now: () => Date;
@@ -90,7 +95,10 @@ export class MessageManagementService {
 
   constructor(options: MessageManagementServiceOptions) {
     this.client = options.client;
-    this.sellerKey = requiredText(options.sellerKey, "Seller key", 256);
+    this.sellerKey = options.sellerKey;
+    if (typeof options.sellerKey === "string") {
+      requiredText(options.sellerKey, "Seller key", 256);
+    }
     this.pageSize = boundedInteger(
       options.pageSize ?? 25,
       1,
@@ -109,6 +117,7 @@ export class MessageManagementService {
   async list(
     input: ManagedSellerMessagesPageInput = {},
   ): Promise<ManagedSellerMessagesPage> {
+    this.currentSellerKey();
     const page = boundedInteger(input.page ?? 1, 1, 1_000_000, "Message page");
     const orderNumber =
       input.orderNumber === undefined
@@ -146,6 +155,7 @@ export class MessageManagementService {
     threadId: number,
     input: ManagedSellerMessageThreadInput = {},
   ): Promise<ManagedSellerMessageThread> {
+    const sellerKey = this.currentSellerKey();
     const validatedThreadId = boundedInteger(
       threadId,
       1,
@@ -171,7 +181,7 @@ export class MessageManagementService {
     } else {
       thread = await this.client.getSellerMessageThread(
         {
-          sellerKey: this.sellerKey,
+          sellerKey,
           threadId: validatedThreadId,
           page,
           pageSize: this.pageSize,
@@ -198,6 +208,7 @@ export class MessageManagementService {
   async unreadCount(
     input: ManagedSellerMessageThreadInput = {},
   ): Promise<number> {
+    this.currentSellerKey();
     const now = this.now().getTime();
     if (
       input.force !== true &&
@@ -230,6 +241,7 @@ export class MessageManagementService {
     orderNumber: string | undefined,
     input: ManagedSellerMessagesPageInput,
   ): Promise<ListSellerMessageThreadsResult> {
+    const sellerKey = this.currentSellerKey();
     const key = [
       page,
       orderNumber ?? "all-orders",
@@ -246,7 +258,7 @@ export class MessageManagementService {
     }
     const value = await this.client.listSellerMessageThreads(
       {
-        sellerKey: this.sellerKey,
+        sellerKey,
         page,
         pageSize: this.pageSize,
         ...(orderNumber === undefined ? {} : { orderNumber }),
@@ -259,6 +271,25 @@ export class MessageManagementService {
       expiresAt: this.now().getTime() + this.cacheMilliseconds,
     });
     return value;
+  }
+
+  private currentSellerKey(): string {
+    const sellerKey = requiredText(
+      resolveSellerKey(this.sellerKey),
+      "Seller key",
+      256,
+    );
+    if (
+      this.cachedSellerKey !== undefined &&
+      this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
+    ) {
+      this.pageCache.clear();
+      this.threadCache.clear();
+      this.countCache = undefined;
+      this.countPending = undefined;
+    }
+    this.cachedSellerKey = sellerKey;
+    return sellerKey;
   }
 }
 

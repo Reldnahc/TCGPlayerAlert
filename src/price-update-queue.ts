@@ -14,6 +14,10 @@ import {
 } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { safeIdentifier } from "./logger.js";
+import {
+  environmentSellerCredentialAccess,
+  type SellerCredentialAccess,
+} from "./seller-credentials.js";
 import { FileSyncLease, type SyncLease } from "./sync-lease.js";
 
 export type PriceUpdateJobStatus =
@@ -276,6 +280,14 @@ export class PriceUpdateQueueStore {
     });
   }
 
+  pauseForAuthentication(jobId: string): Promise<void> {
+    return this.updateApplying(jobId, {
+      status: "pending",
+      nextAttemptAt: this.now().toISOString(),
+      errorCode: "AUTHENTICATION_REQUIRED",
+    });
+  }
+
   private updateApplying(
     jobId: string,
     update: Pick<PriceUpdateJob, "status"> &
@@ -384,6 +396,7 @@ export interface PriceUpdateWorkerOptions {
   readonly logger: Logger;
   readonly idleDelayMs?: number;
   readonly workerLease?: SyncLease;
+  readonly canProcess?: () => boolean;
 }
 
 export class PriceUpdateWorker {
@@ -413,7 +426,7 @@ export class PriceUpdateWorker {
     }
     while (!signal.aborted) {
       const settings = await this.options.settings();
-      if (!settings.enabled) {
+      if (!settings.enabled || this.options.canProcess?.() === false) {
         await wait(this.idleDelayMs, signal);
         continue;
       }
@@ -437,7 +450,19 @@ export class PriceUpdateWorker {
         });
       } catch (error) {
         const errorCode = safeErrorCode(error);
-        if (isTcgplayerApiError(error) && error.code === "RATE_LIMITED") {
+        if (
+          isTcgplayerApiError(error) &&
+          error.code === "AUTHENTICATION_REQUIRED"
+        ) {
+          await this.options.queue.pauseForAuthentication(job.id);
+          this.options.logger.error("price-queue.authentication-required", {
+            jobId: job.id,
+            listing,
+          });
+        } else if (
+          isTcgplayerApiError(error) &&
+          error.code === "RATE_LIMITED"
+        ) {
           await this.options.queue.retryAfterRateLimit(
             job.id,
             settings.rateLimitDelaySeconds,
@@ -474,22 +499,22 @@ export class PriceUpdateWorker {
 export function createTcgplayerPriceUpdateExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): PriceUpdateExecutor {
-  const authCookie = environment[config.provider.authCookieEnv]?.trim();
-  const sellerKey = environment[config.provider.sellerKeyEnv]?.trim();
-  if (!authCookie) {
-    throw new ConfigurationError([
-      `Environment variable ${config.provider.authCookieEnv} is required.`,
-    ]);
-  }
-  if (!sellerKey) {
-    throw new ConfigurationError([
-      `Environment variable ${config.provider.sellerKeyEnv} is required.`,
-    ]);
-  }
-  const client = createTcgplayerSellerClient({ session: { authCookie } });
+  const access =
+    credentials ??
+    environmentSellerCredentialAccess(
+      config.provider.authCookieEnv,
+      config.provider.sellerKeyEnv,
+      environment,
+    );
+  const client = createTcgplayerSellerClient({
+    session: access.session,
+    onAuthenticationRequired: access.onAuthenticationRequired,
+  });
   return {
     apply: async (update, signal) => {
+      const sellerKey = access.sellerKey();
       const requestOptions = signal === undefined ? undefined : { signal };
       const [currentResult, secondaryResult] = await Promise.all([
         client.searchMarketplaceProducts(

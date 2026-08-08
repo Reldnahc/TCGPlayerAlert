@@ -1,91 +1,76 @@
-# TCGPlayerAlert cross-browser session connector
+# TCGPlayerAlert browser session connector
 
-This directory contains the shared WebExtensions source and browser-specific
-manifests for a proof-of-concept bridge between a
-normal, user-controlled TCGplayer Seller Portal login and the local
-`npm run auth:poc` command. The same source works in Firefox and Chromium-family
-browsers such as Chrome, Edge, Brave, and Vivaldi.
+This directory contains the shared WebExtensions implementation and
+browser-specific Manifest V3 manifests. The connector bridges an ordinary,
+user-controlled TCGplayer Seller Portal login to the loopback-only
+TCGPlayerAlert application. It does not automate login or inspect page content.
 
-Build both installable directories before loading the connector:
+Build both browser directories:
 
 ```powershell
+cd C:\Users\cwmle\Documents\TCGPlayerAlert\TCGPlayerAlert
 npm run build:extension
 ```
 
-## Install in Chromium-family browsers
+## Firefox development installation
 
-1. Open the browser's extensions page, such as `chrome://extensions` or
-   `edge://extensions`.
+1. Open a normal Firefox window in the profile where you use the Seller Portal.
+2. Enter `about:debugging#/runtime/this-firefox` in the address bar.
+3. Select **Load Temporary Add-on**.
+4. Select
+   `C:\Users\cwmle\Documents\TCGPlayerAlert\TCGPlayerAlert\dist\browser-extension\firefox\manifest.json`.
+   Select `manifest.json`, not the directory.
+5. Confirm that **TCGPlayerAlert Session Connector** appears under **Temporary
+   Extensions**.
+6. Open Firefox's puzzle-piece Extensions menu, use the gear beside the
+   connector, and select **Pin to Toolbar**.
+
+Firefox removes temporary development add-ons on restart. Reload the manifest
+after a restart until the release package is signed through Mozilla. The
+application's DPAPI-protected credential remains stored; reinstalling the
+extension may require a new one-time pairing if Firefox cleared extension-local
+storage.
+
+## Chromium-family development installation
+
+1. Open `chrome://extensions`, `edge://extensions`, or the browser's equivalent.
 2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose `dist/browser-extension/chromium`.
-4. Pin **TCGPlayerAlert Session Connector** so its button is visible.
+3. Select **Load unpacked** and choose
+   `dist/browser-extension/chromium`.
+4. Pin **TCGPlayerAlert Session Connector**.
 
-## Install temporarily in Firefox
+## Pair once
 
-1. Open a normal Firefox window in the profile where you use the TCGplayer
-   Seller Portal. Do not use a private window for this proof.
-2. Enter `about:debugging#/runtime/this-firefox` in the address bar and press
-   Enter.
-3. On the **This Firefox** page, select **Load Temporary Add-on**.
-4. In the file picker, open
-   `C:\Users\cwmle\Documents\TCGPlayerAlert\TCGPlayerAlert\dist\browser-extension\firefox`
-   and select `manifest.json`. Select the file itself, not the directory.
-5. Confirm that **TCGPlayerAlert Session Connector** appears in the
-   **Temporary Extensions** list.
-6. Select Firefox's Extensions button (the puzzle-piece icon) in the main
-   toolbar.
-7. Find **TCGPlayerAlert Session Connector**, select its gear menu, and select
-   **Pin to Toolbar**. Its button should now remain visible beside the address
-   bar.
+1. Run the application with `npm run start` and open
+   `http://127.0.0.1:47831`.
+2. Select **Connect** in the TCGplayer connection panel.
+3. Sign in normally at `https://store.tcgplayer.com/admin` in the same browser
+   profile. Complete MFA or CAPTCHA yourself.
+4. Open the connector, enter the application's pairing code and port, then
+   select **Connect browser**.
+5. The application changes to **connected** after it validates and protects the
+   session.
 
-Firefox removes temporary add-ons when it restarts. A production distribution
-would be packaged and signed through Mozilla rather than asking users to keep a
-temporary developer installation.
+The extension stores a random connector token, not the TCGplayer session
+cookie. It sends the current exact authentication cookie when that cookie
+changes and performs a local renewal check every five minutes. Those checks
+contact only `127.0.0.1`; they do not issue TCGplayer API requests.
 
-## Connect with Firefox
+## When TCGplayer logs out
 
-1. In PowerShell, change to the application repository and start the proof:
+If TCGplayer rotates the cookie while the browser remains authenticated, the
+connector sends the replacement automatically. If the browser is actually
+logged out:
 
-   ```powershell
-   cd C:\Users\cwmle\Documents\TCGPlayerAlert\TCGPlayerAlert
-   npm run auth:poc
-   ```
+1. Sign in to the Seller Portal normally.
+2. Open the connector.
+3. Select **Refresh session**.
 
-2. Leave that PowerShell window running. It displays a new one-time pairing
-   code and listens locally on port `47841`.
-3. The command opens the Seller Portal in your default browser. If that is not
-   Firefox, manually open `https://store.tcgplayer.com/admin` in the same
-   Firefox profile where you loaded the connector.
-4. Sign in normally. Complete any MFA or CAPTCHA yourself, then make sure the
-   Seller Portal page has finished loading.
-5. Select the pinned **TCGPlayerAlert Session Connector** button.
-6. Paste the current pairing code from PowerShell. Leave **Local port** set to
-   `47841`, then select **Connect**.
-7. Success is reported in both places: the popup says the session was validated
-   without saving it, and PowerShell says the proof completed.
+If the connector reports that pairing is required, generate a new code from
+the application and pair again. A custom application port must also be entered
+in the connector's Connection settings.
 
-## Firefox troubleshooting
-
-- **The connector disappeared:** Firefox removes temporary add-ons on restart.
-  Repeat the temporary installation steps above.
-- **No signed-in seller session was found:** Sign in to the Seller Portal in
-  the same Firefox profile, reload the portal tab, and select **Connect** again.
-- **The local application could not be reached:** Keep `npm run auth:poc`
-  running and confirm that the popup port matches the port printed in
-  PowerShell (`47841` by default).
-- **The pairing code was rejected:** Use the code printed by the current
-  `npm run auth:poc` process. Codes from earlier runs are invalid.
-- **The extension button is missing:** Open the puzzle-piece Extensions menu,
-  use the gear beside the connector, and select **Pin to Toolbar**.
-
-## Connect with a Chromium-family browser
-
-1. Run `npm run auth:poc` from the application repository.
-2. Sign in normally in the default-browser window it opens.
-3. Select the connector extension, paste the one-time pairing code, and select
-   **Connect**.
-
-The extension requests cookie access only for `store.tcgplayer.com` and network
-access only to loopback. It has no content scripts, does not inspect page
-contents, does not store the seller session, and cannot persist it in the
-application. The proof validates the session and then discards it.
+The extension requests cookie access only for `store.tcgplayer.com`, extension
+storage for its connector token, alarms for the bounded local renewal check,
+and network access to `127.0.0.1`. It has no content scripts or page-inspection
+capability.

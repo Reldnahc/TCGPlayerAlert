@@ -2,9 +2,12 @@
   "manifest_version": 3,
   "name": "TCGPlayerAlert Session Connector",
   "version": "0.1.0",
-  "description": "Pairs a signed-in TCGplayer seller session with the local TCGPlayerAlert proof after an explicit click.",
-  "permissions": ["cookies"],
+  "description": "Pairs a signed-in TCGplayer seller session with the local TCGPlayerAlert application after an explicit click.",
+  "permissions": ["cookies", "storage", "alarms"],
   "host_permissions": ["https://store.tcgplayer.com/*", "http://127.0.0.1/*"],
+  "background": {
+    "scripts": ["background.js"]
+  },
   "action": {
     "default_title": "Connect TCGPlayerAlert",
     "default_popup": "popup.html"

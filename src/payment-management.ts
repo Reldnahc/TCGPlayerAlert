@@ -11,6 +11,10 @@ import {
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
+import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
 
 export interface ManagedMoneyMovementPaymentsPage {
   readonly experience: "money-movement";
@@ -53,7 +57,7 @@ type PaymentManagementClient = Pick<
 
 export interface PaymentManagementServiceOptions {
   readonly client: PaymentManagementClient;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly pageSize?: number;
   readonly cacheMilliseconds?: number;
   readonly detailCacheMilliseconds?: number;
@@ -71,12 +75,13 @@ const PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
 
 export class PaymentManagementService {
   private readonly client: PaymentManagementClient;
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
+  private cachedSellerKey: string | undefined;
   private readonly pageSize: number;
   private readonly cacheMilliseconds: number;
   private readonly detailCacheMilliseconds: number;
   private readonly now: () => Date;
-  private experienceCache?: Cached<SellerPaymentExperience>;
+  private experienceCache: Cached<SellerPaymentExperience> | undefined;
   private readonly pageCache = new Map<
     string,
     Cached<ListSellerPayoutsResult>
@@ -86,12 +91,16 @@ export class PaymentManagementService {
     Cached<ListLegacySellerPaymentsResult>
   >();
   private readonly detailCache = new Map<string, Cached<SellerPayoutDetail>>();
-  private unpaidBalanceCache?: Cached<SellerUnpaidBalance>;
-  private legacyUpcomingCache?: Cached<ListLegacyUpcomingSellerPaymentsResult>;
+  private unpaidBalanceCache: Cached<SellerUnpaidBalance> | undefined;
+  private legacyUpcomingCache:
+    Cached<ListLegacyUpcomingSellerPaymentsResult> | undefined;
 
   constructor(options: PaymentManagementServiceOptions) {
     this.client = options.client;
-    this.sellerKey = requiredText(options.sellerKey, "Seller key", 256);
+    this.sellerKey = options.sellerKey;
+    if (typeof options.sellerKey === "string") {
+      requiredText(options.sellerKey, "Seller key", 256);
+    }
     this.pageSize = boundedInteger(
       options.pageSize ?? 25,
       1,
@@ -116,6 +125,7 @@ export class PaymentManagementService {
   async list(
     input: ManagedPaymentsPageInput = {},
   ): Promise<ManagedPaymentsPage> {
+    this.currentSellerKey();
     const page = boundedInteger(input.page ?? 1, 1, 1_000_000, "Payment page");
     if (input.status !== undefined && !PAYOUT_STATUSES.has(input.status)) {
       throw new ApplicationError(
@@ -161,6 +171,7 @@ export class PaymentManagementService {
     referenceId: string,
     options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
   ): Promise<SellerPayoutDetail> {
+    const sellerKey = this.currentSellerKey();
     const normalized = requiredText(referenceId, "Payout reference", 256);
     const experience = await this.loadExperience(options);
     if (experience === "legacy") {
@@ -179,7 +190,7 @@ export class PaymentManagementService {
       return cached.value;
     }
     const value = await this.client.getSellerPayout(
-      { sellerKey: this.sellerKey, referenceId: normalized },
+      { sellerKey, referenceId: normalized },
       options.signal === undefined ? undefined : { signal: options.signal },
     );
     this.detailCache.set(normalized, {
@@ -193,6 +204,7 @@ export class PaymentManagementService {
     readonly force?: boolean;
     readonly signal?: AbortSignal;
   }): Promise<SellerPaymentExperience> {
+    const sellerKey = this.currentSellerKey();
     const now = this.now().getTime();
     if (
       input.force !== true &&
@@ -202,7 +214,7 @@ export class PaymentManagementService {
       return this.experienceCache.value;
     }
     const value = await this.client.getSellerPaymentExperience(
-      { sellerKey: this.sellerKey },
+      { sellerKey },
       input.signal === undefined ? undefined : { signal: input.signal },
     );
     this.experienceCache = {
@@ -261,6 +273,7 @@ export class PaymentManagementService {
     page: number,
     input: ManagedPaymentsPageInput,
   ): Promise<ListSellerPayoutsResult> {
+    const sellerKey = this.currentSellerKey();
     const key = `${String(page)}:${input.status ?? "all"}`;
     const now = this.now().getTime();
     const cached = this.pageCache.get(key);
@@ -273,7 +286,7 @@ export class PaymentManagementService {
     }
     const value = await this.client.listSellerPayouts(
       {
-        sellerKey: this.sellerKey,
+        sellerKey,
         page,
         pageSize: this.pageSize,
         ...(input.status === undefined ? {} : { status: input.status }),
@@ -290,6 +303,7 @@ export class PaymentManagementService {
   private async loadUnpaidBalance(
     input: ManagedPaymentsPageInput,
   ): Promise<SellerUnpaidBalance> {
+    const sellerKey = this.currentSellerKey();
     const now = this.now().getTime();
     if (
       input.force !== true &&
@@ -299,7 +313,7 @@ export class PaymentManagementService {
       return this.unpaidBalanceCache.value;
     }
     const value = await this.client.getSellerUnpaidBalance(
-      { sellerKey: this.sellerKey },
+      { sellerKey },
       input.signal === undefined ? undefined : { signal: input.signal },
     );
     this.unpaidBalanceCache = {
@@ -307,6 +321,27 @@ export class PaymentManagementService {
       expiresAt: this.now().getTime() + this.cacheMilliseconds,
     };
     return value;
+  }
+
+  private currentSellerKey(): string {
+    const sellerKey = requiredText(
+      resolveSellerKey(this.sellerKey),
+      "Seller key",
+      256,
+    );
+    if (
+      this.cachedSellerKey !== undefined &&
+      this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
+    ) {
+      this.experienceCache = undefined;
+      this.pageCache.clear();
+      this.legacyPageCache.clear();
+      this.detailCache.clear();
+      this.unpaidBalanceCache = undefined;
+      this.legacyUpcomingCache = undefined;
+    }
+    this.cachedSellerKey = sellerKey;
+    return sellerKey;
   }
 }
 

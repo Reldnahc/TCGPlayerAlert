@@ -56,10 +56,20 @@ export {
   createPrinters,
   executeConfiguredAddressLabel,
   createRepricingService,
+  createSellerSessionManager,
   createWorkflow,
   executeConfiguredSyntheticPrintTest,
   executeConfiguredOrderPrint,
 } from "./runtime.js";
+export {
+  createPlatformCredentialStore,
+  ProtectedFileCredentialStore,
+  WindowsDpapiProtector,
+} from "./credential-store.js";
+export type * from "./credential-store.js";
+export { SellerSessionManager } from "./seller-session.js";
+export type * from "./seller-session.js";
+export type * from "./seller-credentials.js";
 export { OrderManagementService } from "./order-management.js";
 export type * from "./order-management.js";
 export { OrderSyncCoordinator } from "./order-sync.js";
@@ -70,11 +80,6 @@ export { FeedbackManagementService } from "./feedback-management.js";
 export type * from "./feedback-management.js";
 export { MessageManagementService } from "./message-management.js";
 export type * from "./message-management.js";
-export {
-  ManagedLoginProofError,
-  runManagedLoginProofOfConcept,
-} from "./managed-login-poc.js";
-export type * from "./managed-login-poc.js";
 export {
   createTcgplayerInventoryAdditionExecutor,
   InventoryAdditionQueueStore,

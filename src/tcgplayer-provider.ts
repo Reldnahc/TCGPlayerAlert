@@ -10,13 +10,19 @@ import type {
 } from "./domain.js";
 import { ApplicationError } from "./errors.js";
 import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
+import {
   TcgplayerReadyOrderSource,
   type ReadyOrderSource,
 } from "./ready-orders.js";
 
 export interface TcgplayerProviderOptions {
-  readonly authCookie: string;
-  readonly sellerKey: string;
+  readonly authCookie?: string;
+  readonly session?: TcgplayerSellerClientOptions["session"];
+  readonly onAuthenticationRequired?: TcgplayerSellerClientOptions["onAuthenticationRequired"];
+  readonly sellerKey: SellerKeySource;
   readonly pageSize: number;
   readonly maximumPages: number;
   readonly timezoneOffsetMinutes: number;
@@ -31,8 +37,22 @@ export class TcgplayerOrderProvider implements OrderProvider {
   private readonly readyOrders: ReadyOrderSource;
 
   constructor(private readonly options: TcgplayerProviderOptions) {
+    const session =
+      options.session ??
+      (options.authCookie === undefined
+        ? undefined
+        : { authCookie: options.authCookie });
+    if (session === undefined) {
+      throw new ApplicationError(
+        "CONFIGURATION_ERROR",
+        "A TCGplayer seller session is required.",
+      );
+    }
     this.client = createTcgplayerSellerClient({
-      session: { authCookie: options.authCookie },
+      session,
+      ...(options.onAuthenticationRequired === undefined
+        ? {}
+        : { onAuthenticationRequired: options.onAuthenticationRequired }),
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       ...(options.requestDelayMs === undefined
         ? {}
@@ -62,7 +82,10 @@ export class TcgplayerOrderProvider implements OrderProvider {
     signal?: AbortSignal,
   ): Promise<FulfillmentOrder> {
     const confirmed = await this.client.confirmOrder(
-      { sellerKey: this.options.sellerKey, orderNumber: orderId },
+      {
+        sellerKey: resolveSellerKey(this.options.sellerKey),
+        orderNumber: orderId,
+      },
       signal === undefined ? undefined : { signal },
     );
     const { order, summary } = confirmed;

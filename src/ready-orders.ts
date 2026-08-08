@@ -4,6 +4,10 @@ import {
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
+import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
 
 export interface ManagedOrderSummary {
   readonly orderNumber: string;
@@ -27,7 +31,7 @@ type ReadyOrderClient = Pick<TcgplayerSellerClient, "searchOrders">;
 
 export interface TcgplayerReadyOrderSourceOptions {
   readonly client: ReadyOrderClient;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly pageSize: number;
   readonly maximumPages: number;
   readonly now?: () => Date;
@@ -46,7 +50,7 @@ export interface ReadyOrderSource {
  */
 export class TcgplayerReadyOrderSource implements ReadyOrderSource {
   private readonly client: ReadyOrderClient;
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
   private readonly pageSize: number;
   private readonly maximumPages: number;
   private readonly now: () => Date;
@@ -56,7 +60,10 @@ export class TcgplayerReadyOrderSource implements ReadyOrderSource {
 
   constructor(options: TcgplayerReadyOrderSourceOptions) {
     this.client = options.client;
-    this.sellerKey = requiredText(options.sellerKey, "Seller key", 256);
+    this.sellerKey = options.sellerKey;
+    if (typeof options.sellerKey === "string") {
+      requiredText(options.sellerKey, "Seller key", 256);
+    }
     this.pageSize = boundedInteger(options.pageSize, 1, 500, "Page size");
     this.maximumPages = boundedInteger(
       options.maximumPages,
@@ -93,13 +100,18 @@ export class TcgplayerReadyOrderSource implements ReadyOrderSource {
   }
 
   private async fetchAll(signal?: AbortSignal): Promise<ManagedOrderList> {
+    const sellerKey = requiredText(
+      resolveSellerKey(this.sellerKey),
+      "Seller key",
+      256,
+    );
     const fetchedAt = this.now().toISOString();
     const orders = new Map<string, ManagedOrderSummary>();
     let offset = 0;
     for (let page = 0; page < this.maximumPages; page += 1) {
       const response = await this.client.searchOrders(
         {
-          sellerKey: this.sellerKey,
+          sellerKey,
           statuses: [SellerOrderStatus.ReadyToShip],
           sort: [{ field: "orderDate", direction: "descending" }],
           offset,

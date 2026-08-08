@@ -26,15 +26,14 @@
     "configure": "node --env-file=.env.local dist/cli.js configure",
     "sync": "node --env-file=.env.local dist/cli.js sync",
     "status": "node --env-file=.env.local dist/cli.js status",
-    "config:validate": "node --env-file=.env.local dist/cli.js config validate",
-    "auth:poc": "npm run build:server && node scripts/tcgplayer-login-poc.mjs"
+    "config:validate": "node --env-file=.env.local dist/cli.js config validate"
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.88",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "preact": "10.29.8",
-    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.9.0.tgz"
+    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.10.0.tgz"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

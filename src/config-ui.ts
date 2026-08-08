@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
+  isTcgplayerApiError,
   SellerPayoutStatus,
   type SellerPayoutStatus as SellerPayoutStatusCode,
 } from "tcgplayer-private-api";
@@ -46,6 +47,7 @@ import type { OrderSyncCoordinator } from "./order-sync.js";
 import type { PaymentManagementService } from "./payment-management.js";
 import type { FeedbackManagementService } from "./feedback-management.js";
 import type { MessageManagementService } from "./message-management.js";
+import type { SellerSessionService } from "./seller-session.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   Object.values(SellerPayoutStatus),
@@ -254,6 +256,7 @@ export interface StartConfigurationUiOptions {
   readonly paymentService?: PaymentManagementService;
   readonly feedbackService?: FeedbackManagementService;
   readonly messageService?: MessageManagementService;
+  readonly sessionManager?: SellerSessionService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
   readonly executePrintTest?: ConfigurationPrintTest;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
@@ -299,6 +302,7 @@ export async function startConfigurationUi(
       options.paymentService,
       options.feedbackService,
       options.messageService,
+      options.sessionManager,
       options.executeAddressLabel,
       options.executePrintTest,
       webAssets,
@@ -986,6 +990,7 @@ async function handleRequest(
   paymentService: PaymentManagementService | undefined,
   feedbackService: FeedbackManagementService | undefined,
   messageService: MessageManagementService | undefined,
+  sessionManager: SellerSessionService | undefined,
   executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
   webAssets: ConfigurationUiAssets,
@@ -998,8 +1003,19 @@ async function handleRequest(
     return;
   }
   const url = new URL(request.url ?? "/", "http://localhost");
+  const extensionOrigin = browserExtensionOrigin(request.headers.origin);
+  if (extensionOrigin !== undefined && url.pathname === "/api/auth/session") {
+    setExtensionCorsHeaders(request, response, extensionOrigin);
+  }
   try {
-    if (request.method === "GET" && url.pathname === "/") {
+    if (
+      request.method === "OPTIONS" &&
+      url.pathname === "/api/auth/session" &&
+      extensionOrigin !== undefined
+    ) {
+      response.writeHead(204);
+      response.end();
+    } else if (request.method === "GET" && url.pathname === "/") {
       sendBytes(response, 200, "text/html; charset=utf-8", webAssets.index);
     } else if (request.method === "GET" && webAssets.files.has(url.pathname)) {
       const asset = webAssets.files.get(url.pathname);
@@ -1008,6 +1024,83 @@ async function handleRequest(
       sendBytes(response, 200, asset.contentType, asset.bytes);
     } else if (request.method === "GET" && url.pathname === "/api/settings") {
       sendJson(response, 200, await service.read());
+    } else if (
+      request.method === "GET" &&
+      url.pathname === "/api/auth/status"
+    ) {
+      sendJson(
+        response,
+        200,
+        sessionManager?.connectionStatus() ?? {
+          state: "disconnected",
+          automaticRenewal: false,
+          protectedStorage: false,
+        },
+      );
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/auth/pairing"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (sessionManager === undefined) {
+        sendJson(response, 503, {
+          message: "Seller connection is unavailable.",
+        });
+        return;
+      }
+      await readJsonBody(request);
+      const challenge = sessionManager.startPairing();
+      sendJson(response, 201, {
+        ...challenge,
+        port: requestPort(request.headers.host),
+      });
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/auth/disconnect"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (sessionManager === undefined) {
+        sendJson(response, 503, {
+          message: "Seller connection is unavailable.",
+        });
+        return;
+      }
+      await readJsonBody(request);
+      sendJson(response, 200, await sessionManager.disconnect());
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/auth/session"
+    ) {
+      if (extensionOrigin === undefined) {
+        sendJson(response, 403, {
+          message: "Only the browser connector may provide a session.",
+        });
+        return;
+      }
+      if (request.headers["content-type"] !== "application/json") {
+        sendJson(response, 415, {
+          message: "Content-Type must be application/json.",
+        });
+        return;
+      }
+      if (sessionManager === undefined) {
+        sendJson(response, 503, {
+          message: "Seller connection is unavailable.",
+        });
+        return;
+      }
+      const body = parseBrowserSessionSubmission(await readJsonBody(request));
+      if (body.pairingCode !== undefined) {
+        sendJson(
+          response,
+          200,
+          await sessionManager.connect(body.pairingCode, body.session),
+        );
+      } else {
+        sendJson(response, 200, {
+          status: await sessionManager.renew(body.connectorToken, body.session),
+        });
+      }
     } else if (request.method === "GET" && url.pathname === "/api/orders") {
       if (orderService === undefined) {
         sendJson(response, 503, {
@@ -1670,6 +1763,19 @@ async function handleRequest(
       sendJson(response, 400, {
         message: "The request body must contain valid JSON.",
       });
+    } else if (isTcgplayerApiError(error)) {
+      const status =
+        error.code === "AUTHENTICATION_REQUIRED"
+          ? 401
+          : error.code === "FORBIDDEN"
+            ? 403
+            : error.code === "INVALID_ARGUMENT"
+              ? 400
+              : 502;
+      sendJson(response, status, {
+        message: error.message,
+        code: error.code,
+      });
     } else if (error instanceof Error && "code" in error) {
       sendJson(response, 409, {
         message: error.message,
@@ -1764,6 +1870,100 @@ function isAllowedMutationRequest(
     return false;
   }
   return true;
+}
+
+type BrowserSessionSubmission =
+  | {
+      readonly pairingCode: string;
+      readonly connectorToken?: never;
+      readonly session: {
+        readonly authCookie: string;
+        readonly expiresAt?: string;
+      };
+    }
+  | {
+      readonly pairingCode?: never;
+      readonly connectorToken: string;
+      readonly session: {
+        readonly authCookie: string;
+        readonly expiresAt?: string;
+      };
+    };
+
+function parseBrowserSessionSubmission(
+  value: unknown,
+): BrowserSessionSubmission {
+  const source = objectValue(value);
+  const authCookie = source?.authCookie;
+  const expiresAt = source?.expiresAt;
+  const pairingCode = source?.pairingCode;
+  const connectorToken = source?.connectorToken;
+  if (
+    typeof authCookie !== "string" ||
+    authCookie.length === 0 ||
+    authCookie.length > 16_384 ||
+    authCookie.includes("\r") ||
+    authCookie.includes("\n") ||
+    authCookie.includes(";") ||
+    (expiresAt !== undefined &&
+      (typeof expiresAt !== "string" ||
+        !Number.isFinite(Date.parse(expiresAt))))
+  ) {
+    throw new ConfigurationError(["The browser session is invalid."]);
+  }
+  const session = {
+    authCookie,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+  };
+  if (
+    typeof pairingCode === "string" &&
+    pairingCode.length >= 16 &&
+    pairingCode.length <= 32 &&
+    connectorToken === undefined
+  ) {
+    return { pairingCode, session };
+  }
+  if (
+    typeof connectorToken === "string" &&
+    /^[a-f0-9]{64}$/u.test(connectorToken) &&
+    pairingCode === undefined
+  ) {
+    return { connectorToken, session };
+  }
+  throw new ConfigurationError([
+    "Provide exactly one valid pairing code or connector token.",
+  ]);
+}
+
+function requestPort(host: string | undefined): number {
+  if (host === undefined) return 47831;
+  const value = new URL(`http://${host}`).port;
+  return value === "" ? 80 : Number(value);
+}
+
+function browserExtensionOrigin(
+  origin: string | undefined,
+): string | undefined {
+  if (origin === undefined) return undefined;
+  return /^(?:chrome-extension:\/\/[a-p]{32}|moz-extension:\/\/[0-9a-f-]{36})$/iu.test(
+    origin,
+  )
+    ? origin
+    : undefined;
+}
+
+function setExtensionCorsHeaders(
+  request: IncomingMessage,
+  response: ServerResponse,
+  origin: string,
+): void {
+  response.setHeader("Access-Control-Allow-Origin", origin);
+  response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Vary", "Origin");
+  if (request.headers["access-control-request-private-network"] === "true") {
+    response.setHeader("Access-Control-Allow-Private-Network", "true");
+  }
 }
 
 function setSecurityHeaders(response: ServerResponse): void {

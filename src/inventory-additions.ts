@@ -23,6 +23,14 @@ import {
 import type { Logger } from "./logger.js";
 import { safeIdentifier } from "./logger.js";
 import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
+import {
+  environmentSellerCredentialAccess,
+  type SellerCredentialAccess,
+} from "./seller-credentials.js";
+import {
   calculateRepricingRow,
   parseRepricingRules,
   TCGPLAYER_CONDITION_ORDER,
@@ -116,7 +124,7 @@ export interface InventoryAdditionServiceOptions {
     TcgplayerSellerClient,
     "searchCatalogProducts" | "getCatalogProduct" | "searchMarketplaceProducts"
   >;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly now?: () => Date;
   readonly id?: () => string;
   readonly previewLifetimeMs?: number;
@@ -478,7 +486,8 @@ function calculateInventoryAdditionPrice(
 
 export class InventoryAdditionService {
   private readonly client: InventoryAdditionServiceOptions["client"];
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
+  private activeSellerKey: string | undefined;
   private readonly now: () => Date;
   private readonly id: () => string;
   private readonly previewLifetimeMs: number;
@@ -596,6 +605,7 @@ export class InventoryAdditionService {
   }
 
   async preview(value: unknown): Promise<InventoryAdditionPreview> {
+    const sellerKey = this.currentSellerKey();
     this.removeExpiredPreviews();
     this.removeExpiredSelectionData();
     const source = objectValue(value);
@@ -652,7 +662,7 @@ export class InventoryAdditionService {
       .find(
         (listing) =>
           listing.productConditionId === productConditionId &&
-          listing.sellerKey === this.sellerKey &&
+          listing.sellerKey === sellerKey &&
           listing.channelId === 0,
       );
     const currentQuantity = currentListing?.quantity ?? 0;
@@ -669,7 +679,7 @@ export class InventoryAdditionService {
       .some(
         (listing) =>
           listing.productConditionId === productConditionId &&
-          listing.sellerKey === this.sellerKey,
+          listing.sellerKey === sellerKey,
       );
     if (hasSecondaryInventory) {
       return this.storePreview(product, sku, addQuantity, rules, {
@@ -685,7 +695,7 @@ export class InventoryAdditionService {
       sku,
       currentQuantity,
       comparisons.products.flatMap((item) => item.listings),
-      this.sellerKey,
+      sellerKey,
       rules,
     );
     if (!pricing.queueable) {
@@ -826,13 +836,13 @@ export class InventoryAdditionService {
     const [primary, secondary] = await Promise.all([
       this.client.searchMarketplaceProducts({
         productIds: [product.productId],
-        sellerKey: this.sellerKey,
+        sellerKey: this.currentSellerKey(),
         channelId: 0,
         limit: 24,
       }),
       this.client.searchMarketplaceProducts({
         productIds: [product.productId],
-        sellerKey: this.sellerKey,
+        sellerKey: this.currentSellerKey(),
         channelId: 1,
         limit: 24,
       }),
@@ -884,6 +894,25 @@ export class InventoryAdditionService {
     for (const [key, snapshot] of this.comparisonSnapshots) {
       if (snapshot.expiresAt <= now) this.comparisonSnapshots.delete(key);
     }
+  }
+
+  private currentSellerKey(): string {
+    const sellerKey = resolveSellerKey(this.sellerKey).trim();
+    if (sellerKey.length === 0 || sellerKey.length > 256) {
+      throw new ConfigurationError(["Seller key is invalid."]);
+    }
+    if (
+      this.activeSellerKey !== undefined &&
+      this.activeSellerKey.toLowerCase() !== sellerKey.toLowerCase()
+    ) {
+      this.previews.clear();
+      this.catalogSearches.clear();
+      this.catalogProducts.clear();
+      this.selectionSnapshots.clear();
+      this.comparisonSnapshots.clear();
+    }
+    this.activeSellerKey = sellerKey;
+    return sellerKey;
   }
 }
 
@@ -1456,6 +1485,14 @@ export class InventoryAdditionQueueStore {
     });
   }
 
+  pauseForAuthentication(jobId: string): Promise<void> {
+    return this.updateApplying(jobId, {
+      status: "pending",
+      nextAttemptAt: this.now().toISOString(),
+      errorCode: "AUTHENTICATION_REQUIRED",
+    });
+  }
+
   private updateApplying(
     jobId: string,
     update: Pick<InventoryAdditionJob, "status"> &
@@ -1589,6 +1626,7 @@ export class InventoryAdditionWorker {
       readonly logger: Logger;
       readonly idleDelayMs?: number;
       readonly workerLease?: SyncLease;
+      readonly canProcess?: () => boolean;
     },
   ) {
     this.idleDelayMs = options.idleDelayMs ?? 1000;
@@ -1613,7 +1651,7 @@ export class InventoryAdditionWorker {
     }
     while (!signal.aborted) {
       const settings = await this.options.settings();
-      if (!settings.enabled) {
+      if (!settings.enabled || this.options.canProcess?.() === false) {
         await wait(this.idleDelayMs, signal);
         continue;
       }
@@ -1637,7 +1675,19 @@ export class InventoryAdditionWorker {
         });
       } catch (error) {
         const errorCode = safeErrorCode(error);
-        if (isTcgplayerApiError(error) && error.code === "RATE_LIMITED") {
+        if (
+          isTcgplayerApiError(error) &&
+          error.code === "AUTHENTICATION_REQUIRED"
+        ) {
+          await this.options.queue.pauseForAuthentication(job.id);
+          this.options.logger.error("inventory-queue.authentication-required", {
+            jobId: job.id,
+            listing,
+          });
+        } else if (
+          isTcgplayerApiError(error) &&
+          error.code === "RATE_LIMITED"
+        ) {
           await this.options.queue.retryAfterRateLimit(
             job.id,
             settings.rateLimitDelaySeconds,
@@ -1675,17 +1725,22 @@ export class InventoryAdditionWorker {
 export function createTcgplayerInventoryAdditionExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  credentials?: SellerCredentialAccess,
 ): InventoryAdditionExecutor {
-  const authCookie = environment[config.provider.authCookieEnv]?.trim();
-  const sellerKey = environment[config.provider.sellerKeyEnv]?.trim();
-  if (!authCookie || !sellerKey) {
-    throw new ConfigurationError([
-      `Environment variables ${config.provider.authCookieEnv} and ${config.provider.sellerKeyEnv} are required.`,
-    ]);
-  }
-  const client = createTcgplayerSellerClient({ session: { authCookie } });
+  const access =
+    credentials ??
+    environmentSellerCredentialAccess(
+      config.provider.authCookieEnv,
+      config.provider.sellerKeyEnv,
+      environment,
+    );
+  const client = createTcgplayerSellerClient({
+    session: access.session,
+    onAuthenticationRequired: access.onAuthenticationRequired,
+  });
   return {
     apply: async (change, operation) => {
+      const sellerKey = access.sellerKey();
       const [primary, secondary] = await Promise.all([
         client.searchMarketplaceProducts({
           productIds: [change.productId],

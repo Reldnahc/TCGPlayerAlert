@@ -21,6 +21,7 @@ import {
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
+  createSellerSessionManager,
   createWorkflow,
 } from "./runtime.js";
 import { JsonStateStore } from "./state.js";
@@ -62,7 +63,14 @@ try {
     );
   } else if (command === "sync") {
     const config = await loadConfig(configPath);
-    const workflow = createWorkflow(config, jsonLogger);
+    const sessionManager = await createSellerSessionManager(config);
+    const workflow = createWorkflow(
+      config,
+      jsonLogger,
+      process.env,
+      undefined,
+      sessionManager,
+    );
     const result = await workflow.run("manual", {
       processBacklog: argumentsList.includes("--process-backlog"),
     });
@@ -83,6 +91,7 @@ try {
     );
   } else if (command === "configure") {
     const config = await loadConfig(configPath);
+    const sessionManager = await createSellerSessionManager(config);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -91,13 +100,40 @@ try {
       configPath,
       port: uiPort,
       priceQueue: createPriceUpdateQueue(config),
-      repricingService: createRepricingService(config),
+      repricingService: createRepricingService(
+        config,
+        process.env,
+        sessionManager,
+      ),
       inventoryQueue: createInventoryAdditionQueue(config),
-      inventoryService: createInventoryAdditionService(config),
-      orderService: createOrderManagementService(config, configPath),
-      paymentService: createPaymentManagementService(config),
-      feedbackService: createFeedbackManagementService(config),
-      messageService: createMessageManagementService(config),
+      inventoryService: createInventoryAdditionService(
+        config,
+        process.env,
+        sessionManager,
+      ),
+      orderService: createOrderManagementService(
+        config,
+        configPath,
+        process.env,
+        undefined,
+        sessionManager,
+      ),
+      paymentService: createPaymentManagementService(
+        config,
+        process.env,
+        sessionManager,
+      ),
+      feedbackService: createFeedbackManagementService(
+        config,
+        process.env,
+        sessionManager,
+      ),
+      messageService: createMessageManagementService(
+        config,
+        process.env,
+        sessionManager,
+      ),
+      sessionManager,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
@@ -109,13 +145,18 @@ try {
     }
   } else if (command === "start") {
     const initialConfig = await loadConfig(configPath);
+    const sessionManager = await createSellerSessionManager(initialConfig);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
     const priceQueue = createPriceUpdateQueue(initialConfig);
     const inventoryQueue = createInventoryAdditionQueue(initialConfig);
-    const readyOrders = createReadyOrderSource(initialConfig);
+    const readyOrders = createReadyOrderSource(
+      initialConfig,
+      process.env,
+      sessionManager,
+    );
     const orderSync = new OrderSyncCoordinator({
       readyOrders,
       createWorkflow: async () =>
@@ -124,11 +165,16 @@ try {
           jsonLogger,
           process.env,
           readyOrders,
+          sessionManager,
         ),
     });
     const priceWorker = new PriceUpdateWorker({
       queue: priceQueue,
-      executor: createPriceUpdateExecutor(initialConfig),
+      executor: createPriceUpdateExecutor(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
       settings: async () => {
         const current = await loadConfig(configPath);
         return current.priceUpdateQueue;
@@ -137,10 +183,15 @@ try {
       workerLease: new FileSyncLease(
         `${initialConfig.priceUpdateQueue.stateFile}.worker-lock`,
       ),
+      canProcess: sessionManager.isConnected,
     });
     const inventoryWorker = new InventoryAdditionWorker({
       queue: inventoryQueue,
-      executor: createInventoryAdditionExecutor(initialConfig),
+      executor: createInventoryAdditionExecutor(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
       settings: async () => {
         const current = await loadConfig(configPath);
         return current.inventoryAdditionQueue;
@@ -149,26 +200,49 @@ try {
       workerLease: new FileSyncLease(
         `${initialConfig.inventoryAdditionQueue.stateFile}.worker-lock`,
       ),
+      canProcess: sessionManager.isConnected,
     });
     const ui = await startConfigurationUi({
       configPath,
       port: uiPort,
       priceQueue,
       priceWorkerRunning: true,
-      repricingService: createRepricingService(initialConfig),
+      repricingService: createRepricingService(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
       inventoryQueue,
       inventoryWorkerRunning: true,
-      inventoryService: createInventoryAdditionService(initialConfig),
+      inventoryService: createInventoryAdditionService(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
       orderService: createOrderManagementService(
         initialConfig,
         configPath,
         process.env,
         readyOrders,
+        sessionManager,
       ),
       orderSync,
-      paymentService: createPaymentManagementService(initialConfig),
-      feedbackService: createFeedbackManagementService(initialConfig),
-      messageService: createMessageManagementService(initialConfig),
+      paymentService: createPaymentManagementService(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
+      feedbackService: createFeedbackManagementService(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
+      messageService: createMessageManagementService(
+        initialConfig,
+        process.env,
+        sessionManager,
+      ),
+      sessionManager,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
@@ -191,14 +265,16 @@ try {
     });
     try {
       while (!controller.signal.aborted) {
-        try {
-          await orderSync.synchronize("scheduled", {
-            signal: controller.signal,
-          });
-        } catch (error) {
-          jsonLogger.error("service.sync-failed", {
-            errorCode: safeErrorCode(error),
-          });
+        if (sessionManager.isConnected()) {
+          try {
+            await orderSync.synchronize("scheduled", {
+              signal: controller.signal,
+            });
+          } catch (error) {
+            jsonLogger.error("service.sync-failed", {
+              errorCode: safeErrorCode(error),
+            });
+          }
         }
         const config = await loadConfig(configPath);
         await wait(config.pollIntervalMinutes * 60_000, controller.signal);

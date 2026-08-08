@@ -6,6 +6,10 @@ import type {
   TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
+import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
 
 export interface ManagedSellerFeedbackEntry extends Omit<
   SellerFeedbackEntry,
@@ -41,7 +45,7 @@ type FeedbackManagementClient = Pick<
 
 export interface FeedbackManagementServiceOptions {
   readonly client: FeedbackManagementClient;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly pageSize?: number;
   readonly cacheMilliseconds?: number;
   readonly now?: () => Date;
@@ -54,7 +58,8 @@ interface Cached<T> {
 
 export class FeedbackManagementService {
   private readonly client: FeedbackManagementClient;
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
+  private cachedSellerKey: string | undefined;
   private readonly pageSize: number;
   private readonly cacheMilliseconds: number;
   private readonly now: () => Date;
@@ -69,7 +74,10 @@ export class FeedbackManagementService {
 
   constructor(options: FeedbackManagementServiceOptions) {
     this.client = options.client;
-    this.sellerKey = requiredText(options.sellerKey, "Seller key", 256);
+    this.sellerKey = options.sellerKey;
+    if (typeof options.sellerKey === "string") {
+      requiredText(options.sellerKey, "Seller key", 256);
+    }
     this.pageSize = boundedInteger(
       options.pageSize ?? 25,
       1,
@@ -88,6 +96,7 @@ export class FeedbackManagementService {
   async list(
     input: ManagedSellerFeedbackPageInput = {},
   ): Promise<ManagedSellerFeedbackPage> {
+    const sellerKey = this.currentSellerKey();
     const page = boundedInteger(input.page ?? 1, 1, 1_000_000, "Feedback page");
     if (
       input.rating !== undefined &&
@@ -128,7 +137,7 @@ export class FeedbackManagementService {
       totalFeedback: result.totalFeedback,
       feedback: result.feedback.map(maskFeedbackBuyer),
       aggregation,
-      storefrontUrl: `https://store.tcgplayer.com/sellerfeedback/${encodeURIComponent(this.sellerKey)}`,
+      storefrontUrl: `https://store.tcgplayer.com/sellerfeedback/${encodeURIComponent(sellerKey)}`,
       fetchedAt: this.now().toISOString(),
     };
   }
@@ -137,6 +146,7 @@ export class FeedbackManagementService {
     page: number,
     input: ManagedSellerFeedbackPageInput,
   ): Promise<ListSellerFeedbackResult> {
+    const sellerKey = this.currentSellerKey();
     const key = [
       page,
       input.rating ?? "all",
@@ -154,7 +164,7 @@ export class FeedbackManagementService {
     }
     const value = await this.client.listSellerFeedback(
       {
-        sellerKey: this.sellerKey,
+        sellerKey,
         offset: (page - 1) * this.pageSize,
         rows: this.pageSize,
         ...(input.rating === undefined ? {} : { rating: input.rating }),
@@ -173,6 +183,7 @@ export class FeedbackManagementService {
   private async loadAggregation(
     input: ManagedSellerFeedbackPageInput,
   ): Promise<SellerFeedbackAggregation> {
+    const sellerKey = this.currentSellerKey();
     const key = String(input.days ?? "all-time");
     const now = this.now().getTime();
     const cached = this.aggregationCache.get(key);
@@ -185,7 +196,7 @@ export class FeedbackManagementService {
     }
     const value = await this.client.getSellerFeedbackAggregation(
       {
-        sellerKey: this.sellerKey,
+        sellerKey,
         ...(input.days === undefined ? {} : { days: input.days }),
       },
       input.signal === undefined ? undefined : { signal: input.signal },
@@ -195,6 +206,23 @@ export class FeedbackManagementService {
       expiresAt: this.now().getTime() + this.cacheMilliseconds,
     });
     return value;
+  }
+
+  private currentSellerKey(): string {
+    const sellerKey = requiredText(
+      resolveSellerKey(this.sellerKey),
+      "Seller key",
+      256,
+    );
+    if (
+      this.cachedSellerKey !== undefined &&
+      this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
+    ) {
+      this.pageCache.clear();
+      this.aggregationCache.clear();
+    }
+    this.cachedSellerKey = sellerKey;
+    return sellerKey;
   }
 }
 

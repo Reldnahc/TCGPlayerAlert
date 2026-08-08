@@ -4,6 +4,7 @@ import { useSettings } from "../state/SettingsContext.js";
 import { MerchandiseProfiles } from "./settings/MerchandiseProfiles.js";
 import { PricingProfiles } from "./settings/PricingProfiles.js";
 import { PrintingSettings } from "./settings/PrintingSettings.js";
+import { SellerConnectionCard } from "../components/SellerConnectionCard.js";
 
 type SettingsSection =
   "general" | "pricing" | "merchandise" | "printing" | "processing";
@@ -43,41 +44,46 @@ export function SettingsPage() {
         </nav>
         <div class="settings-content">
           {section === "general" ? (
-            <section class="editor-section settings-editor settings-editor--single">
-              <div class="editor-section__head">
-                <div>
-                  <h2>General</h2>
-                  <p>Application-wide order behavior.</p>
+            <>
+              <SellerConnectionCard />
+              <section class="editor-section settings-editor settings-editor--single">
+                <div class="editor-section__head">
+                  <div>
+                    <h2>General</h2>
+                    <p>Application-wide order behavior.</p>
+                  </div>
                 </div>
-              </div>
-              <div class="form-grid form-grid--2">
-                <Field label="Check for orders every" hint="Minutes">
-                  <input
-                    type="number"
-                    min="1"
-                    max="1440"
-                    value={settings.pollIntervalMinutes}
-                    onInput={(event) =>
+                <div class="form-grid form-grid--2">
+                  <Field label="Check for orders every" hint="Minutes">
+                    <input
+                      type="number"
+                      min="1"
+                      max="1440"
+                      value={settings.pollIntervalMinutes}
+                      onInput={(event) =>
+                        update((current) => ({
+                          ...current,
+                          pollIntervalMinutes: Number(
+                            event.currentTarget.value,
+                          ),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Toggle
+                    label="Confirm before marking shipped"
+                    description="Require approval before changing an order to shipped"
+                    checked={settings.confirmBeforeMarkingShipped}
+                    onChange={(checked) =>
                       update((current) => ({
                         ...current,
-                        pollIntervalMinutes: Number(event.currentTarget.value),
+                        confirmBeforeMarkingShipped: checked,
                       }))
                     }
                   />
-                </Field>
-                <Toggle
-                  label="Confirm before marking shipped"
-                  description="Require approval before changing an order to shipped"
-                  checked={settings.confirmBeforeMarkingShipped}
-                  onChange={(checked) =>
-                    update((current) => ({
-                      ...current,
-                      confirmBeforeMarkingShipped: checked,
-                    }))
-                  }
-                />
-              </div>
-            </section>
+                </div>
+              </section>
+            </>
           ) : section === "pricing" ? (
             <PricingProfiles
               settings={settings}

@@ -115,11 +115,22 @@
   background: var(--success);
   box-shadow: 0 0 0 3px rgba(8, 122, 82, 0.16);
 }
+.connection__dot--expired {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px rgba(196, 132, 16, 0.18);
+}
+.connection__dot--disconnected {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(185, 49, 39, 0.16);
+}
 .workspace {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+}
+.workspace--with-banner {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 .route-panel {
   display: grid;

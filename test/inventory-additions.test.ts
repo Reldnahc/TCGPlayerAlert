@@ -995,6 +995,42 @@ describe("inventory additions", () => {
     });
   });
 
+  it("keeps a claimed inventory change pending when authentication expires", async () => {
+    const { queue } = await queueFixture();
+    await queue.enqueue(addition);
+    const controller = new AbortController();
+    const worker = new InventoryAdditionWorker({
+      queue,
+      executor: {
+        apply: vi.fn(() => {
+          controller.abort();
+          throw new TcgplayerApiError(
+            "AUTHENTICATION_REQUIRED",
+            "Synthetic expired session.",
+          );
+        }),
+      },
+      settings: () =>
+        Promise.resolve({
+          enabled: true,
+          stateFile: "unused.json",
+          delaySeconds: 0,
+          rateLimitDelaySeconds: 300,
+          historyLimit: 25,
+        }),
+      logger,
+      idleDelayMs: 1,
+    });
+
+    await worker.run(controller.signal);
+
+    expect((await queue.snapshot()).jobs[0]).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      errorCode: "AUTHENTICATION_REQUIRED",
+    });
+  });
+
   it("refreshes live quantity before submitting the relative addition", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
     const stringBody = (body: BodyInit | null | undefined): string => {

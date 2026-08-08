@@ -12,8 +12,8 @@
         <span class="eyebrow">Browser connector</span>
         <h1>Connect TCGPlayerAlert</h1>
         <p>
-          Sign in to the TCGplayer Seller Portal normally, then enter the
-          one-time code printed by <code>npm run auth:poc</code>.
+          Sign in to the TCGplayer Seller Portal normally, then connect this
+          browser to the local application.
         </p>
       </header>
 
@@ -29,8 +29,10 @@
           spellcheck="false"
           maxlength="24"
           placeholder="ABCD-EF01-2345-6789"
-          required
         />
+        <p id="pairing-hint" class="hint">
+          Generate this code from the connection panel in TCGPlayerAlert.
+        </p>
 
         <details>
           <summary>Connection settings</summary>
@@ -41,18 +43,18 @@
             type="number"
             min="1"
             max="65535"
-            value="47841"
+            value="47831"
             required
           />
         </details>
 
-        <button id="connect" type="submit">Connect</button>
+        <button id="connect" type="submit">Connect browser</button>
       </form>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>
       <p class="privacy">
         The connector sends only the seller-session ticket to the paired app on
-        this computer. It does not read page contents or save the ticket.
+        this computer. It does not read or control Seller Portal pages.
       </p>
     </main>
     <script src="popup.js"></script>

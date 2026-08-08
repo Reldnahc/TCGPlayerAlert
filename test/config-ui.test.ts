@@ -14,6 +14,7 @@ import {
   type OrderSyncCoordinator,
   type PaymentManagementService,
   type RepricingService,
+  type SellerSessionService,
 } from "../src/index.js";
 
 const discovery = () =>
@@ -195,6 +196,110 @@ describe("configuration UI", () => {
     expect(forbidden.status).toBe(403);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ pollIntervalMinutes: 17 });
+  });
+
+  it("pairs a browser session through the loopback UI without returning the cookie", async () => {
+    const current = await fixture();
+    const connectedStatus = {
+      state: "connected" as const,
+      source: "browser" as const,
+      automaticRenewal: true,
+      protectedStorage: true,
+      updatedAt: "2026-08-08T12:00:00.000Z",
+    };
+    const connect = vi.fn(() =>
+      Promise.resolve({
+        connectorToken: "a".repeat(64),
+        status: connectedStatus,
+      }),
+    );
+    const renew = vi.fn(() => Promise.resolve(connectedStatus));
+    const sessionManager: SellerSessionService = {
+      connectionStatus: () => ({
+        state: "disconnected",
+        automaticRenewal: false,
+        protectedStorage: true,
+      }),
+      startPairing: () => ({
+        pairingCode: "ABCD-EF01-2345-6789",
+        expiresAt: "2026-08-08T12:10:00.000Z",
+      }),
+      connect,
+      renew,
+      disconnect: () =>
+        Promise.resolve({
+          state: "disconnected",
+          automaticRenewal: false,
+          protectedStorage: true,
+        }),
+    };
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      sessionManager,
+      port: 0,
+    });
+    const challenge = await fetch(`${server.url}/api/auth/pairing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: server.url },
+      body: "{}",
+    });
+    const challengeBody = (await challenge.json()) as Record<string, unknown>;
+    const connected = await fetch(`${server.url}/api/auth/session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "moz-extension://00000000-0000-4000-8000-000000000001",
+      },
+      body: JSON.stringify({
+        pairingCode: challengeBody.pairingCode,
+        authCookie: "synthetic-browser-cookie",
+      }),
+    });
+    const body = (await connected.json()) as Record<string, unknown>;
+    const renewed = await fetch(`${server.url}/api/auth/session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "moz-extension://00000000-0000-4000-8000-000000000001",
+      },
+      body: JSON.stringify({
+        connectorToken: "a".repeat(64),
+        authCookie: "synthetic-renewed-cookie",
+      }),
+    });
+    const preflight = await fetch(`${server.url}/api/auth/session`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "moz-extension://00000000-0000-4000-8000-000000000001",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+        "Access-Control-Request-Private-Network": "true",
+      },
+    });
+
+    expect(challenge.status).toBe(201);
+    expect(challengeBody).toMatchObject({
+      pairingCode: "ABCD-EF01-2345-6789",
+      port: Number(new URL(server.url).port),
+    });
+    expect(connected.status).toBe(200);
+    expect(connected.headers.get("Access-Control-Allow-Origin")).toBe(
+      "moz-extension://00000000-0000-4000-8000-000000000001",
+    );
+    expect(connect).toHaveBeenCalledWith("ABCD-EF01-2345-6789", {
+      authCookie: "synthetic-browser-cookie",
+    });
+    expect(renewed.status).toBe(200);
+    expect(renew).toHaveBeenCalledWith("a".repeat(64), {
+      authCookie: "synthetic-renewed-cookie",
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("Access-Control-Allow-Private-Network")).toBe(
+      "true",
+    );
+    expect(JSON.stringify(body)).not.toContain("synthetic-browser-cookie");
+    expect(body).toMatchObject({ connectorToken: "a".repeat(64) });
   });
 
   it("routes ready-order refreshes through shared synchronization", async () => {

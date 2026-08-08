@@ -4,6 +4,10 @@ import {
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
 import {
+  resolveSellerKey,
+  type SellerKeySource,
+} from "./seller-credentials.js";
+import {
   toManagedOrder,
   type ManagedOrderList,
   type ManagedOrderSummary,
@@ -38,7 +42,7 @@ type OrderManagementClient = Pick<
 
 export interface OrderManagementServiceOptions {
   readonly client: OrderManagementClient;
-  readonly sellerKey: string;
+  readonly sellerKey: SellerKeySource;
   readonly pageSize: number;
   readonly maximumPages: number;
   readonly timezoneOffsetMinutes: number;
@@ -64,7 +68,8 @@ interface CachedPirateShipPreparation {
 
 export class OrderManagementService {
   private readonly client: OrderManagementClient;
-  private readonly sellerKey: string;
+  private readonly sellerKey: SellerKeySource;
+  private cachedSellerKey: string | undefined;
   private readonly pageSize: number;
   private readonly maximumPages: number;
   private readonly timezoneOffsetMinutes: number;
@@ -81,7 +86,10 @@ export class OrderManagementService {
 
   constructor(options: OrderManagementServiceOptions) {
     this.client = options.client;
-    this.sellerKey = requiredText(options.sellerKey, "Seller key", 256);
+    this.sellerKey = options.sellerKey;
+    if (typeof options.sellerKey === "string") {
+      requiredText(options.sellerKey, "Seller key", 256);
+    }
     this.pageSize = boundedInteger(options.pageSize, 1, 500, "Page size");
     this.maximumPages = boundedInteger(
       options.maximumPages,
@@ -110,6 +118,7 @@ export class OrderManagementService {
     scope: OrderListScope,
     options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
   ): Promise<ManagedOrderList> {
+    const sellerKey = this.currentSellerKey();
     const now = this.now();
     const cached = this.cache.get(scope);
     if (
@@ -125,7 +134,7 @@ export class OrderManagementService {
     for (let page = 0; page < this.maximumPages; page += 1) {
       const response = await this.client.searchOrders(
         {
-          sellerKey: this.sellerKey,
+          sellerKey,
           searchRange: "LastThreeMonths",
           ...(scope === "ready-to-ship"
             ? { statuses: [SellerOrderStatus.ReadyToShip] }
@@ -193,6 +202,7 @@ export class OrderManagementService {
     orderNumber: string,
     signal?: AbortSignal,
   ): Promise<PirateShipPreparation> {
+    const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
     const now = this.now();
     const cached = this.pirateShipCache.get(normalized);
@@ -200,7 +210,7 @@ export class OrderManagementService {
       return cached.value;
     }
     const confirmed = await this.client.confirmOrder(
-      { sellerKey: this.sellerKey, orderNumber: normalized },
+      { sellerKey, orderNumber: normalized },
       signal === undefined ? undefined : { signal },
     );
     if (confirmed.order.orderNumber !== normalized) {
@@ -261,6 +271,7 @@ export class OrderManagementService {
     trackingNumber: string,
     signal?: AbortSignal,
   ): Promise<AddTrackingResult> {
+    const sellerKey = this.currentSellerKey();
     const normalizedOrder = requiredText(orderNumber, "Order number", 128);
     const normalizedTracking = requiredText(
       trackingNumber,
@@ -276,7 +287,7 @@ export class OrderManagementService {
     );
     const result = await this.client.addOrderTracking(
       {
-        sellerKey: this.sellerKey,
+        sellerKey,
         orderNumber: normalizedOrder,
         carrier,
         trackingNumber: normalizedTracking,
@@ -293,11 +304,12 @@ export class OrderManagementService {
     readonly orderNumber: string;
     readonly outcome: "applied" | "already-applied";
   }> {
+    const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
     this.cache.clear();
     this.pirateShipCache.clear();
     const result = await this.client.markOrdersShipped(
-      { sellerKey: this.sellerKey, orderNumbers: [normalized] },
+      { sellerKey, orderNumbers: [normalized] },
       signal === undefined ? undefined : { signal },
     );
     const failure = result.errors.find(
@@ -322,6 +334,23 @@ export class OrderManagementService {
     }
     this.onShipmentAccepted?.(normalized);
     return { orderNumber: normalized, outcome };
+  }
+
+  private currentSellerKey(): string {
+    const sellerKey = requiredText(
+      resolveSellerKey(this.sellerKey),
+      "Seller key",
+      256,
+    );
+    if (
+      this.cachedSellerKey !== undefined &&
+      this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
+    ) {
+      this.cache.clear();
+      this.pirateShipCache.clear();
+    }
+    this.cachedSellerKey = sellerKey;
+    return sellerKey;
   }
 }
 

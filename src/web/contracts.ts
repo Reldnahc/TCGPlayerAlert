@@ -80,3 +80,18 @@ export interface ApiErrorBody {
   readonly issues?: readonly string[];
   readonly code?: string;
 }
+
+export interface SellerConnectionStatus {
+  readonly state: "connected" | "expired" | "disconnected";
+  readonly source?: "browser" | "environment";
+  readonly updatedAt?: string;
+  readonly expiresAt?: string;
+  readonly automaticRenewal: boolean;
+  readonly protectedStorage: boolean;
+}
+
+export interface SellerPairingChallenge {
+  readonly pairingCode: string;
+  readonly expiresAt: string;
+  readonly port: number;
+}

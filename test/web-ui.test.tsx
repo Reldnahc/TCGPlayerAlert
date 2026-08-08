@@ -106,6 +106,17 @@ function baseFetch(
   options?: RequestInit,
 ): Promise<Response> {
   const path = requestPath(input);
+  if (path === "/api/auth/status") {
+    return Promise.resolve(
+      json({
+        state: "connected",
+        source: "browser",
+        automaticRenewal: true,
+        protectedStorage: true,
+        updatedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+  }
   if (path === "/api/settings" && options?.method === "PUT") {
     if (typeof options.body !== "string")
       throw new Error("Expected a JSON request body.");
@@ -199,6 +210,46 @@ afterEach(() => {
 });
 
 describe("operator console", () => {
+  it("starts browser pairing from a disconnected connection banner", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/auth/status") {
+          return Promise.resolve(
+            json({
+              state: "disconnected",
+              automaticRenewal: false,
+              protectedStorage: true,
+            }),
+          );
+        }
+        if (path === "/api/auth/pairing") {
+          return Promise.resolve(
+            json({
+              pairingCode: "ABCD-EF01-2345-6789",
+              expiresAt: "2026-08-08T12:10:00.000Z",
+              port: 47831,
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const heading = await screen.findByRole("heading", {
+      name: "Connect TCGplayer",
+    });
+    const panel = heading.closest("section");
+    if (panel === null) throw new Error("Missing seller connection panel.");
+    await user.click(within(panel).getByRole("button", { name: "Connect" }));
+
+    expect(await within(panel).findByText("ABCD-EF01-2345-6789")).toBeTruthy();
+    expect(within(panel).getByText("47831")).toBeTruthy();
+  });
+
   it("updates an open dashboard from the local synchronized snapshot", async () => {
     let readyReads = 0;
     let snapshotTick: (() => void) | undefined;

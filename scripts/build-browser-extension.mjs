@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const sourceRoot = join(repositoryRoot, "browser-extension");
 const outputRoot = join(repositoryRoot, "dist", "browser-extension");
-const sharedFiles = ["popup.html", "popup.css", "popup.js"];
+const sharedFiles = ["background.js", "popup.html", "popup.css", "popup.js"];
 const browsers = [
   { name: "chromium", manifest: "chromium-manifest.json" },
   { name: "firefox", manifest: "firefox-manifest.json" },
