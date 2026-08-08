@@ -14,7 +14,7 @@ try {
     onStatus: (message) => process.stdout.write(`${message}\n`),
   });
   process.stdout.write(
-    "Proof complete. The session was not saved and the temporary Edge profile was removed.\n",
+    "Proof complete. The session was validated and was not saved.\n",
   );
 } catch (cause) {
   const message =

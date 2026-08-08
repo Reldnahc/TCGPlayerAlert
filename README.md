@@ -45,15 +45,30 @@ The repository creates ignored local files for you:
 
 Do not commit either file. The committed [.env.example](.env.example) and [local.example.json](config/local.example.json) contain no secrets or personal printer settings.
 
-### Managed-login proof of concept
+### User-controlled login proof of concept
 
-On Windows, test whether TCGplayer accepts a user-controlled Microsoft Edge login window:
+Build the browser-specific connector packages:
+
+```powershell
+npm run build:extension
+```
+
+For Edge, Chrome, Brave, Vivaldi, and other Chromium-family browsers:
+
+1. Open the browser's extensions page, such as `edge://extensions` or `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked** and choose this repository's `dist/browser-extension/chromium` directory.
+4. Pin **TCGPlayerAlert Session Connector**.
+
+For Firefox, open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and choose `dist/browser-extension/firefox/manifest.json`. Firefox removes temporary add-ons when it restarts; production distribution will require a signed Mozilla package.
+
+Then start the disposable pairing proof:
 
 ```powershell
 npm run auth:poc
 ```
 
-The command opens installed Edge with a newly created temporary profile. Complete TCGplayer login, MFA, and any CAPTCHA yourself in that window. The application watches only for `TCGAuthTicket_Production`, validates the resulting seller session without displaying the cookie or seller key, closes Edge after success, and removes the temporary profile. This proof of concept does **not** save or replace `.env.local`; it exists only to prove that managed login works before an encrypted credential store and reconnect UI are designed. Closing the window or pressing `Ctrl+C` cancels the attempt and still runs cleanup.
+The command opens TCGplayer in your ordinary default browser without browser automation or a temporary profile. Complete login, MFA, and any CAPTCHA normally, open the connector extension, paste the one-time code printed by the command, and select **Connect**. The extension reads only `TCGAuthTicket_Production` after that click and sends it only to the paired loopback proof service. The application validates the seller session without displaying the cookie or seller key and then discards it. This proof does **not** save or replace `.env.local`; protected credential storage and reconnect UX remain a later stage. Press `Ctrl+C` to cancel the listener.
 
 Build once, then launch the local settings screen:
 

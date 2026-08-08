@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "TCGPlayerAlert Session Connector",
+  "version": "0.1.0",
+  "description": "Pairs a signed-in TCGplayer seller session with the local TCGPlayerAlert proof after an explicit click.",
+  "permissions": ["cookies"],
+  "host_permissions": ["https://store.tcgplayer.com/*", "http://127.0.0.1/*"],
+  "action": {
+    "default_title": "Connect TCGPlayerAlert",
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "session-connector@tcgplayeralert.local",
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": ["authenticationInfo"]
+      }
+    }
+  }
+}

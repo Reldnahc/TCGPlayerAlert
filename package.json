@@ -8,9 +8,10 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "build": "npm run build:server && npm run build:web",
+    "build": "npm run build:server && npm run build:web && npm run build:extension",
     "build:server": "tsup",
     "build:web": "vite build",
+    "build:extension": "node scripts/build-browser-extension.mjs",
     "preview:web": "npm run build && node scripts/preview-ui.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -32,7 +33,6 @@
     "@napi-rs/canvas": "0.1.88",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
-    "playwright-core": "1.61.1",
     "preact": "10.29.8",
     "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.9.0.tgz"
   },

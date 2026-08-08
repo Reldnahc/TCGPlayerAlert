@@ -34,15 +34,6 @@ After the package is published, replace the file dependency with the immutable r
 
 Both dependencies are pinned. Their platform-specific runtime artifacts are installed through npm and covered by the normal dependency audit. No PDF-viewer executable is copied into this repository.
 
-## playwright-core
-
-- npm package: `playwright-core@1.61.1`
-- Project: <https://playwright.dev/>
-- License: Apache-2.0
-- Purpose: launch the operator's installed Microsoft Edge for the disposable managed-login proof of concept
-
-`playwright-core` contains no browser binary. The proof of concept uses a new temporary Edge profile, never reads an existing browser profile, and removes its profile after the attempt.
-
 ## Operator console
 
 - `preact@10.29.8` (MIT) provides the small, typed component runtime shipped to the loopback-only browser UI.

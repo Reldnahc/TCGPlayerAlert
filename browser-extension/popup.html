@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Connect TCGPlayerAlert</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Browser connector</span>
+        <h1>Connect TCGPlayerAlert</h1>
+        <p>
+          Sign in to the TCGplayer Seller Portal normally, then enter the
+          one-time code printed by <code>npm run auth:poc</code>.
+        </p>
+      </header>
+
+      <form id="pairing-form">
+        <label for="pairing-code">Pairing code</label>
+        <input
+          id="pairing-code"
+          name="pairingCode"
+          type="text"
+          inputmode="text"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          maxlength="24"
+          placeholder="ABCD-EF01-2345-6789"
+          required
+        />
+
+        <details>
+          <summary>Connection settings</summary>
+          <label for="pairing-port">Local port</label>
+          <input
+            id="pairing-port"
+            name="pairingPort"
+            type="number"
+            min="1"
+            max="65535"
+            value="47841"
+            required
+          />
+        </details>
+
+        <button id="connect" type="submit">Connect</button>
+      </form>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p class="privacy">
+        The connector sends only the seller-session ticket to the paired app on
+        this computer. It does not read page contents or save the ticket.
+      </p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
