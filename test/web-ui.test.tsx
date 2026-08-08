@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/preact";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/preact";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/web/App.js";
@@ -554,6 +560,34 @@ describe("operator console", () => {
 
     expect(await screen.findByText("Price Change Card")).toBeTruthy();
     expect(screen.getByText("Stable Card")).toBeTruthy();
+    const table = screen.getByRole("table");
+    const changedRow = screen.getByText("Price Change Card").closest("tr");
+    if (changedRow === null) throw new Error("Missing changed inventory row.");
+    expect(changedRow.classList.contains("is-large-price-change")).toBe(true);
+    expect(within(changedRow).getByText("-$0.25")).toBeTruthy();
+    expect(within(changedRow).getByText("-12.5%")).toBeTruthy();
+    expect(
+      within(changedRow)
+        .getByText("$1.75")
+        .classList.contains("price-change--decrease"),
+    ).toBe(true);
+    const inventoryOrder = () =>
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) =>
+          row.textContent.includes("Price Change Card") ? "changed" : "stable",
+        );
+    await user.click(
+      screen.getByRole("button", { name: "Sort by price change" }),
+    );
+    expect(inventoryOrder()).toEqual(["stable", "changed"]);
+    await user.click(
+      screen.getByRole("button", {
+        name: "Sort by price change, currently descending",
+      }),
+    );
+    expect(inventoryOrder()).toEqual(["changed", "stable"]);
     await user.click(
       screen.getByRole("button", { name: "Proposed changes (1)" }),
     );

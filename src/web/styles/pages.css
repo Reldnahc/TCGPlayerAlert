@@ -842,7 +842,7 @@
   flex: 0 0 auto;
 }
 .inventory-table {
-  min-width: 1450px;
+  min-width: 1540px;
 }
 .inventory-table th:first-child,
 .inventory-table td:first-child {
@@ -856,9 +856,56 @@
   font-size: 10px;
   line-height: 1.45;
 }
-.price-proposed {
-  color: var(--success);
+.price-proposed,
+.price-change {
   font-variant-numeric: tabular-nums;
+}
+.price-change {
+  display: inline-grid;
+  justify-items: end;
+  gap: 1px;
+  white-space: nowrap;
+}
+.price-change small {
+  font-size: 9px;
+  font-weight: 650;
+}
+.price-change--increase {
+  color: var(--success);
+}
+.price-change--decrease {
+  color: var(--danger);
+}
+.price-change--unchanged {
+  color: var(--text-faint);
+}
+.inventory-change-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.inventory-change-sort span {
+  min-width: 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.inventory-table tr.is-large-price-change > td {
+  background: #fff8e5;
+}
+.inventory-table tr.is-large-price-change > td:first-child {
+  box-shadow: inset 3px 0 0 #d69b20;
+}
+.inventory-table tr.is-large-price-change:hover > td {
+  background: #fff2c9;
 }
 .minimum-note {
   display: block;

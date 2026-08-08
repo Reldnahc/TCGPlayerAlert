@@ -19,6 +19,37 @@ import { errorMessage, money, normalizedTokens } from "../utils.js";
 const PROFILE_KEY = "tcgplayer-alert.repricing-profile";
 
 type PreviewRow = PricingPreview["rows"][number];
+type ChangeSort = "none" | "ascending" | "descending";
+
+interface PriceChange {
+  readonly amount: number;
+  readonly percent?: number;
+  readonly direction: "increase" | "decrease" | "unchanged";
+  readonly large: boolean;
+}
+
+function priceChange(row: PreviewRow): PriceChange {
+  const amount = Math.round((row.proposedPrice - row.currentPrice) * 100) / 100;
+  const percent =
+    row.currentPrice === 0 ? undefined : (amount / row.currentPrice) * 100;
+  return {
+    amount,
+    ...(percent === undefined ? {} : { percent }),
+    direction: amount > 0 ? "increase" : amount < 0 ? "decrease" : "unchanged",
+    large: percent !== undefined && Math.abs(percent) > 10,
+  };
+}
+
+function signedMoney(value: number): string {
+  if (value === 0) return money(0);
+  return `${value > 0 ? "+" : "-"}${money(Math.abs(value))}`;
+}
+
+function signedPercent(value: number | undefined): string {
+  if (value === undefined) return "—";
+  if (value === 0) return "0.0%";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
 
 function InventoryLoading({
   refreshing,
@@ -128,6 +159,7 @@ export function InventoryPage() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [query, setQuery] = useState("");
   const [proposedOnly, setProposedOnly] = useState(false);
+  const [changeSort, setChangeSort] = useState<ChangeSort>("none");
   const [progress, setProgress] = useState<PricingProgress | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState<{
@@ -139,14 +171,26 @@ export function InventoryPage() {
 
   const visibleRows = useMemo(() => {
     const tokens = normalizedTokens(query);
-    return (
+    const filtered =
       preview?.rows.filter(
         (row) =>
           (!proposedOnly || row.queueable) &&
           tokens.every((token) => searchText(row).includes(token)),
-      ) ?? []
-    );
-  }, [preview, proposedOnly, query]);
+      ) ?? [];
+    if (changeSort === "none") return filtered;
+    return filtered
+      .map((row, index) => ({ row, index, change: priceChange(row) }))
+      .sort((left, right) => {
+        const leftValue = left.change.percent ?? left.change.amount;
+        const rightValue = right.change.percent ?? right.change.amount;
+        const difference =
+          changeSort === "ascending"
+            ? leftValue - rightValue
+            : rightValue - leftValue;
+        return difference || left.index - right.index;
+      })
+      .map(({ row }) => row);
+  }, [changeSort, preview, proposedOnly, query]);
   const visibleReady = visibleRows.filter(
     (row) => row.queueable && !removals.has(row.id),
   );
@@ -417,107 +461,158 @@ export function InventoryPage() {
                       <th>Condition</th>
                       <th class="align-right">Current</th>
                       <th class="align-right">Market</th>
-                      <th>Marketplace reference</th>
                       <th class="align-right">Proposed</th>
+                      <th class="align-right" aria-sort={changeSort}>
+                        <button
+                          type="button"
+                          class="inventory-change-sort"
+                          aria-label={`Sort by price change${changeSort === "none" ? "" : `, currently ${changeSort}`}`}
+                          title="Sort by percentage price change"
+                          onClick={() =>
+                            setChangeSort((current) =>
+                              current === "none"
+                                ? "descending"
+                                : current === "descending"
+                                  ? "ascending"
+                                  : "none",
+                            )
+                          }
+                        >
+                          Change
+                          <span aria-hidden="true">
+                            {changeSort === "descending"
+                              ? "\u2193"
+                              : changeSort === "ascending"
+                                ? "\u2191"
+                                : "\u2195"}
+                          </span>
+                        </button>
+                      </th>
+                      <th>Marketplace reference</th>
                       <th>Result</th>
                       <th>Inventory</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${row.productName}`}
-                            checked={selected.has(row.id)}
-                            disabled={!row.queueable || removals.has(row.id)}
-                            onChange={(event) =>
-                              setSelected((current) => {
-                                const next = new Set(current);
-                                if (event.currentTarget.checked)
-                                  next.add(row.id);
-                                else next.delete(row.id);
-                                return next;
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <span class="cell-stack">
-                            <strong>{row.productName}</strong>
-                            <small>
-                              {row.productLineName} · {row.setName}
-                            </small>
-                            <small>
-                              {row.printing} · {row.language} · qty{" "}
-                              {row.quantity}
-                            </small>
-                          </span>
-                        </td>
-                        <td>{row.condition}</td>
-                        <td class="align-right numeric">
-                          {money(row.currentPrice)}
-                        </td>
-                        <td class="align-right numeric">
-                          {row.marketPrice === undefined
-                            ? "—"
-                            : money(row.marketPrice)}
-                        </td>
-                        <td class="market-reference">{competitorText(row)}</td>
-                        <td class="align-right">
-                          <strong
-                            class={row.queueable ? "price-proposed" : "muted"}
-                          >
-                            {money(row.proposedPrice)}
-                          </strong>
-                          {row.minimumApplied ? (
-                            <small class="minimum-note">
-                              {row.minimumPriceSource ?? "minimum"}{" "}
-                              {money(row.effectiveMinimumPrice)}
-                            </small>
-                          ) : null}
-                        </td>
-                        <td>
-                          <StatusBadge status={row.status} />
-                          <p class="result-copy">{row.reason}</p>
-                        </td>
-                        <td>
-                          {removals.has(row.id) ? (
-                            <StatusBadge status="pending" />
-                          ) : removeConfirm === row.id ? (
-                            <div class="remove-confirm">
-                              <span>Remove qty {row.quantity}?</span>
+                    {visibleRows.map((row) => {
+                      const change = priceChange(row);
+                      return (
+                        <tr
+                          key={row.id}
+                          class={change.large ? "is-large-price-change" : ""}
+                          title={
+                            change.large
+                              ? "Proposed price differs from the current price by more than 10%."
+                              : undefined
+                          }
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${row.productName}`}
+                              checked={selected.has(row.id)}
+                              disabled={!row.queueable || removals.has(row.id)}
+                              onChange={(event) =>
+                                setSelected((current) => {
+                                  const next = new Set(current);
+                                  if (event.currentTarget.checked)
+                                    next.add(row.id);
+                                  else next.delete(row.id);
+                                  return next;
+                                })
+                              }
+                            />
+                          </td>
+                          <td>
+                            <span class="cell-stack">
+                              <strong>{row.productName}</strong>
+                              <small>
+                                {row.productLineName} · {row.setName}
+                              </small>
+                              <small>
+                                {row.printing} · {row.language} · qty{" "}
+                                {row.quantity}
+                              </small>
+                            </span>
+                          </td>
+                          <td>{row.condition}</td>
+                          <td class="align-right numeric">
+                            {money(row.currentPrice)}
+                          </td>
+                          <td class="align-right numeric">
+                            {row.marketPrice === undefined
+                              ? "—"
+                              : money(row.marketPrice)}
+                          </td>
+                          <td class="align-right">
+                            <strong
+                              class={
+                                row.queueable
+                                  ? `price-proposed price-change--${change.direction}`
+                                  : "muted"
+                              }
+                            >
+                              {money(row.proposedPrice)}
+                            </strong>
+                            {row.minimumApplied ? (
+                              <small class="minimum-note">
+                                {row.minimumPriceSource ?? "minimum"}{" "}
+                                {money(row.effectiveMinimumPrice)}
+                              </small>
+                            ) : null}
+                          </td>
+                          <td class="align-right">
+                            <span
+                              class={`price-change price-change--${change.direction}`}
+                            >
+                              <strong>{signedMoney(change.amount)}</strong>
+                              <small>{signedPercent(change.percent)}</small>
+                            </span>
+                          </td>
+                          <td class="market-reference">
+                            {competitorText(row)}
+                          </td>
+                          <td>
+                            <StatusBadge status={row.status} />
+                            <p class="result-copy">{row.reason}</p>
+                          </td>
+                          <td>
+                            {removals.has(row.id) ? (
+                              <StatusBadge status="pending" />
+                            ) : removeConfirm === row.id ? (
+                              <div class="remove-confirm">
+                                <span>Remove qty {row.quantity}?</span>
+                                <Button
+                                  tone="danger"
+                                  busy={busy === `remove:${row.id}`}
+                                  onClick={() => void remove(row)}
+                                >
+                                  Confirm
+                                </Button>
+                                <Button
+                                  tone="quiet"
+                                  onClick={() => setRemoveConfirm(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : row.removable ? (
                               <Button
                                 tone="danger"
-                                busy={busy === `remove:${row.id}`}
-                                onClick={() => void remove(row)}
+                                disabled={busy !== ""}
+                                onClick={() => setRemoveConfirm(row.id)}
                               >
-                                Confirm
+                                Remove
                               </Button>
-                              <Button
-                                tone="quiet"
-                                onClick={() => setRemoveConfirm(null)}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          ) : row.removable ? (
-                            <Button
-                              tone="danger"
-                              disabled={busy !== ""}
-                              onClick={() => setRemoveConfirm(row.id)}
-                            >
-                              Remove
-                            </Button>
-                          ) : (
-                            <span class="muted" title={row.removalReason}>
-                              Unavailable
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                            ) : (
+                              <span class="muted" title={row.removalReason}>
+                                Unavailable
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
