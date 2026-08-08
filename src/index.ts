@@ -71,6 +71,11 @@ export type * from "./feedback-management.js";
 export { MessageManagementService } from "./message-management.js";
 export type * from "./message-management.js";
 export {
+  ManagedLoginProofError,
+  runManagedLoginProofOfConcept,
+} from "./managed-login-poc.js";
+export type * from "./managed-login-poc.js";
+export {
   createTcgplayerInventoryAdditionExecutor,
   InventoryAdditionQueueStore,
   InventoryAdditionService,

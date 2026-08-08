@@ -34,7 +34,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.8.2 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.9.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -44,6 +44,16 @@ The repository creates ignored local files for you:
 - `config/local.json` for scheduling, rules, actions, and printers
 
 Do not commit either file. The committed [.env.example](.env.example) and [local.example.json](config/local.example.json) contain no secrets or personal printer settings.
+
+### Managed-login proof of concept
+
+On Windows, test whether TCGplayer accepts a user-controlled Microsoft Edge login window:
+
+```powershell
+npm run auth:poc
+```
+
+The command opens installed Edge with a newly created temporary profile. Complete TCGplayer login, MFA, and any CAPTCHA yourself in that window. The application watches only for `TCGAuthTicket_Production`, validates the resulting seller session without displaying the cookie or seller key, closes Edge after success, and removes the temporary profile. This proof of concept does **not** save or replace `.env.local`; it exists only to prove that managed login works before an encrypted credential store and reconnect UI are designed. Closing the window or pressing `Ctrl+C` cancels the attempt and still runs cleanup.
 
 Build once, then launch the local settings screen:
 
