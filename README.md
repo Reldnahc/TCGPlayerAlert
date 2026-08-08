@@ -60,7 +60,26 @@ For Edge, Chrome, Brave, Vivaldi, and other Chromium-family browsers:
 3. Select **Load unpacked** and choose this repository's `dist/browser-extension/chromium` directory.
 4. Pin **TCGPlayerAlert Session Connector**.
 
-For Firefox, open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and choose `dist/browser-extension/firefox/manifest.json`. Firefox removes temporary add-ons when it restarts; production distribution will require a signed Mozilla package.
+For Firefox:
+
+1. Open a normal Firefox window in the profile where you use the TCGplayer
+   Seller Portal. Do not use a private window for this proof.
+2. Enter `about:debugging#/runtime/this-firefox` in Firefox's address bar.
+3. Select **Load Temporary Add-on**.
+4. In the file picker, select this exact built file:
+   `dist/browser-extension/firefox/manifest.json`. Select the file itself, not
+   the `firefox` directory.
+5. Confirm that **TCGPlayerAlert Session Connector** appears under **Temporary
+   Extensions**.
+6. Select Firefox's Extensions button (the puzzle-piece icon), open the gear
+   menu beside **TCGPlayerAlert Session Connector**, and select **Pin to
+   Toolbar**.
+
+The absolute manifest path in a default checkout is
+`C:\Users\cwmle\Documents\TCGPlayerAlert\TCGPlayerAlert\dist\browser-extension\firefox\manifest.json`.
+Firefox removes temporary add-ons when it restarts, so repeat these installation
+steps after every Firefox restart. Production distribution will require a
+signed Mozilla package.
 
 Then start the disposable pairing proof:
 
@@ -68,7 +87,13 @@ Then start the disposable pairing proof:
 npm run auth:poc
 ```
 
-The command opens TCGplayer in your ordinary default browser without browser automation or a temporary profile. Complete login, MFA, and any CAPTCHA normally, open the connector extension, paste the one-time code printed by the command, and select **Connect**. The extension reads only `TCGAuthTicket_Production` after that click and sends it only to the paired loopback proof service. The application validates the seller session without displaying the cookie or seller key and then discards it. This proof does **not** save or replace `.env.local`; protected credential storage and reconnect UX remain a later stage. Press `Ctrl+C` to cancel the listener.
+The command opens TCGplayer in your ordinary default browser without browser automation or a temporary profile. If Firefox is not your default browser, manually open `https://store.tcgplayer.com/admin` in the same Firefox profile where you loaded the connector. Complete login, MFA, and any CAPTCHA normally. Keep the PowerShell command running, select the pinned connector, paste the one-time code printed by the command, leave the port at `47841`, and select **Connect**. A successful popup says that the session was validated, and PowerShell reports that the proof completed. The extension reads only `TCGAuthTicket_Production` after that click and sends it only to the paired loopback proof service. The application validates the seller session without displaying the cookie or seller key and then discards it. This proof does **not** save or replace `.env.local`; protected credential storage and reconnect UX remain a later stage. Press `Ctrl+C` to cancel the listener.
+
+If Firefox reports that no seller session was found, confirm that the Seller
+Portal is signed in in that same Firefox profile, reload the Seller Portal tab,
+and try **Connect** again. If the connector cannot reach the application, make
+sure `npm run auth:poc` is still running and that its displayed port is `47841`.
+Each new run creates a new pairing code; an older code will not work.
 
 Build once, then launch the local settings screen:
 
