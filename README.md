@@ -72,7 +72,7 @@ For Edge, Chrome, Brave, Vivaldi, and other Chromium-family browsers:
 
 For Firefox:
 
-1. Open a normal Firefox window in the profile where you use the TCGplayer
+1. Use Firefox 140 or newer, then open a normal window in the profile where you use the TCGplayer
    Seller Portal. Do not use a private window for the connector.
 2. Enter `about:debugging#/runtime/this-firefox` in Firefox's address bar.
 3. Select **Load Temporary Add-on**.
@@ -91,6 +91,12 @@ Firefox removes temporary development add-ons when it restarts, so repeat these
 installation steps after every Firefox restart until the Firefox build is
 signed through Mozilla. That affects installation persistence only; the saved
 application connection survives restarts.
+
+The Firefox manifest requires version 140 or newer so Mozilla's built-in
+installation prompt can disclose the required authentication-information
+transfer. The connector's exact data handling is documented in its public
+[privacy policy](browser-extension/PRIVACY.md). Submit that document's GitHub
+URL as the privacy-policy URL when requesting unlisted Mozilla signing.
 
 Build once, then launch the application:
 

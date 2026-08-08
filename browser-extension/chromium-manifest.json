@@ -3,6 +3,7 @@
   "name": "TCGPlayerAlert Session Connector",
   "version": "0.1.0",
   "description": "Pairs a signed-in TCGplayer seller session with the local TCGPlayerAlert application after an explicit click.",
+  "homepage_url": "https://github.com/Reldnahc/TCGPlayerAlert",
   "permissions": ["cookies", "storage", "alarms"],
   "host_permissions": ["https://store.tcgplayer.com/*", "http://127.0.0.1/*"],
   "background": {

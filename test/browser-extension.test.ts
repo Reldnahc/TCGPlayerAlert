@@ -15,12 +15,13 @@ async function readManifest(
 
 describe("browser session connector", () => {
   it("ships narrowly scoped renewal builds for Firefox and Chromium", async () => {
-    const [chromiumManifest, firefoxManifest, popup, background] =
+    const [chromiumManifest, firefoxManifest, popup, background, privacy] =
       await Promise.all([
         readManifest("chromium"),
         readManifest("firefox"),
         readFile(join("browser-extension", "popup.js"), "utf8"),
         readFile(join("browser-extension", "background.js"), "utf8"),
+        readFile(join("browser-extension", "PRIVACY.md"), "utf8"),
       ]);
 
     for (const manifest of [chromiumManifest, firefoxManifest]) {
@@ -41,6 +42,7 @@ describe("browser session connector", () => {
       browser_specific_settings: {
         gecko: {
           id: "session-connector@tcgplayeralert.local",
+          strict_min_version: "140.0",
           data_collection_permissions: {
             required: ["authenticationInfo"],
           },
@@ -55,5 +57,8 @@ describe("browser session connector", () => {
     expect(background).toContain("cookies.onChanged");
     expect(background).toContain("alarms.onAlarm");
     expect(background).not.toContain("console.");
+    expect(privacy).toContain("TCGAuthTicket_Production");
+    expect(privacy).toContain("http://127.0.0.1");
+    expect(privacy).toContain("Windows DPAPI");
   });
 });

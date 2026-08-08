@@ -50,6 +50,12 @@ Mozilla. Signing changes distribution, not the session protocol or application
 architecture. Chromium and Firefox builds share behavior but use their
 browser-specific Manifest V3 background declaration.
 
+The Firefox build requires Firefox 140 or newer and declares required
+`authenticationInfo` handling so Firefox presents its built-in data consent at
+installation. A public privacy policy documents the exact cookie, loopback-only
+destination, automatic renewal timing, protected application storage, and
+deletion controls for Mozilla review and operator inspection.
+
 ## Consequences
 
 - `.env.local` is no longer required after the first protected browser

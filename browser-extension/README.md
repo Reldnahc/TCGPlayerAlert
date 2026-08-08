@@ -14,6 +14,10 @@ npm run build:extension
 
 ## Firefox development installation
 
+The Firefox build requires Firefox 140 or newer. This guarantees that Firefox
+can present its built-in consent for the manifest's required
+`authenticationInfo` transmission before installation.
+
 1. Open a normal Firefox window in the profile where you use the Seller Portal.
 2. Enter `about:debugging#/runtime/this-firefox` in the address bar.
 3. Select **Load Temporary Add-on**.
@@ -30,6 +34,29 @@ after a restart until the release package is signed through Mozilla. The
 application's DPAPI-protected credential remains stored; reinstalling the
 extension may require a new one-time pairing if Firefox cleared extension-local
 storage.
+
+## Firefox unlisted signing
+
+The connector is prepared for private, self-distributed signing rather than a
+public AMO listing:
+
+- It has a stable Gecko extension ID and requires Firefox 140 or newer.
+- It declares `authenticationInfo` as required data in the Firefox manifest.
+- Its [privacy policy](PRIVACY.md) explains the exact cookie, loopback
+  destination, renewal timing, storage, retention, and permissions.
+- The source is readable, dependency-free, and contains no remote code,
+  analytics, content scripts, or page inspection.
+
+Run `npm run build:extension` before packaging. The Firefox output includes the
+privacy policy in `dist/browser-extension/firefox`. When submitting the build
+to Mozilla as an unlisted add-on, use this public privacy-policy URL:
+
+`https://github.com/Reldnahc/TCGPlayerAlert/blob/main/browser-extension/PRIVACY.md`
+
+Mozilla signing is an external release step and requires the submitting
+operator's AMO account. The signed `.xpi` can then be installed permanently
+through Firefox's **Install Add-on From File** command without making the
+extension publicly searchable.
 
 ## Chromium-family development installation
 
