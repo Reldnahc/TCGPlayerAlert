@@ -29,11 +29,16 @@ import {
 } from "./order-management.js";
 import { PaymentManagementService } from "./payment-management.js";
 import { FeedbackManagementService } from "./feedback-management.js";
+import {
+  TcgplayerReadyOrderSource,
+  type ReadyOrderSource,
+} from "./ready-orders.js";
 
 export function createWorkflow(
   config: AppConfig,
   logger: Logger,
   environment: NodeJS.ProcessEnv = process.env,
+  readyOrders?: ReadyOrderSource,
 ): FulfillmentWorkflow {
   const authCookie = secretFromEnvironment(
     config.provider.authCookieEnv,
@@ -52,6 +57,7 @@ export function createWorkflow(
       config.timezoneOffsetMinutes === "local"
         ? new Date().getTimezoneOffset()
         : config.timezoneOffsetMinutes,
+    ...(readyOrders === undefined ? {} : { readyOrders }),
   });
   const printers = createPrinters(config);
   return new FulfillmentWorkflow({
@@ -242,6 +248,7 @@ export function createOrderManagementService(
   config: AppConfig,
   configPath: string,
   environment: NodeJS.ProcessEnv = process.env,
+  readyOrders?: ReadyOrderSource,
 ): OrderManagementService {
   const authCookie = secretFromEnvironment(
     config.provider.authCookieEnv,
@@ -261,6 +268,12 @@ export function createOrderManagementService(
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes,
+    ...(readyOrders === undefined
+      ? {}
+      : {
+          onShipmentAccepted: (orderNumber: string) =>
+            readyOrders.remove(orderNumber),
+        }),
     executePrint: async (orderNumber, actionType, signal) => {
       await executeConfiguredOrderPrint(
         await loadConfig(configPath),
@@ -270,6 +283,26 @@ export function createOrderManagementService(
         signal,
       );
     },
+  });
+}
+
+export function createReadyOrderSource(
+  config: AppConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): TcgplayerReadyOrderSource {
+  const authCookie = secretFromEnvironment(
+    config.provider.authCookieEnv,
+    environment,
+  );
+  const sellerKey = secretFromEnvironment(
+    config.provider.sellerKeyEnv,
+    environment,
+  );
+  return new TcgplayerReadyOrderSource({
+    client: createTcgplayerSellerClient({ session: { authCookie } }),
+    sellerKey,
+    pageSize: config.provider.pageSize,
+    maximumPages: config.provider.maximumPages,
   });
 }
 

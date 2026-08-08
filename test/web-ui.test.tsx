@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -166,6 +167,119 @@ afterEach(() => {
 });
 
 describe("operator console", () => {
+  it("updates an open dashboard from the local synchronized snapshot", async () => {
+    let readyReads = 0;
+    let snapshotTick: (() => void) | undefined;
+    const realSetInterval = window.setInterval.bind(window);
+    vi.spyOn(window, "setInterval").mockImplementation(
+      (handler, timeout): NodeJS.Timeout => {
+        if (timeout === 5_000 && typeof handler === "function") {
+          snapshotTick = handler;
+          return realSetInterval(
+            () => undefined,
+            60_000,
+          ) as unknown as NodeJS.Timeout;
+        }
+        return realSetInterval(handler, timeout) as unknown as NodeJS.Timeout;
+      },
+    );
+    const synchronizedOrder = {
+      orderNumber: "SYNTHETIC-SCHEDULED",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 10,
+      shippingAmount: 1.49,
+      totalAmount: 11.49,
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders?status=ready-to-ship") {
+          readyReads += 1;
+          return Promise.resolve(
+            json({
+              orders: readyReads === 1 ? [] : [synchronizedOrder],
+              fetchedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText("No orders are ready to ship")).toBeTruthy();
+    await waitFor(() => expect(snapshotTick).toBeDefined());
+    await act(async () => {
+      snapshotTick?.();
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText("SYNTHETIC-SCHEDULED")).toBeTruthy();
+    expect(readyReads).toBe(2);
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        requestPath(input).includes("refresh=1"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the dashboard ready queue separate from the all-orders view", async () => {
+    window.location.hash = "orders";
+    const allOnlyOrder = {
+      orderNumber: "SYNTHETIC-ALL-ONLY",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 10,
+      shippingAmount: 1.49,
+      totalAmount: 11.49,
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders?") {
+          return Promise.resolve(
+            json({
+              orders: [allOnlyOrder],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        if (path === "/api/orders?status=ready-to-ship") {
+          return Promise.resolve(
+            json({
+              orders: [],
+              fetchedAt: "2026-08-07T12:01:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText("SYNTHETIC-ALL-ONLY")).toBeTruthy();
+    await user.click(screen.getByRole("link", { name: "Dashboard" }));
+
+    expect(await screen.findByText("No orders are ready to ship")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => requestPath(input) === "/api/orders?status=ready-to-ship",
+      ),
+    ).toBe(true);
+  });
+
   it("prints a pasted address from the dashboard", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {

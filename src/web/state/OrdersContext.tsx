@@ -17,7 +17,11 @@ interface OrdersContextValue {
   readonly loading: Readonly<Record<Scope, boolean>>;
   readonly errors: Readonly<Record<Scope, string>>;
   readonly shipmentsPendingReconciliation: ReadonlySet<string>;
-  readonly load: (scope: Scope, force?: boolean) => Promise<void>;
+  readonly load: (
+    scope: Scope,
+    force?: boolean,
+    refreshLoaded?: boolean,
+  ) => Promise<void>;
   readonly acknowledgeShipment: (orderNumber: string) => void;
 }
 
@@ -75,21 +79,9 @@ export function OrdersProvider({
   }, []);
 
   const load = useCallback(
-    async (scope: Scope, force = false) => {
+    async (scope: Scope, force = false, refreshLoaded = false) => {
       if (loading[scope]) return;
-      if (!force && lists[scope] !== null) return;
-      if (!force && scope === "ready-to-ship" && lists.all !== null) {
-        const allOrders = lists.all;
-        setLists((current) => ({
-          ...current,
-          "ready-to-ship": readyList(current.all ?? allOrders),
-        }));
-        return;
-      }
-      if (force) {
-        const otherScope: Scope = scope === "all" ? "ready-to-ship" : "all";
-        setLists((current) => ({ ...current, [otherScope]: null }));
-      }
+      if (!force && !refreshLoaded && lists[scope] !== null) return;
       setLoading((current) => ({ ...current, [scope]: true }));
       setErrors((current) => ({ ...current, [scope]: "" }));
       try {
@@ -115,14 +107,6 @@ export function OrdersProvider({
             scope === "ready-to-ship"
               ? readyList(result, shipmentReconciliationsRef.current)
               : result,
-          ...(scope === "all"
-            ? {
-                "ready-to-ship": readyList(
-                  result,
-                  shipmentReconciliationsRef.current,
-                ),
-              }
-            : {}),
         }));
       } catch (cause) {
         setErrors((current) => ({

@@ -101,6 +101,7 @@ function service(
       orderNumber: string,
       actionType: "print-address-label" | "print-packing-slip",
     ) => Promise<void>;
+    readonly onShipmentAccepted?: (orderNumber: string) => void;
   } = {},
 ) {
   return new OrderManagementService({
@@ -171,6 +172,15 @@ describe("order management", () => {
       expect.objectContaining({ statuses: ["ReadyToShip"] }),
       undefined,
     );
+  });
+
+  it("updates the shared ready-order source after shipment is accepted", async () => {
+    const fakeClient = client();
+    const onShipmentAccepted = vi.fn();
+    const orders = service(fakeClient, { onShipmentAccepted });
+
+    await orders.markShipped(firstOrder.orderNumber);
+    expect(onShipmentAccepted).toHaveBeenCalledWith(firstOrder.orderNumber);
   });
 
   it("downloads packing slips and performs explicit fulfillment actions", async () => {

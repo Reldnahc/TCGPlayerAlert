@@ -51,6 +51,7 @@ export {
   createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
+  createReadyOrderSource,
   createPrinters,
   executeConfiguredAddressLabel,
   createRepricingService,
@@ -60,6 +61,8 @@ export {
 } from "./runtime.js";
 export { OrderManagementService } from "./order-management.js";
 export type * from "./order-management.js";
+export { OrderSyncCoordinator } from "./order-sync.js";
+export type * from "./order-sync.js";
 export { PaymentManagementService } from "./payment-management.js";
 export type * from "./payment-management.js";
 export { FeedbackManagementService } from "./feedback-management.js";
@@ -97,3 +100,8 @@ export { FileSyncLease, immediateSyncLease } from "./sync-lease.js";
 export type * from "./sync-lease.js";
 export { TcgplayerOrderProvider } from "./tcgplayer-provider.js";
 export type * from "./tcgplayer-provider.js";
+export { TcgplayerReadyOrderSource } from "./ready-orders.js";
+export type {
+  ReadyOrderSource,
+  TcgplayerReadyOrderSourceOptions,
+} from "./ready-orders.js";

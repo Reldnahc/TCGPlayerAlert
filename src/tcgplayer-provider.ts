@@ -1,6 +1,5 @@
 import {
   createTcgplayerSellerClient,
-  SellerOrderStatus,
   type TcgplayerSellerClientOptions,
 } from "tcgplayer-private-api";
 import type {
@@ -10,6 +9,10 @@ import type {
   OrderProvider,
 } from "./domain.js";
 import { ApplicationError } from "./errors.js";
+import {
+  TcgplayerReadyOrderSource,
+  type ReadyOrderSource,
+} from "./ready-orders.js";
 
 export interface TcgplayerProviderOptions {
   readonly authCookie: string;
@@ -19,11 +22,13 @@ export interface TcgplayerProviderOptions {
   readonly timezoneOffsetMinutes: number;
   readonly fetch?: TcgplayerSellerClientOptions["fetch"];
   readonly requestDelayMs?: number;
+  readonly readyOrders?: ReadyOrderSource;
 }
 
 export class TcgplayerOrderProvider implements OrderProvider {
   readonly id = "tcgplayer";
   private readonly client;
+  private readonly readyOrders: ReadyOrderSource;
 
   constructor(private readonly options: TcgplayerProviderOptions) {
     this.client = createTcgplayerSellerClient({
@@ -33,50 +38,23 @@ export class TcgplayerOrderProvider implements OrderProvider {
         ? {}
         : { requestDelayMs: options.requestDelayMs }),
     });
+    this.readyOrders =
+      options.readyOrders ??
+      new TcgplayerReadyOrderSource({
+        client: this.client,
+        sellerKey: options.sellerKey,
+        pageSize: options.pageSize,
+        maximumPages: options.maximumPages,
+      });
   }
 
   async discoverReadyToShip(
     signal?: AbortSignal,
   ): Promise<readonly DiscoveredOrder[]> {
-    const discovered = new Map<string, DiscoveredOrder>();
-    let offset = 0;
-    for (let page = 0; page < this.options.maximumPages; page += 1) {
-      const response = await this.client.searchOrders(
-        {
-          sellerKey: this.options.sellerKey,
-          statuses: [SellerOrderStatus.ReadyToShip],
-          offset,
-          limit: this.options.pageSize,
-          sort: [{ field: "orderDate", direction: "ascending" }],
-        },
-        signal === undefined ? undefined : { signal },
-      );
-      for (const order of response.orders) {
-        if (order.orderStatusCode !== SellerOrderStatus.ReadyToShip) {
-          throw new ApplicationError(
-            "PROVIDER_ERROR",
-            "TCGplayer returned a non-ready order in the ready-to-ship queue.",
-          );
-        }
-        discovered.set(order.orderNumber, {
-          id: order.orderNumber,
-          status: order.orderStatus,
-        });
-      }
-      offset += response.orders.length;
-      if (offset >= response.totalOrders) return [...discovered.values()];
-      if (response.orders.length === 0) {
-        throw new ApplicationError(
-          "PROVIDER_ERROR",
-          "TCGplayer pagination ended before the reported order total.",
-          { retryable: true },
-        );
-      }
-    }
-    throw new ApplicationError(
-      "PROVIDER_ERROR",
-      "TCGplayer order discovery exceeded the configured page limit.",
-    );
+    const snapshot = await this.readyOrders.refresh(signal);
+    return [...snapshot.orders]
+      .sort((left, right) => left.orderDate.localeCompare(right.orderDate))
+      .map((order) => ({ id: order.orderNumber, status: order.status }));
   }
 
   async confirmOrder(

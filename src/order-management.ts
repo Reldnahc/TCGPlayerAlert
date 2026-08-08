@@ -1,32 +1,19 @@
 import {
   SellerOrderStatus,
-  type SellerOrderStatus as SellerOrderStatusCode,
-  type SellerOrderSearchSummary,
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
+import {
+  toManagedOrder,
+  type ManagedOrderList,
+  type ManagedOrderSummary,
+} from "./ready-orders.js";
+
+export type { ManagedOrderList, ManagedOrderSummary } from "./ready-orders.js";
 
 export type OrderListScope = "all" | "ready-to-ship";
 export type ManualPrintActionType =
   "print-address-label" | "print-packing-slip";
-
-export interface ManagedOrderSummary {
-  readonly orderNumber: string;
-  readonly buyerName: string;
-  readonly orderDate: string;
-  readonly status: string;
-  readonly statusCode: SellerOrderStatusCode;
-  readonly canMarkShipped: boolean;
-  readonly shippingType: string;
-  readonly productAmount: number;
-  readonly shippingAmount: number;
-  readonly totalAmount: number;
-}
-
-export interface ManagedOrderList {
-  readonly orders: readonly ManagedOrderSummary[];
-  readonly fetchedAt: string;
-}
 
 export interface AddTrackingResult {
   readonly orderNumber: string;
@@ -62,6 +49,7 @@ export interface OrderManagementServiceOptions {
     actionType: ManualPrintActionType,
     signal?: AbortSignal,
   ) => Promise<void>;
+  readonly onShipmentAccepted?: (orderNumber: string) => void;
 }
 
 interface CachedOrders {
@@ -83,6 +71,8 @@ export class OrderManagementService {
   private readonly cacheMilliseconds: number;
   private readonly now: () => Date;
   private readonly executePrint?: OrderManagementServiceOptions["executePrint"];
+  private readonly onShipmentAccepted:
+    OrderManagementServiceOptions["onShipmentAccepted"] | undefined;
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly pirateShipCache = new Map<
     string,
@@ -113,6 +103,7 @@ export class OrderManagementService {
     );
     this.now = options.now ?? (() => new Date());
     this.executePrint = options.executePrint;
+    this.onShipmentAccepted = options.onShipmentAccepted;
   }
 
   async listOrders(
@@ -329,23 +320,9 @@ export class OrderManagementService {
         "TCGplayer returned an unrecognized shipment result.",
       );
     }
+    this.onShipmentAccepted?.(normalized);
     return { orderNumber: normalized, outcome };
   }
-}
-
-function toManagedOrder(order: SellerOrderSearchSummary): ManagedOrderSummary {
-  return {
-    orderNumber: order.orderNumber,
-    buyerName: order.buyerName,
-    orderDate: order.orderDate,
-    status: order.orderStatus,
-    statusCode: order.orderStatusCode,
-    canMarkShipped: order.orderStatusCode === SellerOrderStatus.ReadyToShip,
-    shippingType: order.shippingType,
-    productAmount: order.productAmount,
-    shippingAmount: order.shippingAmount,
-    totalAmount: order.totalAmount,
-  };
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

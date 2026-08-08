@@ -42,6 +42,7 @@ import type {
   ManualPrintActionType,
   OrderManagementService,
 } from "./order-management.js";
+import type { OrderSyncCoordinator } from "./order-sync.js";
 import type { PaymentManagementService } from "./payment-management.js";
 import type { FeedbackManagementService } from "./feedback-management.js";
 
@@ -248,6 +249,7 @@ export interface StartConfigurationUiOptions {
   readonly inventoryWorkerRunning?: boolean;
   readonly inventoryService?: InventoryAdditionService;
   readonly orderService?: OrderManagementService;
+  readonly orderSync?: OrderSyncCoordinator;
   readonly paymentService?: PaymentManagementService;
   readonly feedbackService?: FeedbackManagementService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
@@ -291,6 +293,7 @@ export async function startConfigurationUi(
       options.inventoryWorkerRunning === true,
       options.inventoryService,
       options.orderService,
+      options.orderSync,
       options.paymentService,
       options.feedbackService,
       options.executeAddressLabel,
@@ -976,6 +979,7 @@ async function handleRequest(
   inventoryWorkerRunning: boolean,
   inventoryService: InventoryAdditionService | undefined,
   orderService: OrderManagementService | undefined,
+  orderSync: OrderSyncCoordinator | undefined,
   paymentService: PaymentManagementService | undefined,
   feedbackService: FeedbackManagementService | undefined,
   executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
@@ -1015,11 +1019,11 @@ async function handleRequest(
         return;
       }
       const scope = status === "ready-to-ship" ? "ready-to-ship" : "all";
+      const force = url.searchParams.get("refresh") === "1";
       const result = await withRequestAbort(request, response, (signal) =>
-        orderService.listOrders(scope, {
-          force: url.searchParams.get("refresh") === "1",
-          signal,
-        }),
+        scope === "ready-to-ship" && orderSync !== undefined
+          ? orderSync.listReadyOrders({ force, signal })
+          : orderService.listOrders(scope, { force, signal }),
       );
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (request.method === "GET" && url.pathname === "/api/payments") {

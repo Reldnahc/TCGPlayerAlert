@@ -16,6 +16,8 @@ import { useSettings } from "../state/SettingsContext.js";
 import { useToast } from "../state/ToastContext.js";
 import { compactDate, dateTime, errorMessage, money } from "../utils.js";
 
+const SNAPSHOT_REFRESH_MILLISECONDS = 5_000;
+
 export function DashboardPage() {
   const { settings, update } = useSettings();
   const { lists, loading, errors, load } = useOrders();
@@ -25,6 +27,10 @@ export function DashboardPage() {
   const list = lists["ready-to-ship"];
   useEffect(() => {
     void load("ready-to-ship");
+    const timer = window.setInterval(() => {
+      void load("ready-to-ship", false, true);
+    }, SNAPSHOT_REFRESH_MILLISECONDS);
+    return () => window.clearInterval(timer);
   }, [load]);
   const totals = list?.orders.reduce(
     (result, order) => ({
@@ -79,7 +85,7 @@ export function DashboardPage() {
             busy={loading["ready-to-ship"]}
             onClick={() => void load("ready-to-ship", true)}
           >
-            Refresh
+            Sync now
           </Button>
         }
       />
@@ -191,7 +197,7 @@ export function DashboardPage() {
               ) : list === null || list.orders.length === 0 ? (
                 <EmptyState
                   title="No orders are ready to ship"
-                  detail="Refresh to check TCGplayer again."
+                  detail="Sync now to check TCGplayer again."
                 />
               ) : (
                 <table class="data-table dashboard-table">

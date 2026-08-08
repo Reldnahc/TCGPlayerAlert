@@ -9,6 +9,8 @@ import {
   type AppConfig,
   type ConfigurationUiServer,
   type FeedbackManagementService,
+  type OrderManagementService,
+  type OrderSyncCoordinator,
   type PaymentManagementService,
   type RepricingService,
 } from "../src/index.js";
@@ -192,6 +194,45 @@ describe("configuration UI", () => {
     expect(forbidden.status).toBe(403);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ pollIntervalMinutes: 17 });
+  });
+
+  it("routes ready-order refreshes through shared synchronization", async () => {
+    const current = await fixture();
+    const ready = {
+      orders: [],
+      fetchedAt: "2026-08-07T12:00:00.000Z",
+    };
+    const listReadyOrders = vi
+      .fn<
+        (options: {
+          readonly force: boolean;
+          readonly signal: AbortSignal;
+        }) => Promise<typeof ready>
+      >()
+      .mockResolvedValue(ready);
+    const listOrders = vi.fn(() => Promise.resolve(ready));
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      orderService: { listOrders } as unknown as OrderManagementService,
+      orderSync: {
+        listReadyOrders,
+      } as unknown as OrderSyncCoordinator,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/orders?status=ready-to-ship&refresh=1`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(ready);
+    expect(listReadyOrders).toHaveBeenCalledOnce();
+    expect(listReadyOrders.mock.calls[0]?.[0].force).toBe(true);
+    expect(listReadyOrders.mock.calls[0]?.[0].signal).toBeInstanceOf(
+      AbortSignal,
+    );
+    expect(listOrders).not.toHaveBeenCalled();
   });
 
   it("streams concrete repricing progress before the completed preview", async () => {

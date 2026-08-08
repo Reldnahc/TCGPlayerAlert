@@ -16,6 +16,7 @@ import {
   createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
+  createReadyOrderSource,
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
@@ -25,6 +26,7 @@ import { JsonStateStore } from "./state.js";
 import { PriceUpdateWorker } from "./price-update-queue.js";
 import { InventoryAdditionWorker } from "./inventory-additions.js";
 import { FileSyncLease } from "./sync-lease.js";
+import { OrderSyncCoordinator } from "./order-sync.js";
 
 const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
@@ -111,6 +113,17 @@ try {
     process.once("SIGTERM", stop);
     const priceQueue = createPriceUpdateQueue(initialConfig);
     const inventoryQueue = createInventoryAdditionQueue(initialConfig);
+    const readyOrders = createReadyOrderSource(initialConfig);
+    const orderSync = new OrderSyncCoordinator({
+      readyOrders,
+      createWorkflow: async () =>
+        createWorkflow(
+          await loadConfig(configPath),
+          jsonLogger,
+          process.env,
+          readyOrders,
+        ),
+    });
     const priceWorker = new PriceUpdateWorker({
       queue: priceQueue,
       executor: createPriceUpdateExecutor(initialConfig),
@@ -144,7 +157,13 @@ try {
       inventoryQueue,
       inventoryWorkerRunning: true,
       inventoryService: createInventoryAdditionService(initialConfig),
-      orderService: createOrderManagementService(initialConfig, configPath),
+      orderService: createOrderManagementService(
+        initialConfig,
+        configPath,
+        process.env,
+        readyOrders,
+      ),
+      orderSync,
       paymentService: createPaymentManagementService(initialConfig),
       feedbackService: createFeedbackManagementService(initialConfig),
       executeAddressLabel,
@@ -169,15 +188,16 @@ try {
     });
     try {
       while (!controller.signal.aborted) {
-        const config = await loadConfig(configPath);
-        const workflow = createWorkflow(config, jsonLogger);
         try {
-          await workflow.run("scheduled", { signal: controller.signal });
+          await orderSync.synchronize("scheduled", {
+            signal: controller.signal,
+          });
         } catch (error) {
           jsonLogger.error("service.sync-failed", {
             errorCode: safeErrorCode(error),
           });
         }
+        const config = await loadConfig(configPath);
         await wait(config.pollIntervalMinutes * 60_000, controller.signal);
       }
     } finally {
