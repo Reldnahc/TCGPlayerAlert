@@ -17,7 +17,8 @@ export function OrderActions({
   readonly scope: "all" | "ready-to-ship";
   readonly compact?: boolean;
 }) {
-  const { load } = useOrders();
+  const { acknowledgeShipment, load, shipmentsPendingReconciliation } =
+    useOrders();
   const { settings } = useSettings();
   const toast = useToast();
   const [busy, setBusy] = useState("");
@@ -97,11 +98,23 @@ export function OrderActions({
       "shipped",
       async () => {
         await uiApi.markShipped(order.orderNumber);
+        acknowledgeShipment(order.orderNumber);
       },
       "Order marked shipped.",
       true,
     );
   }
+
+  const shipmentPendingReconciliation = shipmentsPendingReconciliation.has(
+    order.orderNumber,
+  );
+  const markShippedDisabled =
+    !order.canMarkShipped || shipmentPendingReconciliation;
+  const markShippedTitle = shipmentPendingReconciliation
+    ? "Shipment was accepted and is waiting for the order list to reconcile."
+    : order.canMarkShipped
+      ? ""
+      : `Unavailable for TCGplayer status: ${order.status}`;
 
   const primary = (
     <>
@@ -123,12 +136,8 @@ export function OrderActions({
       <Button
         tone="primary"
         busy={busy === "shipped"}
-        disabled={!order.canMarkShipped}
-        title={
-          order.canMarkShipped
-            ? ""
-            : `Unavailable for TCGplayer status: ${order.status}`
-        }
+        disabled={markShippedDisabled}
+        title={markShippedTitle}
         onClick={() => void markShipped()}
       >
         Mark shipped
@@ -153,12 +162,8 @@ export function OrderActions({
             <Button
               tone="primary"
               busy={busy === "shipped"}
-              disabled={!order.canMarkShipped}
-              title={
-                order.canMarkShipped
-                  ? ""
-                  : `Unavailable for TCGplayer status: ${order.status}`
-              }
+              disabled={markShippedDisabled}
+              title={markShippedTitle}
               onClick={() => void markShipped()}
             >
               Mark shipped

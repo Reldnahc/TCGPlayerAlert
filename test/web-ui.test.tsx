@@ -280,6 +280,16 @@ describe("operator console", () => {
       ),
     );
     expect(confirm).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          requestPath(input).startsWith("/api/orders?"),
+        ),
+      ).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("SYNTHETIC-ORDER-1")).toBeNull(),
+    );
   });
 
   it("adds an exact catalog SKU directly from the search row", async () => {
