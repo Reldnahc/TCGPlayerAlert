@@ -57,4 +57,9 @@ The detector receives only local pixel buffers and makes no network requests.
 It is lazily loaded with Scan lab rather than increasing the initial
 operator-console bundle. A narrow local declaration file covers only the
 package API used by this application because the package does not publish
-TypeScript declarations.
+TypeScript declarations. The package's AprilTag dictionary uses a legacy
+CommonJS top-level `this` fallback that is invalid after conversion to a browser
+ES module. The Vite build applies one exact, pinned compatibility rewrite to
+use the dictionary's existing `require` path directly and fails if that source
+initializer changes. A production-chunk regression test prevents the fatal
+browser form from shipping again.
