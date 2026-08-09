@@ -13,7 +13,7 @@ import { createPrinter, type Printer } from "./printing.js";
 import { FulfillmentWorkflow } from "./orchestrator.js";
 import { JsonStateStore } from "./state.js";
 import { TcgplayerOrderProvider } from "./tcgplayer-provider.js";
-import { visionLabCase, type VisionLabCaseId } from "./vision-lab.js";
+import { visionLabPrintedOrder, type VisionLabCaseId } from "./vision-lab.js";
 import { FileSyncLease } from "./sync-lease.js";
 import {
   createTcgplayerPriceUpdateExecutor,
@@ -143,11 +143,13 @@ export async function executeConfiguredVisionLabLabel(
   config: AppConfig,
   caseId: VisionLabCaseId,
   options: {
+    readonly labelIndex?: number;
     readonly printers?: Readonly<Record<string, Printer>>;
     readonly signal?: AbortSignal;
   } = {},
 ): Promise<void> {
-  const labCase = visionLabCase(caseId);
+  const labelIndex = options.labelIndex ?? 0;
+  const printedOrder = visionLabPrintedOrder(caseId, labelIndex);
   const selected = Object.values(config.actions).find(
     (action) => action.type === "print-address-label",
   );
@@ -165,10 +167,10 @@ export async function executeConfiguredVisionLabLabel(
   await executeAddressLabelLines(
     selected,
     printer,
-    labCase.printedOrder.addressLines,
-    `vision-lab:${caseId}:${randomUUID()}`,
+    printedOrder.addressLines,
+    `vision-lab:${caseId}:${String(labelIndex)}:${randomUUID()}`,
     options.signal,
-    labCase.printedOrder.tagId,
+    printedOrder.tagId,
   );
 }
 

@@ -63,8 +63,10 @@ export {
   executeConfiguredOrderPrint,
 } from "./runtime.js";
 export {
+  parseVisionLabLabelIndex,
   resolveVisionLabScan,
   visionLabCase,
+  visionLabPrintedOrder,
   VISION_LAB_CASES,
 } from "./vision-lab.js";
 export type * from "./vision-lab.js";

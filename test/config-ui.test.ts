@@ -701,7 +701,8 @@ describe("configuration UI", () => {
     const executeVisionLabLabel = vi
       .fn<
         (
-          caseId: "unique" | "missing" | "ambiguous",
+          caseId: "unique" | "missing" | "ambiguous" | "basket",
+          labelIndex: number,
           signal?: AbortSignal,
         ) => Promise<void>
       >()
@@ -713,14 +714,16 @@ describe("configuration UI", () => {
       executeVisionLabLabel,
     });
     const serverUrl = server.url;
-    const print = (caseId: string) =>
+    const print = (caseId: string, labelIndex?: number) =>
       fetch(`${serverUrl}/api/vision-lab/print`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: serverUrl },
-        body: JSON.stringify({ caseId }),
+        body: JSON.stringify({ caseId, labelIndex }),
       });
 
     const response = await print("unique");
+    const basket = await print("basket", 4);
+    const invalidLabel = await print("basket", 5);
     const invalid = await print("real-order");
 
     expect(response.status).toBe(200);
@@ -728,12 +731,27 @@ describe("configuration UI", () => {
       printed: true,
       synthetic: true,
       caseId: "unique",
+      labelIndex: 0,
+    });
+    expect(basket.status).toBe(200);
+    expect(await basket.json()).toEqual({
+      printed: true,
+      synthetic: true,
+      caseId: "basket",
+      labelIndex: 4,
     });
     expect(executeVisionLabLabel).toHaveBeenCalledWith(
       "unique",
+      0,
       expect.any(AbortSignal),
     );
+    expect(executeVisionLabLabel).toHaveBeenCalledWith(
+      "basket",
+      4,
+      expect.any(AbortSignal),
+    );
+    expect(invalidLabel.status).toBe(400);
     expect(invalid.status).toBe(400);
-    expect(executeVisionLabLabel).toHaveBeenCalledOnce();
+    expect(executeVisionLabLabel).toHaveBeenCalledTimes(2);
   });
 });

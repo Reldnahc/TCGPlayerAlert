@@ -54,13 +54,15 @@ are dropped while detection is busy so scanning cannot build an unbounded queue
 or block the operator interface. A frame containing multiple visual tags
 requires review rather than choosing one.
 
-Three synthetic cases exercise exactly one order match, no match, and two order
-matches for one tag. Only one match produces a **Would mark shipped** result. A
-repeated scan is recorded in an in-memory fake ledger and reports **Already
-simulated**. No match and multiple matches require review. The lab print route
-accepts only one of the fixed synthetic case identifiers and is injected with a
-print-only function; it has no order service, seller client, or
-shipment-mutation path.
+Four synthetic cases exercise exactly one order match, no match, two order
+matches for one tag, and a five-parcel basket sample. The basket contains five
+distinct fake orders and tags in one ready-order pool and can submit one label
+or all five labels sequentially through explicit controls. Only one match
+produces a **Would mark shipped** result. A repeated scan is recorded in an
+in-memory fake ledger and reports **Already simulated**. No match and multiple
+matches require review. The lab print route accepts only a fixed synthetic case
+identifier and an in-range label index and is injected with a print-only
+function; it has no order service, seller client, or shipment-mutation path.
 
 Production activation is a separate decision. It will require a durable,
 non-secret mapping from active tag identifiers to real orders, authoritative

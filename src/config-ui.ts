@@ -48,7 +48,11 @@ import type { PaymentManagementService } from "./payment-management.js";
 import type { FeedbackManagementService } from "./feedback-management.js";
 import type { MessageManagementService } from "./message-management.js";
 import type { SellerSessionService } from "./seller-session.js";
-import { parseVisionLabCaseId, type VisionLabCaseId } from "./vision-lab.js";
+import {
+  parseVisionLabCaseId,
+  parseVisionLabLabelIndex,
+  type VisionLabCaseId,
+} from "./vision-lab.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   Object.values(SellerPayoutStatus),
@@ -243,6 +247,7 @@ export type ConfigurationAddressLabelPrint = (
 
 export type ConfigurationVisionLabPrint = (
   caseId: VisionLabCaseId,
+  labelIndex: number,
   signal?: AbortSignal,
 ) => Promise<void>;
 
@@ -1408,17 +1413,25 @@ async function handleRequest(
         });
         return;
       }
-      const caseId = parseVisionLabCaseId(
-        objectValue(await readJsonBody(request))?.caseId,
-      );
+      const body = objectValue(await readJsonBody(request));
+      const caseId = parseVisionLabCaseId(body?.caseId);
       if (caseId === undefined) {
         throw new ConfigurationError(["A valid vision-lab case is required."]);
       }
+      const labelIndex = parseVisionLabLabelIndex(body?.labelIndex, caseId);
+      if (labelIndex === undefined) {
+        throw new ConfigurationError(["A valid synthetic label is required."]);
+      }
       await withRequestAbort(request, response, (signal) =>
-        executeVisionLabLabel(caseId, signal),
+        executeVisionLabLabel(caseId, labelIndex, signal),
       );
       if (!response.destroyed) {
-        sendJson(response, 200, { printed: true, synthetic: true, caseId });
+        sendJson(response, 200, {
+          printed: true,
+          synthetic: true,
+          caseId,
+          labelIndex,
+        });
       }
     } else if (
       request.method === "POST" &&

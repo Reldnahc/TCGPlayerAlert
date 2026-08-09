@@ -238,10 +238,13 @@ export const uiApi = {
       method: "POST",
       body: JSON.stringify({ address }),
     }),
-  printVisionLabLabel: (caseId: VisionLabCaseId): Promise<void> =>
+  printVisionLabLabel: (
+    caseId: VisionLabCaseId,
+    labelIndex: number,
+  ): Promise<void> =>
     requestJson("/api/vision-lab/print", {
       method: "POST",
-      body: JSON.stringify({ caseId }),
+      body: JSON.stringify({ caseId, labelIndex }),
     }),
   orders: (
     scope: "all" | "ready-to-ship",

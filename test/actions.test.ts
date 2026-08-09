@@ -224,4 +224,48 @@ describe("address-label action", () => {
       },
     });
   });
+
+  it("prints each label in the five-parcel basket sample", async () => {
+    const submitted: PrintJob[] = [];
+    const printer: Printer = {
+      acceptedMediaTypes: new Set([
+        "application/vnd.tcgplayer-alert.address-label+json",
+      ]),
+      submit: (job) => {
+        submitted.push(job);
+        return Promise.resolve();
+      },
+    };
+    const config = appConfig({
+      actions: {
+        label: {
+          type: "print-address-label",
+          enabled: false,
+          printer: "synthetic",
+          page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
+          lines: ["{recipientName}"],
+          omitLineValues: ["US", "USA"],
+        },
+      },
+    });
+
+    for (let labelIndex = 0; labelIndex < 5; labelIndex += 1) {
+      await executeConfiguredVisionLabLabel(config, "basket", {
+        labelIndex,
+        printers: { synthetic: printer },
+      });
+    }
+
+    expect(submitted).toHaveLength(5);
+    expect(
+      submitted.map((job) =>
+        job.mediaType === "application/vnd.tcgplayer-alert.address-label+json"
+          ? job.fiducialMarker?.tagId
+          : undefined,
+      ),
+    ).toEqual([41, 84, 126, 205, 333]);
+    expect(submitted[4]).toMatchObject({
+      lines: ["Emery Mock", "52 Simulation Circle", "Test City, IL 60014"],
+    });
+  });
 });

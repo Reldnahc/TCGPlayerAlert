@@ -1273,7 +1273,7 @@
 }
 .scan-lab-cases {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 7px;
 }
 .scan-lab-cases button {
@@ -1299,6 +1299,36 @@
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.25;
+}
+.scan-lab-label-picker {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.scan-lab-label-picker button {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 7px;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  text-align: left;
+}
+.scan-lab-label-picker button:hover,
+.scan-lab-label-picker button.is-active {
+  border-color: #7ba999;
+  color: var(--text);
+  background: #eef7f3;
+}
+.scan-lab-label-picker button.is-active {
+  box-shadow: inset 0 0 0 1px #7ba999;
+}
+.scan-lab-label-picker span {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .synthetic-label {
   display: grid;
@@ -1472,6 +1502,9 @@
   }
   .scan-lab-cases {
     grid-template-columns: 1fr;
+  }
+  .scan-lab-label-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .scan-lab-actions {
     align-items: stretch;

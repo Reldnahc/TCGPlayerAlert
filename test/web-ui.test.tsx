@@ -654,6 +654,38 @@ describe("operator console", () => {
     await user.click(screen.getByRole("button", { name: "Scan preview" }));
     expect(await screen.findByText("No matching order")).toBeTruthy();
 
+    await user.click(screen.getByRole("button", { name: /Basket of 5/u }));
+    await user.click(
+      screen.getByRole("button", { name: "Label 5: Emery Mock" }),
+    );
+    expect(screen.getByText("52 Simulation Circle")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Print all 5 labels" }),
+    );
+    expect(
+      await screen.findByText("5 synthetic labels sent to the printer."),
+    ).toBeTruthy();
+
+    const basketPrintBodies = fetchMock.mock.calls
+      .filter(
+        ([input, options]) =>
+          requestPath(input) === "/api/vision-lab/print" &&
+          options?.method === "POST",
+      )
+      .map(([, options]) => {
+        if (typeof options?.body !== "string") {
+          throw new Error("Expected a synthetic label print body.");
+        }
+        return JSON.parse(options.body) as Record<string, unknown>;
+      });
+    expect(basketPrintBodies).toEqual([
+      { caseId: "basket", labelIndex: 0 },
+      { caseId: "basket", labelIndex: 1 },
+      { caseId: "basket", labelIndex: 2 },
+      { caseId: "basket", labelIndex: 3 },
+      { caseId: "basket", labelIndex: 4 },
+    ]);
+
     expect(
       fetchMock.mock.calls.every(
         ([input]) => !requestPath(input).includes("mark-shipped"),

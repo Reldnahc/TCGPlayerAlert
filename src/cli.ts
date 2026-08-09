@@ -45,9 +45,11 @@ const executeAddressLabel: ConfigurationAddressLabelPrint = async (
   });
 const executeVisionLabLabel: ConfigurationVisionLabPrint = async (
   caseId,
+  labelIndex,
   signal,
 ) =>
   executeConfiguredVisionLabLabel(await loadConfig(configPath), caseId, {
+    labelIndex,
     ...(signal === undefined ? {} : { signal }),
   });
 

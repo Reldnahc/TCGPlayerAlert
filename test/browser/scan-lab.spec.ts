@@ -23,5 +23,15 @@ test("the built Scan lab initializes AprilTag WASM and detects its preview", asy
   await expect(
     page.getByText("Already simulated", { exact: true }),
   ).toBeVisible();
+
+  await page.getByRole("button", { name: /Basket of 5/u }).click();
+  await expect(
+    page.getByRole("button", { name: "Label 1: Avery Fixture" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Label 5: Emery Mock" }).click();
+  await expect(page.getByText("52 Simulation Circle")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Print all 5 labels" }),
+  ).toBeVisible();
   expect(pageErrors).toEqual([]);
 });

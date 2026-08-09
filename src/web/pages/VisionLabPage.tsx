@@ -83,13 +83,16 @@ function drawSourceToCanvas(
 export function VisionLabPage() {
   const toast = useToast();
   const [caseId, setCaseId] = useState<VisionLabCaseId>("unique");
+  const [labelIndex, setLabelIndex] = useState(0);
   const [resolution, setResolution] = useState<VisionLabResolution | null>(
     null,
   );
   const [scanError, setScanError] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
   const [scanningPreview, setScanningPreview] = useState(false);
-  const [printing, setPrinting] = useState(false);
+  const [printingMode, setPrintingMode] = useState<"selected" | "all" | null>(
+    null,
+  );
   const completedRef = useRef(new Set<string>());
   const markerCanvasRef = useRef<HTMLCanvasElement>(null);
   const workCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -107,6 +110,12 @@ export function VisionLabPage() {
     cameraConsensusRef.current,
   );
   const selectedCase = useMemo(() => visionLabCase(caseId), [caseId]);
+  const selectedPrintedOrder = useMemo(() => {
+    const order =
+      selectedCase.printedOrders[labelIndex] ?? selectedCase.printedOrders[0];
+    if (order === undefined) throw new Error("The lab case has no labels.");
+    return order;
+  }, [labelIndex, selectedCase]);
   const knownTagIds = useMemo(
     () => new Set(selectedCase.candidates.map((candidate) => candidate.tagId)),
     [selectedCase],
@@ -235,15 +244,19 @@ export function VisionLabPage() {
   }
 
   useEffect(() => {
-    const canvas = markerCanvasRef.current;
-    if (canvas !== null) {
-      drawAprilTag(canvas, selectedCase.printedOrder.tagId);
-    }
+    setLabelIndex(0);
     setResolution(null);
     setScanError("");
     resetCameraCycle();
     stopCamera();
   }, [selectedCase]);
+
+  useEffect(() => {
+    const canvas = markerCanvasRef.current;
+    if (canvas !== null) {
+      drawAprilTag(canvas, selectedPrintedOrder.tagId);
+    }
+  }, [selectedPrintedOrder]);
 
   useEffect(() => () => stopCamera(), []);
 
@@ -364,9 +377,9 @@ export function VisionLabPage() {
   }
 
   async function printLabel() {
-    setPrinting(true);
+    setPrintingMode("selected");
     try {
-      await uiApi.printVisionLabLabel(caseId);
+      await uiApi.printVisionLabLabel(caseId, labelIndex);
       toast.show("Synthetic AprilTag label sent to the printer.", "success");
     } catch (cause) {
       toast.show(
@@ -377,7 +390,29 @@ export function VisionLabPage() {
         "danger",
       );
     } finally {
-      setPrinting(false);
+      setPrintingMode(null);
+    }
+  }
+
+  async function printAllLabels() {
+    setPrintingMode("all");
+    let printed = 0;
+    try {
+      for (const [index] of selectedCase.printedOrders.entries()) {
+        await uiApi.printVisionLabLabel(caseId, index);
+        printed += 1;
+      }
+      toast.show(
+        `${String(printed)} synthetic labels sent to the printer.`,
+        "success",
+      );
+    } catch (cause) {
+      toast.show(
+        `${String(printed)} of ${String(selectedCase.printedOrders.length)} labels were submitted. ${errorMessage(cause, "The remaining labels could not be printed.")}`,
+        "danger",
+      );
+    } finally {
+      setPrintingMode(null);
     }
   }
 
@@ -412,9 +447,34 @@ export function VisionLabPage() {
                   </button>
                 ))}
               </div>
+              {selectedCase.printedOrders.length > 1 ? (
+                <div
+                  class="scan-lab-label-picker"
+                  role="group"
+                  aria-label="Basket label"
+                >
+                  {selectedCase.printedOrders.map((order, index) => (
+                    <button
+                      key={order.orderNumber}
+                      type="button"
+                      class={index === labelIndex ? "is-active" : ""}
+                      aria-label={`Label ${String(index + 1)}: ${order.buyerName}`}
+                      aria-pressed={index === labelIndex}
+                      onClick={() => {
+                        setLabelIndex(index);
+                        setResolution(null);
+                        setScanError("");
+                      }}
+                    >
+                      <strong>{String(index + 1)}</strong>
+                      <span>{order.buyerName}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div class="synthetic-label" aria-label="Synthetic address label">
                 <div class="synthetic-label__address">
-                  {selectedCase.printedOrder.addressLines.map((line) => (
+                  {selectedPrintedOrder.addressLines.map((line) => (
                     <span key={line}>{line}</span>
                   ))}
                 </div>
@@ -434,11 +494,24 @@ export function VisionLabPage() {
                 </Button>
                 <Button
                   icon="printer"
-                  busy={printing}
+                  busy={printingMode === "selected"}
+                  disabled={printingMode !== null}
                   onClick={() => void printLabel()}
                 >
-                  Print synthetic label
+                  {selectedCase.printedOrders.length > 1
+                    ? "Print selected label"
+                    : "Print synthetic label"}
                 </Button>
+                {selectedCase.printedOrders.length > 1 ? (
+                  <Button
+                    icon="printer"
+                    busy={printingMode === "all"}
+                    disabled={printingMode !== null}
+                    onClick={() => void printAllLabels()}
+                  >
+                    Print all 5 labels
+                  </Button>
+                ) : null}
               </div>
             </div>
           </section>
