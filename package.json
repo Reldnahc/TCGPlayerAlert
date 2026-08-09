@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "npm run build:server && npm run build:web && npm run build:extension",
-    "build:server": "tsup",
+    "build:server": "tsup && node scripts/copy-background-assets.mjs",
     "build:web": "vite build",
     "build:extension": "node scripts/build-browser-extension.mjs",
     "preview:web": "npm run build && node scripts/preview-ui.mjs",
@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.88",
+    "node-av": "6.1.1",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "preact": "10.29.8",
@@ -54,6 +55,19 @@
     "vitest": "4.1.10"
   },
   "overrides": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "werift": {
+      "@shinyoshiaki/binary-data": "npm:@seydx/binary-data@0.6.2",
+      "ip": "npm:neoip@2.1.0"
+    },
+    "werift-dtls": {
+      "@shinyoshiaki/binary-data": "npm:@seydx/binary-data@0.6.2"
+    },
+    "werift-ice": {
+      "ip": "npm:neoip@2.1.0"
+    },
+    "werift-sctp": {
+      "@shinyoshiaki/binary-data": "npm:@seydx/binary-data@0.6.2"
+    }
   }
 }

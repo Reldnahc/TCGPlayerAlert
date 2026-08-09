@@ -22,6 +22,7 @@ import {
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
   createSellerSessionManager,
+  createBackgroundShipmentScanner,
   createShipmentScannerService,
   createWorkflow,
 } from "./runtime.js";
@@ -170,6 +171,11 @@ try {
       readyOrders,
       orderService,
     );
+    const backgroundShipmentScanner = createBackgroundShipmentScanner(
+      configPath,
+      shipmentScannerService,
+      jsonLogger,
+    );
     const orderSync = new OrderSyncCoordinator({
       readyOrders,
       createWorkflow: async () =>
@@ -235,6 +241,7 @@ try {
       orderService,
       orderSync,
       shipmentScannerService,
+      backgroundShipmentScanner,
       paymentService: createPaymentManagementService(
         initialConfig,
         process.env,
@@ -268,6 +275,13 @@ try {
           errorCode: safeErrorCode(error),
         });
       });
+    const backgroundScannerPromise = backgroundShipmentScanner
+      .run(controller.signal)
+      .catch((error: unknown) => {
+        jsonLogger.error("shipment-camera.worker-failed", {
+          errorCode: safeErrorCode(error),
+        });
+      });
     jsonLogger.info("service.started", {
       settingsUrl: ui.url,
     });
@@ -289,6 +303,7 @@ try {
       }
     } finally {
       await ui.close();
+      await backgroundScannerPromise;
       await priceWorkerPromise;
       await inventoryWorkerPromise;
     }

@@ -127,6 +127,12 @@ export function SettingsPage() {
                         automaticallyMarkShipped: checked
                           ? current.shipmentScanner.automaticallyMarkShipped
                           : false,
+                        camera: {
+                          ...current.shipmentScanner.camera,
+                          enabled: checked
+                            ? current.shipmentScanner.camera.enabled
+                            : false,
+                        },
                       },
                     }))
                   }
@@ -147,8 +153,67 @@ export function SettingsPage() {
                   }
                 />
                 <Toggle
+                  label="Run the basket camera in the background"
+                  description="Keeps scanning while this browser window is closed, as long as the app is running"
+                  checked={settings.shipmentScanner.camera.enabled}
+                  disabled={!settings.shipmentScanner.enabled}
+                  onChange={(checked) =>
+                    update((current) => ({
+                      ...current,
+                      shipmentScanner: {
+                        ...current.shipmentScanner,
+                        camera: {
+                          ...current.shipmentScanner.camera,
+                          enabled: checked,
+                        },
+                      },
+                    }))
+                  }
+                />
+                <Field
+                  label="Basket camera"
+                  hint={
+                    settings.cameraDiscoveryIssue ??
+                    "The system default is used when no camera is selected"
+                  }
+                >
+                  <select
+                    value={settings.shipmentScanner.camera.deviceId}
+                    disabled={!settings.shipmentScanner.enabled}
+                    onChange={(event) =>
+                      update((current) => ({
+                        ...current,
+                        shipmentScanner: {
+                          ...current.shipmentScanner,
+                          camera: {
+                            ...current.shipmentScanner.camera,
+                            deviceId: event.currentTarget.value,
+                          },
+                        },
+                      }))
+                    }
+                  >
+                    <option value="">System default</option>
+                    {settings.installedCameras.map((camera) => (
+                      <option key={camera.id} value={camera.id}>
+                        {camera.label}
+                        {camera.isDefault ? " (default)" : ""}
+                      </option>
+                    ))}
+                    {settings.shipmentScanner.camera.deviceId === "" ||
+                    settings.installedCameras.some(
+                      (camera) =>
+                        camera.id === settings.shipmentScanner.camera.deviceId,
+                    ) ? null : (
+                      <option value={settings.shipmentScanner.camera.deviceId}>
+                        {settings.shipmentScanner.camera.deviceId} (unavailable)
+                      </option>
+                    )}
+                  </select>
+                </Field>
+                <Toggle
                   label="Play scan sounds"
-                  description="High cue for success; low cue when review is required"
+                  description="Play a host-system cue after a background scan"
                   checked={settings.shipmentScanner.soundEnabled}
                   onChange={(checked) =>
                     update((current) => ({

@@ -39,6 +39,16 @@ async function fixture(): Promise<{
     service: new ConfigurationService({
       configPath: path,
       discoverPrinters: discovery,
+      discoverCameras: () =>
+        Promise.resolve({
+          cameras: [
+            {
+              id: "synthetic-camera",
+              label: "Synthetic Camera",
+              isDefault: true,
+            },
+          ],
+        }),
     }),
   };
 }
@@ -78,6 +88,7 @@ describe("configuration UI", () => {
         enabled: true,
         automaticallyMarkShipped: false,
         soundEnabled: false,
+        camera: { enabled: true, deviceId: "synthetic-camera" },
       },
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
       inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
@@ -120,6 +131,7 @@ describe("configuration UI", () => {
         enabled: true,
         automaticallyMarkShipped: false,
         soundEnabled: false,
+        camera: { enabled: true, deviceId: "synthetic-camera" },
       },
       merchandiseProfiles: [
         { estimatedShippingPrice: 0.99, defaultCondition: "Lightly Played" },
@@ -428,6 +440,12 @@ describe("configuration UI", () => {
       readyTagIds: [42],
       conflictingTagCount: 0,
       reviewRequiredCount: 0,
+      backgroundCamera: {
+        state: "unavailable",
+        deviceId: "",
+        consensus: { tagId: null, matchingReads: 0, requiredReads: 0 },
+        issue: "Background capture is available while the service is running.",
+      },
     });
     expect(status).toHaveBeenCalledOnce();
     expect(await scanResponse.json()).toEqual({ state: "no-match", tagId: 42 });

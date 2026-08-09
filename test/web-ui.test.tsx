@@ -13,12 +13,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/web/App.js";
 import type { Settings } from "../src/web/contracts.js";
 
-const detectorMocks = vi.hoisted(() => ({
-  detectShipmentAprilTags: vi.fn(),
-}));
-
-vi.mock("../src/web/april-tag-detector.js", () => detectorMocks);
-
 const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
@@ -27,6 +21,7 @@ const settings: Settings = {
     enabled: false,
     automaticallyMarkShipped: false,
     soundEnabled: true,
+    camera: { enabled: false, deviceId: "" },
   },
   priceUpdateQueue: { enabled: true, delaySeconds: 0 },
   inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
@@ -98,6 +93,9 @@ const settings: Settings = {
     { name: "Synthetic Label Printer", isDefault: false },
     { name: "Synthetic Office Printer", isDefault: true },
   ],
+  installedCameras: [
+    { id: "synthetic-camera", label: "Synthetic Camera", isDefault: true },
+  ],
 };
 
 function json(value: unknown, status = 200): Response {
@@ -147,6 +145,11 @@ function baseFetch(
         readyTagIds: [],
         conflictingTagCount: 0,
         reviewRequiredCount: 0,
+        backgroundCamera: {
+          state: "disabled",
+          deviceId: "",
+          consensus: { tagId: null, matchingReads: 0, requiredReads: 0 },
+        },
       }),
     );
   }
@@ -230,8 +233,6 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
-  Reflect.deleteProperty(navigator, "mediaDevices");
-  detectorMocks.detectShipmentAprilTags.mockReset();
   window.localStorage.clear();
   window.location.hash = "";
 });
@@ -624,7 +625,7 @@ describe("operator console", () => {
     });
   });
 
-  it("shows the production scanner state without a seller request per camera frame", async () => {
+  it("shows the service-owned camera without making an order request", async () => {
     window.location.hash = "scanner";
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
@@ -639,6 +640,12 @@ describe("operator console", () => {
               conflictingTagCount: 0,
               reviewRequiredCount: 0,
               snapshotFetchedAt: "2026-08-09T12:00:00.000Z",
+              backgroundCamera: {
+                state: "running",
+                deviceId: "synthetic-camera",
+                consensus: { tagId: null, matchingReads: 0, requiredReads: 0 },
+                lastFrameAt: "2026-08-09T12:00:01.000Z",
+              },
             }),
           );
         }
@@ -652,13 +659,10 @@ describe("operator console", () => {
       await screen.findByRole("heading", { name: "Shipment scanner" }),
     ).toBeTruthy();
     expect(await screen.findByText("Automatic shipping")).toBeTruthy();
-    expect(await screen.findByText("On confirmed scan")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start camera" })).toBeTruthy();
-    expect(
-      fetchMock.mock.calls.filter(
-        ([input]) => requestPath(input) === "/api/shipment-scanner",
-      ),
-    ).toHaveLength(1);
+    expect(await screen.findByText("Watching the basket")).toBeTruthy();
+    expect(screen.getByText("Synthetic Camera")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start camera" })).toBeNull();
+    expect(document.querySelector("video")).toBeNull();
     expect(
       fetchMock.mock.calls.some(([input]) =>
         requestPath(input).startsWith("/api/orders"),
@@ -666,47 +670,14 @@ describe("operator console", () => {
     ).toBe(false);
   });
 
-  it("keeps scanning after one wrong camera read and confirms the known tag", async () => {
+  it("shows a background match after the status poll without submitting a scan", async () => {
     vi.useFakeTimers();
-    let cameraRead = 0;
-    detectorMocks.detectShipmentAprilTags.mockImplementation(() => {
-      cameraRead += 1;
-      if (cameraRead === 1) {
-        return Promise.resolve([
-          { tagId: 99, hammingDistance: 0, corners: [] },
-        ]);
-      }
-      if (cameraRead <= 8 || cameraRead > 13) {
-        return Promise.resolve([{ tagId: 7, hammingDistance: 0, corners: [] }]);
-      }
-      return Promise.resolve([]);
-    });
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      function (this: HTMLCanvasElement) {
-        return {
-          drawImage: vi.fn(),
-          getImageData: () => ({
-            data: new Uint8ClampedArray(this.width * this.height * 4),
-            width: this.width,
-            height: this.height,
-          }),
-        } as unknown as CanvasRenderingContext2D;
-      },
-    );
-    const stopTrack = vi.fn();
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: {
-        getUserMedia: vi.fn().mockResolvedValue({
-          getTracks: () => [{ stop: stopTrack }],
-        }),
-      },
-    });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    let statusRead = 0;
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
         if (path === "/api/shipment-scanner") {
+          statusRead += 1;
           return Promise.resolve(
             json({
               enabled: true,
@@ -716,29 +687,44 @@ describe("operator console", () => {
               readyTagIds: [7],
               conflictingTagCount: 0,
               reviewRequiredCount: 0,
-            }),
-          );
-        }
-        if (
-          path === "/api/shipment-scanner/scan" &&
-          options?.method === "POST"
-        ) {
-          return Promise.resolve(
-            json({
-              state: "matched",
-              tagId: 7,
-              order: {
-                orderNumber: "SYNTHETIC-ORDER-7",
-                buyerName: "Synthetic Buyer",
-                orderDate: "2026-08-07T12:00:00.000Z",
-                status: "Ready to Ship",
-                statusCode: "ReadyToShip",
-                canMarkShipped: true,
-                shippingType: "Standard",
-                productAmount: 10,
-                shippingAmount: 1.49,
-                totalAmount: 11.49,
-              },
+              backgroundCamera:
+                statusRead === 1
+                  ? {
+                      state: "running",
+                      deviceId: "synthetic-camera",
+                      consensus: {
+                        tagId: 7,
+                        matchingReads: 4,
+                        requiredReads: 5,
+                      },
+                    }
+                  : {
+                      state: "waiting-for-review",
+                      deviceId: "synthetic-camera",
+                      consensus: {
+                        tagId: null,
+                        matchingReads: 0,
+                        requiredReads: 0,
+                      },
+                      latchedTagId: 7,
+                      lastResultAt: "2026-08-09T12:00:02.000Z",
+                      lastResult: {
+                        state: "matched",
+                        tagId: 7,
+                        order: {
+                          orderNumber: "SYNTHETIC-ORDER-7",
+                          buyerName: "Synthetic Buyer",
+                          orderDate: "2026-08-07T12:00:00.000Z",
+                          status: "Ready to Ship",
+                          statusCode: "ReadyToShip",
+                          canMarkShipped: true,
+                          shippingType: "Standard",
+                          productAmount: 10,
+                          shippingAmount: 1.49,
+                          totalAmount: 11.49,
+                        },
+                      },
+                    },
             }),
           );
         }
@@ -746,77 +732,23 @@ describe("operator console", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     window.location.hash = "scanner";
     render(<App />);
 
     await screen.findByRole("heading", { name: "Shipment scanner" });
     await screen.findByText("Review before shipping");
-    const video = document.querySelector("video");
-    if (video === null) throw new Error("Expected the shipment scanner video.");
-    Object.defineProperties(video, {
-      readyState: {
-        configurable: true,
-        value: HTMLMediaElement.HAVE_CURRENT_DATA,
-      },
-      videoWidth: { configurable: true, value: 16 },
-      videoHeight: { configurable: true, value: 16 },
-    });
-
-    const startCamera = screen.getByRole("button", { name: "Start camera" });
-    expect((startCamera as HTMLButtonElement).disabled).toBe(false);
-    await user.click(startCamera);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-    });
-    expect(screen.queryByText("No matching order")).toBeNull();
-    expect(screen.getByText("Confirming tag 99 - 1/5")).toBeTruthy();
+    expect(screen.getByText("Confirming tag 7")).toBeTruthy();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_250);
+      await vi.advanceTimersByTimeAsync(1_000);
     });
     expect(await screen.findByText("Exact ready-order match")).toBeTruthy();
-    expect(screen.getByText("Processed tag 7 - remove parcel")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
-    expect(stopTrack).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500);
-    });
+    expect(screen.getByText("Waiting for review")).toBeTruthy();
     expect(
-      fetchMock.mock.calls.filter(
-        ([input, options]) =>
-          requestPath(input) === "/api/shipment-scanner/scan" &&
-          options?.method === "POST",
+      fetchMock.mock.calls.some(
+        ([input]) => requestPath(input) === "/api/shipment-scanner/scan",
       ),
-    ).toHaveLength(1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_250);
-    });
-    expect(screen.getByText("Ready for the next parcel")).toBeTruthy();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_250);
-    });
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter(
-          ([input, options]) =>
-            requestPath(input) === "/api/shipment-scanner/scan" &&
-            options?.method === "POST",
-        ),
-      ).toHaveLength(2),
-    );
-    expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
-    expect(stopTrack).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Stop camera" }));
-    expect(stopTrack).toHaveBeenCalledTimes(1);
+    ).toBe(false);
   });
 
   it("marks an order shipped immediately when confirmation is disabled", async () => {

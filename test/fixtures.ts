@@ -51,6 +51,7 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       enabled: false,
       automaticallyMarkShipped: false,
       soundEnabled: true,
+      camera: { enabled: false, deviceId: "" },
       stateFile: ".data/test-shipment-scans.json",
     },
     actionMaximumAttempts: 3,

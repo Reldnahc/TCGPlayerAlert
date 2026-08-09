@@ -3,7 +3,8 @@
 ## Status
 
 Accepted; activates the production path proven by ADR 0016. ADR 0018 later
-retires the simulation lab after successful workstation validation.
+retires the simulation lab after successful workstation validation. ADR 0019
+supersedes browser ownership of continuous camera capture and sound cues.
 
 ## Context
 
@@ -41,7 +42,7 @@ marker contains only the resulting small integer. The mapping can collide by
 design. The active ready-order pool is therefore grouped by derived tag, and a
 collision is surfaced before and during scanning.
 
-The browser uses the detector and continuous-camera controller proven by ADR 0016. It examines at most four frames per second, allows one detection in flight,
+The original implementation used the browser detector and continuous-camera controller proven by ADR 0016. It examined at most four frames per second, allowed one detection in flight,
 requires five matching reads, latches the processed tag, and re-arms after five
 empty frames. Multiple visible tags stop for review. The status route reads the
 existing in-memory ready-order snapshot and never contacts TCGplayer. Camera
@@ -68,7 +69,7 @@ mutation uses the existing order-management callback to remove the accepted
 order from the shared ready snapshot immediately.
 
 Success, already-processed, no-match, collision, and review-required outcomes
-use distinct visual states. Optional sound is a secondary browser cue only;
+use distinct visual states. The original optional sound was a secondary browser cue only;
 visual and server results remain authoritative. Failure to create an audio
 context never changes scan behavior.
 

@@ -31,10 +31,8 @@ import type {
   RepricingProgress,
   RepricingRules,
 } from "../repricing.js";
-import type {
-  ShipmentScannerStatus as ServerShipmentScannerStatus,
-  ShipmentScanResult as ServerShipmentScanResult,
-} from "../shipment-scanner.js";
+import type { ShipmentScanResult as ServerShipmentScanResult } from "../shipment-scanner.js";
+import type { ManagedShipmentScannerStatus } from "../background-shipment-scanner.js";
 
 export type Settings = ConfigurationUiSettings;
 export type SettingsUpdate = ConfigurationUiUpdate;
@@ -46,7 +44,7 @@ export interface ShipmentResult {
   readonly outcome: "applied" | "already-applied";
 }
 export type PirateShipResult = PirateShipPreparation;
-export type ShipmentScannerStatus = ServerShipmentScannerStatus;
+export type ShipmentScannerStatus = ManagedShipmentScannerStatus;
 export type ShipmentScanResult = ServerShipmentScanResult;
 export type PaymentsPage = ManagedPaymentsPage;
 export type PaymentDetail = SellerPayoutDetail;

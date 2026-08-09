@@ -98,6 +98,7 @@ function service(options: {
           enabled: options.enabled ?? true,
           automaticallyMarkShipped: options.automatic ?? false,
           soundEnabled: true,
+          camera: { enabled: false, deviceId: "" },
           stateFile: ".data/test-shipment-scans.json",
         }),
       readyOrders: options.ready,

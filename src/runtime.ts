@@ -45,6 +45,9 @@ import {
   JsonShipmentScanStore,
   ShipmentScannerService,
 } from "./shipment-scanner.js";
+import { WasmShipmentTagDetector } from "./background-april-tag-detector.js";
+import { BackgroundShipmentScanner } from "./background-shipment-scanner.js";
+import { NodeAvCameraCapture } from "./camera-capture.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -322,6 +325,20 @@ export function createShipmentScannerService(
     readyOrders,
     orders,
     store: new JsonShipmentScanStore(config.shipmentScanner.stateFile),
+  });
+}
+
+export function createBackgroundShipmentScanner(
+  configPath: string,
+  scanner: ShipmentScannerService,
+  logger: Logger,
+): BackgroundShipmentScanner {
+  return new BackgroundShipmentScanner({
+    settings: async () => (await loadConfig(configPath)).shipmentScanner,
+    camera: new NodeAvCameraCapture(),
+    detector: new WasmShipmentTagDetector(),
+    scanner,
+    logger,
   });
 }
 

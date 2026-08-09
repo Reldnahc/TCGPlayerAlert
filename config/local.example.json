@@ -7,6 +7,10 @@
     "enabled": false,
     "automaticallyMarkShipped": false,
     "soundEnabled": true,
+    "camera": {
+      "enabled": false,
+      "deviceId": ""
+    },
     "stateFile": ".data/shipment-scans.json"
   },
   "actionMaximumAttempts": 3,

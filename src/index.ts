@@ -5,6 +5,17 @@ export {
   renderAddressLabel,
   renderSyntheticPrintTest,
 } from "./actions.js";
+export {
+  BackgroundShipmentScanner,
+  HostShipmentScanCue,
+  unavailableBackgroundCameraStatus,
+} from "./background-shipment-scanner.js";
+export type * from "./background-shipment-scanner.js";
+export {
+  discoverSystemCameras,
+  NodeAvCameraCapture,
+} from "./camera-capture.js";
+export type * from "./camera-capture.js";
 export type { WorkflowAction } from "./actions.js";
 export { ConfigurationService, startConfigurationUi } from "./config-ui.js";
 export type * from "./config-ui.js";
@@ -44,6 +55,7 @@ export { evaluateRules } from "./rules.js";
 export type * from "./rules.js";
 export {
   createInventoryAdditionExecutor,
+  createBackgroundShipmentScanner,
   createFeedbackManagementService,
   createInventoryAdditionQueue,
   createInventoryAdditionService,

@@ -113,6 +113,7 @@ describe("address-label action", () => {
         enabled: true,
         automaticallyMarkShipped: false,
         soundEnabled: true,
+        camera: { enabled: false, deviceId: "" },
         stateFile: ".data/test-shipment-scans.json",
       },
       actions: {
@@ -156,6 +157,7 @@ describe("address-label action", () => {
         enabled: true,
         automaticallyMarkShipped: true,
         soundEnabled: true,
+        camera: { enabled: false, deviceId: "" },
         stateFile: ".data/test-shipment-scans.json",
       },
       actions: {

@@ -17,6 +17,7 @@ describe("application configuration", () => {
       enabled: false,
       automaticallyMarkShipped: false,
       soundEnabled: true,
+      camera: { enabled: false, deviceId: "" },
       stateFile: ".data/shipment-scans.json",
     });
     expect(config.priceUpdateQueue.delaySeconds).toBe(1);
@@ -123,8 +124,41 @@ describe("application configuration", () => {
       enabled: false,
       automaticallyMarkShipped: false,
       soundEnabled: true,
+      camera: { enabled: false, deviceId: "" },
       stateFile: ".data/shipment-scans.json",
     });
+  });
+
+  it("keeps the background camera disabled when migrating an older scanner config", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    value.shipmentScanner = {
+      enabled: true,
+      automaticallyMarkShipped: false,
+      soundEnabled: true,
+      stateFile: ".data/shipment-scans.json",
+    };
+
+    expect(parseConfig(value).shipmentScanner.camera).toEqual({
+      enabled: false,
+      deviceId: "",
+    });
+  });
+
+  it("rejects a background camera unless shipment scanning is enabled", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    value.shipmentScanner = {
+      enabled: false,
+      automaticallyMarkShipped: false,
+      soundEnabled: true,
+      camera: { enabled: true, deviceId: "" },
+      stateFile: ".data/shipment-scans.json",
+    };
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });
 
   it("rejects automatic shipment changes unless scanning is enabled", async () => {
@@ -135,6 +169,7 @@ describe("application configuration", () => {
       enabled: false,
       automaticallyMarkShipped: true,
       soundEnabled: true,
+      camera: { enabled: false, deviceId: "" },
       stateFile: ".data/shipment-scans.json",
     };
 

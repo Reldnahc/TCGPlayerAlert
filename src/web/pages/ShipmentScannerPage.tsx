@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type {
   ShipmentScannerStatus,
   ShipmentScanResult,
 } from "../contracts.js";
 import { uiApi } from "../api.js";
-import { useAprilTagScanner } from "../useAprilTagScanner.js";
+import { useAprilTagImageScanner } from "../useAprilTagImageScanner.js";
 import {
   Button,
   Field,
@@ -16,11 +16,15 @@ import {
 import { errorMessage } from "../utils.js";
 import { useSettings } from "../state/SettingsContext.js";
 
+const STATUS_REFRESH_MILLISECONDS = 1_000;
+
 export function ShipmentScannerPage() {
   const { settings } = useSettings();
   const [status, setStatus] = useState<ShipmentScannerStatus | null>(null);
   const [statusError, setStatusError] = useState("");
-  const [result, setResult] = useState<ShipmentScanResult | null>(null);
+  const [manualResult, setManualResult] = useState<ShipmentScanResult | null>(
+    null,
+  );
   const [processing, setProcessing] = useState(false);
   const processingRef = useRef(false);
 
@@ -37,12 +41,12 @@ export function ShipmentScannerPage() {
 
   useEffect(() => {
     void loadStatus();
+    const timer = window.setInterval(
+      () => void loadStatus(),
+      STATUS_REFRESH_MILLISECONDS,
+    );
+    return () => window.clearInterval(timer);
   }, [settings?.revision]);
-
-  const knownTagIds = useMemo(
-    () => new Set(status?.readyTagIds ?? []),
-    [status],
-  );
 
   async function resolveTag(tagId: number) {
     if (processingRef.current) {
@@ -50,10 +54,10 @@ export function ShipmentScannerPage() {
     }
     processingRef.current = true;
     setProcessing(true);
-    setResult(null);
+    setManualResult(null);
     try {
       const next = await uiApi.scanShipmentTag(tagId);
-      setResult(next);
+      setManualResult(next);
       playScanCue(next, status?.soundEnabled === true);
       await loadStatus();
     } catch (cause) {
@@ -65,10 +69,7 @@ export function ShipmentScannerPage() {
     }
   }
 
-  const scanner = useAprilTagScanner({
-    knownTagIds,
-    onConfirmed: resolveTag,
-  });
+  const imageScanner = useAprilTagImageScanner({ onConfirmed: resolveTag });
 
   async function markMatchedOrder(
     matched: Extract<ShipmentScanResult, { readonly state: "matched" }>,
@@ -76,17 +77,17 @@ export function ShipmentScannerPage() {
     if (processingRef.current) return;
     processingRef.current = true;
     setProcessing(true);
-    scanner.setScanError("");
+    imageScanner.setScanError("");
     try {
       const next = await uiApi.markScannedShipment(
         matched.tagId,
         matched.order.orderNumber,
       );
-      setResult(next);
+      setManualResult(next);
       playScanCue(next, status?.soundEnabled === true);
       await loadStatus();
     } catch (cause) {
-      scanner.setScanError(
+      imageScanner.setScanError(
         errorMessage(cause, "The matched order could not be marked shipped."),
       );
       playFailureCue(status?.soundEnabled === true);
@@ -97,21 +98,19 @@ export function ShipmentScannerPage() {
   }
 
   const enabled = status?.enabled === true;
-  const cameraStatus = processing
-    ? "Checking the authoritative ready-order queue"
-    : scanner.cameraConsensus.tagId !== null
-      ? `Confirming tag ${String(scanner.cameraConsensus.tagId)} - ${String(scanner.cameraConsensus.matchingReads)}/${String(scanner.cameraConsensus.requiredReads)}`
-      : scanner.cameraLatchedTagId !== null
-        ? `Processed tag ${String(scanner.cameraLatchedTagId)} - remove parcel`
-        : result === null
-          ? "Looking for a shipment tag"
-          : "Ready for the next parcel";
+  const camera = status?.backgroundCamera;
+  const result = manualResult ?? camera?.lastResult ?? null;
+  const selectedCamera =
+    settings?.installedCameras.find(
+      (candidate) => candidate.id === camera?.deviceId,
+    )?.label ?? (camera?.deviceId === "" ? "System default" : camera?.deviceId);
+  const cameraMessage = backgroundCameraMessage(status);
 
   return (
     <main class="page scanner-page">
       <PageHeader
         title="Shipment scanner"
-        description="Match tagged parcels to the authoritative ready-to-ship queue"
+        description="The app service watches the basket even when this page is closed"
         actions={
           status === null ? undefined : (
             <StatusBadge
@@ -148,6 +147,10 @@ export function ShipmentScannerPage() {
         {status !== null ? (
           <div class="scanner-summary" aria-label="Shipment scanner status">
             <div>
+              <span>Camera</span>
+              <strong>{cameraStateLabel(status.backgroundCamera.state)}</strong>
+            </div>
+            <div>
               <span>Ready orders</span>
               <strong>{String(status.readyOrderCount)}</strong>
             </div>
@@ -162,10 +165,6 @@ export function ShipmentScannerPage() {
             <div>
               <span>Needs review</span>
               <strong>{String(status.reviewRequiredCount)}</strong>
-            </div>
-            <div>
-              <span>Seller requests</span>
-              <strong>On confirmed scan</strong>
             </div>
           </div>
         ) : null}
@@ -183,54 +182,50 @@ export function ShipmentScannerPage() {
             <div class="surface__header">
               <div>
                 <h2>Basket camera</h2>
-                <p>One parcel at a time; five matching reads are required.</p>
+                <p>
+                  Owned by the app service; five matching reads are required.
+                </p>
               </div>
             </div>
             <div class="surface__body scanner-panel__body">
               <div
-                class={`camera-stage${scanner.cameraActive ? " is-active" : ""}`}
+                class={`camera-stage camera-stage--service${camera?.state === "running" ? " is-active" : ""}`}
               >
-                <video ref={scanner.videoRef} muted playsInline />
-                {scanner.cameraActive ? (
-                  <span>{cameraStatus}</span>
-                ) : (
-                  <div>
-                    <strong>Camera is off</strong>
-                    <span>It starts only when you request it.</span>
-                  </div>
-                )}
+                <div>
+                  <strong>{cameraMessage.title}</strong>
+                  <span>{cameraMessage.detail}</span>
+                  {selectedCamera === undefined ? null : (
+                    <span>{selectedCamera}</span>
+                  )}
+                </div>
               </div>
+              {camera?.issue === undefined ? null : (
+                <Notice tone="danger">{camera.issue}</Notice>
+              )}
               <div class="scanner-actions">
-                {scanner.cameraActive ? (
-                  <Button tone="danger" onClick={scanner.stopCamera}>
-                    Stop camera
-                  </Button>
-                ) : (
-                  <Button
-                    tone="primary"
-                    disabled={!enabled}
-                    onClick={() => void scanner.startCamera()}
-                  >
-                    Start camera
-                  </Button>
-                )}
+                <a class="button button--secondary" href="#settings">
+                  Camera settings
+                </a>
                 <Field
                   label="Scan an image"
-                  hint="PNG, JPEG, or WebP up to 10 MB"
+                  hint="Manual fallback · PNG, JPEG, or WebP up to 10 MB"
                 >
                   <input
                     type="file"
-                    disabled={!enabled || scanner.scanningImage}
+                    disabled={!enabled || imageScanner.scanningImage}
                     accept="image/png,image/jpeg,image/webp"
                     onChange={(event) => {
                       const file = event.currentTarget.files?.[0];
-                      if (file !== undefined) void scanner.scanFile(file);
+                      if (file !== undefined) void imageScanner.scanFile(file);
                       event.currentTarget.value = "";
                     }}
                   />
                 </Field>
               </div>
-              <canvas ref={scanner.workCanvasRef} class="scan-work-canvas" />
+              <canvas
+                ref={imageScanner.workCanvasRef}
+                class="scan-work-canvas"
+              />
             </div>
           </section>
 
@@ -238,22 +233,18 @@ export function ShipmentScannerPage() {
             <div class="surface__header">
               <div>
                 <h2>Parcel result</h2>
-                <p>
-                  A confirmed tag causes one authoritative ready-order refresh.
-                </p>
+                <p>A confirmed tag causes one authoritative order refresh.</p>
               </div>
             </div>
             <div class="surface__body">
-              {scanner.scanError !== "" ? (
-                <Notice tone="danger">{scanner.scanError}</Notice>
-              ) : processing ? (
+              {imageScanner.scanError !== "" ? (
+                <Notice tone="danger">{imageScanner.scanError}</Notice>
+              ) : processing || camera?.state === "processing" ? (
                 <Spinner label="Resolving parcel" />
               ) : result === null ? (
                 <div class="scan-result__idle">
                   <strong>Waiting for a parcel</strong>
-                  <span>
-                    The camera does not make seller requests per frame.
-                  </span>
+                  <span>Camera frames never make seller API requests.</span>
                 </div>
               ) : (
                 <ShipmentResolution
@@ -273,6 +264,76 @@ export function ShipmentScannerPage() {
       </div>
     </main>
   );
+}
+
+function backgroundCameraMessage(status: ShipmentScannerStatus | null): {
+  readonly title: string;
+  readonly detail: string;
+} {
+  const camera = status?.backgroundCamera;
+  if (camera === undefined || camera.state === "unavailable") {
+    return {
+      title: "Background service unavailable",
+      detail: "Run the application with npm start.",
+    };
+  }
+  if (camera.state === "disabled") {
+    return {
+      title: "Background camera is off",
+      detail: "Enable it under Settings → Scanning.",
+    };
+  }
+  if (camera.state === "starting") {
+    return { title: "Opening camera", detail: "Waiting for the first frame." };
+  }
+  if (camera.state === "error") {
+    return {
+      title: "Camera needs attention",
+      detail: "Retrying automatically.",
+    };
+  }
+  if (camera.state === "processing") {
+    return {
+      title: "Resolving parcel",
+      detail: "Checking the authoritative ready-order queue.",
+    };
+  }
+  if (camera.state === "waiting-for-review") {
+    return {
+      title: "Waiting for review",
+      detail: "Approve the matched order before presenting another parcel.",
+    };
+  }
+  if (camera.consensus.tagId !== null) {
+    return {
+      title: `Confirming tag ${String(camera.consensus.tagId)}`,
+      detail: `${String(camera.consensus.matchingReads)}/${String(camera.consensus.requiredReads)} matching reads`,
+    };
+  }
+  if (camera.latchedTagId !== undefined) {
+    return {
+      title: `Processed tag ${String(camera.latchedTagId)}`,
+      detail: "Remove the parcel before presenting the next one.",
+    };
+  }
+  return {
+    title: "Watching the basket",
+    detail: "No browser window is required.",
+  };
+}
+
+function cameraStateLabel(
+  state: ShipmentScannerStatus["backgroundCamera"]["state"],
+): string {
+  return {
+    disabled: "Off",
+    starting: "Starting",
+    running: "Watching",
+    processing: "Processing",
+    "waiting-for-review": "Review",
+    error: "Error",
+    unavailable: "Unavailable",
+  }[state];
 }
 
 function ShipmentResolution({

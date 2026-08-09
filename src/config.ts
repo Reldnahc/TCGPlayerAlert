@@ -107,6 +107,11 @@ export interface ShipmentScannerConfig {
   readonly enabled: boolean;
   readonly automaticallyMarkShipped: boolean;
   readonly soundEnabled: boolean;
+  readonly camera: {
+    readonly enabled: boolean;
+    /** Adapter-owned stable device identifier. An empty value selects the system default. */
+    readonly deviceId: string;
+  };
   readonly stateFile: string;
 }
 
@@ -721,6 +726,7 @@ export function parseConfig(value: unknown): AppConfig {
   }
   const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
   const shipmentScanner = record(root?.shipmentScanner);
+  const shipmentScannerCamera = record(shipmentScanner?.camera);
   const legacyRepricingProfileValues = root?.repricingProfiles;
   const firstLegacyRepricingProfile = Array.isArray(
     legacyRepricingProfileValues,
@@ -1094,40 +1100,73 @@ export function parseConfig(value: unknown): AppConfig {
           enabled: false,
           automaticallyMarkShipped: false,
           soundEnabled: true,
+          camera: { enabled: false, deviceId: "" },
           stateFile: ".data/shipment-scans.json",
         }
-      : {
-          enabled: booleanValue(
-            shipmentScanner,
-            "enabled",
-            "config.shipmentScanner",
-            issues,
-          ),
-          automaticallyMarkShipped: booleanValue(
-            shipmentScanner,
-            "automaticallyMarkShipped",
-            "config.shipmentScanner",
-            issues,
-          ),
-          soundEnabled: booleanValue(
-            shipmentScanner,
-            "soundEnabled",
-            "config.shipmentScanner",
-            issues,
-          ),
-          stateFile: text(
-            shipmentScanner,
-            "stateFile",
-            "config.shipmentScanner",
-            issues,
-          ),
-        };
+      : (() => {
+          const cameraDeviceId = shipmentScannerCamera?.deviceId ?? "";
+          if (
+            typeof cameraDeviceId !== "string" ||
+            cameraDeviceId.length > 256 ||
+            containsControlCharacter(cameraDeviceId)
+          ) {
+            issues.push(
+              "config.shipmentScanner.camera.deviceId must be a safe string no longer than 256 characters.",
+            );
+          }
+          return {
+            enabled: booleanValue(
+              shipmentScanner,
+              "enabled",
+              "config.shipmentScanner",
+              issues,
+            ),
+            automaticallyMarkShipped: booleanValue(
+              shipmentScanner,
+              "automaticallyMarkShipped",
+              "config.shipmentScanner",
+              issues,
+            ),
+            soundEnabled: booleanValue(
+              shipmentScanner,
+              "soundEnabled",
+              "config.shipmentScanner",
+              issues,
+            ),
+            camera:
+              shipmentScannerCamera === undefined
+                ? { enabled: false, deviceId: "" }
+                : {
+                    enabled: booleanValue(
+                      shipmentScannerCamera,
+                      "enabled",
+                      "config.shipmentScanner.camera",
+                      issues,
+                    ),
+                    deviceId:
+                      typeof cameraDeviceId === "string"
+                        ? cameraDeviceId.trim()
+                        : "",
+                  },
+            stateFile: text(
+              shipmentScanner,
+              "stateFile",
+              "config.shipmentScanner",
+              issues,
+            ),
+          };
+        })();
   if (
     shipmentScannerConfig.automaticallyMarkShipped &&
     !shipmentScannerConfig.enabled
   ) {
     issues.push(
       "config.shipmentScanner must be enabled before automatic shipment changes can be enabled.",
+    );
+  }
+  if (shipmentScannerConfig.camera.enabled && !shipmentScannerConfig.enabled) {
+    issues.push(
+      "config.shipmentScanner must be enabled before the background camera can be enabled.",
     );
   }
   const actionMaximumAttempts = integer(

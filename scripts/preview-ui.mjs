@@ -449,6 +449,16 @@ const service = new ConfigurationService({
         { name: "Office Laser Printer", isDefault: true },
       ],
     }),
+  discoverCameras: () =>
+    Promise.resolve({
+      cameras: [
+        {
+          id: "synthetic-camera",
+          label: "Synthetic Basket Camera",
+          isDefault: true,
+        },
+      ],
+    }),
 });
 const previewConnectionStatus = {
   state: "connected",

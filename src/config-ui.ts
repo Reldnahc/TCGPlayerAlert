@@ -49,6 +49,14 @@ import type { FeedbackManagementService } from "./feedback-management.js";
 import type { MessageManagementService } from "./message-management.js";
 import type { SellerSessionService } from "./seller-session.js";
 import type { ShipmentScannerService } from "./shipment-scanner.js";
+import {
+  unavailableBackgroundCameraStatus,
+  type BackgroundShipmentScanner,
+} from "./background-shipment-scanner.js";
+import {
+  discoverSystemCameras,
+  type CameraDiscoveryResult,
+} from "./camera-capture.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   Object.values(SellerPayoutStatus),
@@ -88,6 +96,10 @@ export interface ConfigurationUiSettings {
     readonly enabled: boolean;
     readonly automaticallyMarkShipped: boolean;
     readonly soundEnabled: boolean;
+    readonly camera: {
+      readonly enabled: boolean;
+      readonly deviceId: string;
+    };
   };
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
@@ -103,7 +115,9 @@ export interface ConfigurationUiSettings {
   readonly defaultRepricingProfileId: string;
   readonly outputs: readonly OutputSettings[];
   readonly installedPrinters: PrinterDiscoveryResult["printers"];
+  readonly installedCameras: CameraDiscoveryResult["cameras"];
   readonly discoveryIssue?: string;
+  readonly cameraDiscoveryIssue?: string;
 }
 
 export interface ConfigurationUiUpdate {
@@ -114,6 +128,10 @@ export interface ConfigurationUiUpdate {
     readonly enabled: boolean;
     readonly automaticallyMarkShipped: boolean;
     readonly soundEnabled: boolean;
+    readonly camera: {
+      readonly enabled: boolean;
+      readonly deviceId: string;
+    };
   };
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
@@ -145,31 +163,44 @@ export interface OutputSettingsUpdate {
 export interface ConfigurationServiceOptions {
   readonly configPath: string;
   readonly discoverPrinters?: () => Promise<PrinterDiscoveryResult>;
+  readonly discoverCameras?: () => Promise<CameraDiscoveryResult>;
 }
 
 export class ConfigurationService {
   private readonly configPath: string;
   private readonly discoverPrinters: () => Promise<PrinterDiscoveryResult>;
+  private readonly discoverCameras: () => Promise<CameraDiscoveryResult>;
 
   constructor(options: ConfigurationServiceOptions) {
     this.configPath = resolve(options.configPath);
     this.discoverPrinters =
       options.discoverPrinters ?? (() => discoverInstalledPrinters());
+    this.discoverCameras =
+      options.discoverCameras ?? (() => discoverSystemCameras());
   }
 
   async read(): Promise<ConfigurationUiSettings> {
     const { config, revision } = await this.readVersionedConfig();
-    return this.toUiSettings(config, revision, await this.discoverPrinters());
+    const [printers, cameras] = await Promise.all([
+      this.discoverPrinters(),
+      this.discoverCameras(),
+    ]);
+    return this.toUiSettings(config, revision, printers, cameras);
   }
 
   async save(value: unknown): Promise<ConfigurationUiSettings> {
     const validated = await this.validatedCandidate(value);
     const serialized = `${JSON.stringify(validated, null, 2)}\n`;
     await writeAtomic(this.configPath, serialized);
+    const [printers, cameras] = await Promise.all([
+      this.discoverPrinters(),
+      this.discoverCameras(),
+    ]);
     return this.toUiSettings(
       validated,
       revisionOf(serialized),
-      await this.discoverPrinters(),
+      printers,
+      cameras,
     );
   }
 
@@ -208,6 +239,7 @@ export class ConfigurationService {
     config: AppConfig,
     revision: string,
     discovery: PrinterDiscoveryResult,
+    cameraDiscovery: CameraDiscoveryResult,
   ): ConfigurationUiSettings {
     return {
       revision,
@@ -218,6 +250,7 @@ export class ConfigurationService {
         automaticallyMarkShipped:
           config.shipmentScanner.automaticallyMarkShipped,
         soundEnabled: config.shipmentScanner.soundEnabled,
+        camera: config.shipmentScanner.camera,
       },
       priceUpdateQueue: {
         enabled: config.priceUpdateQueue.enabled,
@@ -235,9 +268,13 @@ export class ConfigurationService {
         outputSettings(actionId, action, config.printers[action.printer]),
       ),
       installedPrinters: discovery.printers,
+      installedCameras: cameraDiscovery.cameras,
       ...(discovery.issue === undefined
         ? {}
         : { discoveryIssue: discovery.issue }),
+      ...(cameraDiscovery.issue === undefined
+        ? {}
+        : { cameraDiscoveryIssue: cameraDiscovery.issue }),
     };
   }
 }
@@ -274,6 +311,7 @@ export interface StartConfigurationUiOptions {
   readonly feedbackService?: FeedbackManagementService;
   readonly messageService?: MessageManagementService;
   readonly shipmentScannerService?: ShipmentScannerService;
+  readonly backgroundShipmentScanner?: BackgroundShipmentScanner;
   readonly sessionManager?: SellerSessionService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
   readonly executePrintTest?: ConfigurationPrintTest;
@@ -321,6 +359,7 @@ export async function startConfigurationUi(
       options.feedbackService,
       options.messageService,
       options.shipmentScannerService,
+      options.backgroundShipmentScanner,
       options.sessionManager,
       options.executeAddressLabel,
       options.executePrintTest,
@@ -429,6 +468,9 @@ function parseUiUpdate(
   const shipmentScannerEnabled = shipmentScanner?.enabled;
   const automaticallyMarkShipped = shipmentScanner?.automaticallyMarkShipped;
   const shipmentScannerSoundEnabled = shipmentScanner?.soundEnabled;
+  const shipmentScannerCamera = objectValue(shipmentScanner?.camera);
+  const shipmentScannerCameraEnabled = shipmentScannerCamera?.enabled;
+  const shipmentScannerCameraDeviceId = shipmentScannerCamera?.deviceId;
   if (typeof shipmentScannerEnabled !== "boolean") {
     issues.push("Shipment scanning must be enabled or disabled.");
   }
@@ -438,9 +480,27 @@ function parseUiUpdate(
   if (typeof shipmentScannerSoundEnabled !== "boolean") {
     issues.push("Shipment scan sounds must be enabled or disabled.");
   }
+  if (typeof shipmentScannerCameraEnabled !== "boolean") {
+    issues.push("The background camera must be enabled or disabled.");
+  }
+  if (
+    typeof shipmentScannerCameraDeviceId !== "string" ||
+    shipmentScannerCameraDeviceId.length > 256 ||
+    containsControlCharacter(shipmentScannerCameraDeviceId)
+  ) {
+    issues.push("The background camera device id is invalid.");
+  }
   if (automaticallyMarkShipped === true && shipmentScannerEnabled !== true) {
     issues.push(
       "Shipment scanning must be enabled before automatic shipment changes can be enabled.",
+    );
+  }
+  if (
+    shipmentScannerCameraEnabled === true &&
+    shipmentScannerEnabled !== true
+  ) {
+    issues.push(
+      "Shipment scanning must be enabled before the background camera can be enabled.",
     );
   }
   const priceUpdateQueueSource = objectValue(source?.priceUpdateQueue);
@@ -584,6 +644,13 @@ function parseUiUpdate(
       enabled: shipmentScannerEnabled as boolean,
       automaticallyMarkShipped: automaticallyMarkShipped as boolean,
       soundEnabled: shipmentScannerSoundEnabled as boolean,
+      camera: {
+        enabled: shipmentScannerCameraEnabled as boolean,
+        deviceId:
+          typeof shipmentScannerCameraDeviceId === "string"
+            ? shipmentScannerCameraDeviceId.trim()
+            : "",
+      },
     },
     priceUpdateQueue: {
       enabled: priceUpdateQueueEnabled as boolean,
@@ -968,6 +1035,7 @@ function applyUpdate(
       enabled: update.shipmentScanner.enabled,
       automaticallyMarkShipped: update.shipmentScanner.automaticallyMarkShipped,
       soundEnabled: update.shipmentScanner.soundEnabled,
+      camera: update.shipmentScanner.camera,
     },
     priceUpdateQueue: {
       ...config.priceUpdateQueue,
@@ -1057,6 +1125,7 @@ async function handleRequest(
   feedbackService: FeedbackManagementService | undefined,
   messageService: MessageManagementService | undefined,
   shipmentScannerService: ShipmentScannerService | undefined,
+  backgroundShipmentScanner: BackgroundShipmentScanner | undefined,
   sessionManager: SellerSessionService | undefined,
   executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
@@ -1201,7 +1270,16 @@ async function handleRequest(
         });
         return;
       }
-      sendJson(response, 200, await shipmentScannerService.status());
+      sendJson(
+        response,
+        200,
+        backgroundShipmentScanner === undefined
+          ? {
+              ...(await shipmentScannerService.status()),
+              backgroundCamera: unavailableBackgroundCameraStatus(),
+            }
+          : await backgroundShipmentScanner.status(),
+      );
     } else if (
       request.method === "POST" &&
       url.pathname === "/api/shipment-scanner/scan"
@@ -1253,7 +1331,17 @@ async function handleRequest(
         throw new ConfigurationError(["A valid order number is required."]);
       }
       const result = await withRequestAbort(request, response, (signal) =>
-        shipmentScannerService.markShipped(Number(tagId), orderNumber, signal),
+        backgroundShipmentScanner === undefined
+          ? shipmentScannerService.markShipped(
+              Number(tagId),
+              orderNumber,
+              signal,
+            )
+          : backgroundShipmentScanner.markShipped(
+              Number(tagId),
+              orderNumber,
+              signal,
+            ),
       );
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (request.method === "GET" && url.pathname === "/api/payments") {
