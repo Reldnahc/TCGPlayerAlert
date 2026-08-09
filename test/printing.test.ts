@@ -91,6 +91,12 @@ describe("Windows printer adapters", () => {
       "$printableArea = $eventArgs.PageSettings.PrintableArea",
     );
     expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$printableWidth = [single][Math]::Max($reportedPrintableWidth, $reportedPrintableHeight)",
+    );
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$printableHeight = [single][Math]::Min($reportedPrintableWidth, $reportedPrintableHeight)",
+    );
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
       "$qrX = [single]($printableWidth - $margin - $qrSize)",
     );
     expect(WINDOWS_PRINT_SCRIPT).not.toContain(

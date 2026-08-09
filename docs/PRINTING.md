@@ -16,7 +16,7 @@ Each action has an independent `enabled` setting. A disabled action is omitted f
 
 `print-address-label` creates a structured label using configurable dimensions, margin, font size, address-line template, and printer. A PDF remains available as a fallback for PDF-capable adapters and for preview validation.
 
-The native Windows adapter describes custom stock in portrait dimensions and selects landscape orientation automatically when the configured label is wider than it is tall. This avoids vendor drivers rotating wide labels sideways. It preserves the printer driver's hardware margin, uses the driver-reported printable width and height, then applies the configured label margin within that printable area. Text and QR output are rejected when they cannot fit instead of being drawn beyond the stock edge.
+The native Windows adapter describes custom stock in portrait dimensions and selects landscape orientation automatically when the configured label is wider than it is tall. This avoids vendor drivers rotating wide labels sideways. It preserves the printer driver's hardware margin, normalizes driver-reported printable dimensions to the requested orientation, then applies the configured label margin within that printable area. This normalization handles label drivers that return portrait-oriented printable dimensions for a landscape job. Text and QR output are rejected when they cannot fit instead of being drawn beyond the stock edge.
 
 ## Synthetic QR labels
 

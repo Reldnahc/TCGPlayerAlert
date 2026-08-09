@@ -600,8 +600,15 @@ try {
       param($sender, $eventArgs)
       $eventArgs.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
       $printableArea = $eventArgs.PageSettings.PrintableArea
-      $printableWidth = [single]$printableArea.Width
-      $printableHeight = [single]$printableArea.Height
+      $reportedPrintableWidth = [single]$printableArea.Width
+      $reportedPrintableHeight = [single]$printableArea.Height
+      if ([bool]$payload.page.landscape) {
+        $printableWidth = [single][Math]::Max($reportedPrintableWidth, $reportedPrintableHeight)
+        $printableHeight = [single][Math]::Min($reportedPrintableWidth, $reportedPrintableHeight)
+      } else {
+        $printableWidth = [single][Math]::Min($reportedPrintableWidth, $reportedPrintableHeight)
+        $printableHeight = [single][Math]::Max($reportedPrintableWidth, $reportedPrintableHeight)
+      }
       $contentWidth = [single]($printableWidth - 2 * $margin)
       $contentHeight = [single]($printableHeight - 2 * $margin)
       if ($contentWidth -le 0 -or $contentHeight -le 0) { throw 'The configured label margins exceed the printer printable area.' }
