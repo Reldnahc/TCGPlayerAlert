@@ -104,6 +104,95 @@
   color: var(--text-muted);
   font-size: 11px;
 }
+.order-detail-command-bar__actions,
+.order-refund-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.order-refund-panel {
+  border-color: #e1b9b4;
+}
+.order-refund-body {
+  display: grid;
+  gap: 14px;
+}
+.refund-type-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.refund-type-picker button {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--bg-surface);
+  text-align: left;
+}
+.refund-type-picker button:not(:disabled):hover {
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+}
+.refund-type-picker button.is-selected {
+  border-color: #b74134;
+  box-shadow: inset 3px 0 #b74134;
+  background: #fff8f7;
+}
+.refund-type-picker button span,
+.refund-confirmation small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.order-refund-fields {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) minmax(
+      360px,
+      1.5fr
+    );
+  gap: 10px;
+}
+.order-refund-message textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+.refund-amounts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.currency-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.currency-input > span {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.refund-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #d49c31;
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: #fff8e8;
+}
+.refund-confirmation > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.refund-confirmation p {
+  margin: 0;
+}
 .order-detail-metrics .metric strong {
   font-size: 17px;
 }
@@ -1602,8 +1691,18 @@
     align-items: stretch;
     flex-direction: column;
   }
+  .order-detail-command-bar__actions,
   .order-detail-command-bar .row-actions {
+    width: 100%;
     justify-content: flex-start;
+  }
+  .order-refund-fields,
+  .refund-amounts {
+    grid-template-columns: 1fr;
+  }
+  .refund-confirmation {
+    align-items: stretch;
+    flex-direction: column;
   }
   .order-detail-grid {
     grid-template-columns: 1fr;

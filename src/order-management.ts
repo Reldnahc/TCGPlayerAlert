@@ -1,6 +1,9 @@
 import {
   SellerOrderStatus,
+  type OrderRefundMutationResult,
+  type RefundOrderProductInput,
   type SellerOrderDetail,
+  type SellerOrderRefundOptions,
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
@@ -26,6 +29,22 @@ export interface AddTrackingResult {
   readonly outcome: "applied" | "already-applied";
 }
 
+export type ManagedOrderRefundInput =
+  | {
+      readonly type: "full";
+      readonly origin: string;
+      readonly reason: string;
+      readonly reasonText: string;
+    }
+  | {
+      readonly type: "partial";
+      readonly origin: string;
+      readonly reason: string;
+      readonly reasonText: string;
+      readonly shippingRefundAmount: number;
+      readonly products: readonly RefundOrderProductInput[];
+    };
+
 export interface PirateShipPreparation {
   readonly url: "https://ship.pirateship.com/ship/single";
   readonly pasteAddress: string;
@@ -47,6 +66,9 @@ type OrderManagementClient = Pick<
   | "detectCarrier"
   | "addOrderTracking"
   | "markOrdersShipped"
+  | "getOrderRefundOptions"
+  | "refundOrderFull"
+  | "refundOrderPartial"
 >;
 
 export interface OrderManagementServiceOptions {
@@ -80,6 +102,11 @@ interface CachedOrderDetail {
   readonly value: ManagedOrderDetail;
 }
 
+interface CachedRefundOptions {
+  readonly expiresAt: number;
+  readonly value: SellerOrderRefundOptions;
+}
+
 export class OrderManagementService {
   private readonly client: OrderManagementClient;
   private readonly sellerKey: SellerKeySource;
@@ -94,6 +121,8 @@ export class OrderManagementService {
     OrderManagementServiceOptions["onShipmentAccepted"] | undefined;
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly detailCache = new Map<string, CachedOrderDetail>();
+  private readonly refundingOrders = new Set<string>();
+  private refundOptionsCache: CachedRefundOptions | undefined;
   private readonly pirateShipCache = new Map<
     string,
     CachedPirateShipPreparation
@@ -288,6 +317,28 @@ export class OrderManagementService {
     return value;
   }
 
+  async getRefundOptions(
+    options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
+  ): Promise<SellerOrderRefundOptions> {
+    this.currentSellerKey();
+    const now = this.now();
+    if (
+      options.force !== true &&
+      this.refundOptionsCache !== undefined &&
+      this.refundOptionsCache.expiresAt > now.getTime()
+    ) {
+      return this.refundOptionsCache.value;
+    }
+    const value = await this.client.getOrderRefundOptions(
+      options.signal === undefined ? undefined : { signal: options.signal },
+    );
+    this.refundOptionsCache = {
+      expiresAt: now.getTime() + 300_000,
+      value,
+    };
+    return value;
+  }
+
   async print(
     orderNumber: string,
     actionType: ManualPrintActionType,
@@ -378,6 +429,53 @@ export class OrderManagementService {
     return { orderNumber: normalized, outcome };
   }
 
+  async refundOrder(
+    orderNumber: string,
+    input: ManagedOrderRefundInput,
+    signal?: AbortSignal,
+  ): Promise<OrderRefundMutationResult> {
+    const sellerKey = this.currentSellerKey();
+    const normalized = requiredText(orderNumber, "Order number", 128);
+    const refundKey = normalized.toLowerCase();
+    if (this.refundingOrders.has(refundKey)) {
+      throw new ApplicationError(
+        "REVIEW_REQUIRED",
+        "A refund for this order is already being submitted.",
+      );
+    }
+    this.refundingOrders.add(refundKey);
+    this.clearOrderCaches();
+    try {
+      const requestOptions = signal === undefined ? undefined : { signal };
+      if (input.type === "full") {
+        return await this.client.refundOrderFull(
+          {
+            sellerKey,
+            orderNumber: normalized,
+            origin: input.origin,
+            reason: input.reason,
+            reasonText: input.reasonText,
+          },
+          requestOptions,
+        );
+      }
+      return await this.client.refundOrderPartial(
+        {
+          sellerKey,
+          orderNumber: normalized,
+          origin: input.origin,
+          reason: input.reason,
+          reasonText: input.reasonText,
+          shippingRefundAmount: input.shippingRefundAmount,
+          products: input.products,
+        },
+        requestOptions,
+      );
+    } finally {
+      this.refundingOrders.delete(refundKey);
+    }
+  }
+
   private currentSellerKey(): string {
     const sellerKey = requiredText(
       resolveSellerKey(this.sellerKey),
@@ -388,12 +486,17 @@ export class OrderManagementService {
       this.cachedSellerKey !== undefined &&
       this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
     ) {
-      this.cache.clear();
-      this.detailCache.clear();
-      this.pirateShipCache.clear();
+      this.clearOrderCaches();
+      this.refundOptionsCache = undefined;
     }
     this.cachedSellerKey = sellerKey;
     return sellerKey;
+  }
+
+  private clearOrderCaches(): void {
+    this.cache.clear();
+    this.detailCache.clear();
+    this.pirateShipCache.clear();
   }
 }
 
@@ -429,7 +532,9 @@ function toManagedOrderDetail(
     transaction: order.transaction,
     shippingAddress: order.shippingAddress,
     products: order.products,
+    refunds: order.refunds,
     refundStatus: order.refundStatus,
+    refundCapabilities: order.refundCapabilities,
     trackingNumbers: order.trackingNumbers,
     canMarkShipped: order.statusCode === SellerOrderStatus.ReadyToShip,
     fetchedAt,

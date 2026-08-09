@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { sellerPortalOrderUrl, uiApi } from "../api.js";
 import { Icon } from "../components/Icon.js";
 import { OrderActions } from "../components/OrderActions.js";
+import { OrderRefundPanel } from "../components/OrderRefundPanel.js";
 import {
   Button,
   EmptyState,
@@ -10,7 +11,7 @@ import {
   Spinner,
   StatusBadge,
 } from "../components/ui.js";
-import type { Order, OrderDetail } from "../contracts.js";
+import type { Order, OrderDetail, RefundOptions } from "../contracts.js";
 import { dateTime, errorMessage, money } from "../utils.js";
 
 export function OrderDetailPage({
@@ -21,6 +22,12 @@ export function OrderDetailPage({
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showRefund, setShowRefund] = useState(false);
+  const [refundOptions, setRefundOptions] = useState<RefundOptions | null>(
+    null,
+  );
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundError, setRefundError] = useState("");
 
   const load = useCallback(
     async (force = false, signal?: AbortSignal) => {
@@ -61,6 +68,29 @@ export function OrderDetailPage({
       totalAmount: detail.transaction.grossAmount,
     };
   }, [detail]);
+
+  const toggleRefund = async () => {
+    if (showRefund) {
+      setShowRefund(false);
+      return;
+    }
+    if (refundOptions !== null) {
+      setShowRefund(true);
+      return;
+    }
+    setRefundLoading(true);
+    setRefundError("");
+    try {
+      setRefundOptions(await uiApi.refundOptions());
+      setShowRefund(true);
+    } catch (cause) {
+      setRefundError(
+        errorMessage(cause, "Refund options could not be loaded."),
+      );
+    } finally {
+      setRefundLoading(false);
+    }
+  };
 
   return (
     <main class="page">
@@ -126,12 +156,37 @@ export function OrderDetailPage({
                   </small>
                 </div>
               </div>
-              <OrderActions
-                order={actionOrder}
-                scope="all"
-                onChanged={() => void load(true)}
-              />
+              <div class="order-detail-command-bar__actions">
+                <OrderActions
+                  order={actionOrder}
+                  scope="all"
+                  onChanged={() => void load(true)}
+                />
+                {detail.refundCapabilities.full ||
+                detail.refundCapabilities.partial ? (
+                  <Button
+                    tone={showRefund ? "primary" : "secondary"}
+                    busy={refundLoading}
+                    onClick={() => void toggleRefund()}
+                  >
+                    Refund
+                  </Button>
+                ) : null}
+              </div>
             </section>
+
+            {refundError === "" ? null : (
+              <Notice tone="danger">{refundError}</Notice>
+            )}
+
+            {showRefund && refundOptions !== null ? (
+              <OrderRefundPanel
+                order={detail}
+                options={refundOptions}
+                onClose={() => setShowRefund(false)}
+                onSubmitted={() => load(true)}
+              />
+            ) : null}
 
             <section class="metric-strip order-detail-metrics">
               <DetailMetric

@@ -67,6 +67,7 @@ const orders = [
     totalAmount: 9.99,
   },
 ];
+const previewRefunds = new Map();
 
 function orderDetail(orderNumber) {
   const order = orders.find(
@@ -113,6 +114,7 @@ function orderDetail(orderNumber) {
         url: "https://www.tcgplayer.com/",
         productId: "123456",
         skuId: "654321",
+        listoId: 1654321,
       },
       {
         name: "Counterspell · Dominaria Remastered · Near Mint",
@@ -122,9 +124,12 @@ function orderDetail(orderNumber) {
         url: "https://www.tcgplayer.com/",
         productId: "234567",
         skuId: "765432",
+        listoId: 1765432,
       },
     ],
-    refundStatus: "None",
+    refunds: previewRefunds.get(orderNumber) ?? [],
+    refundStatus: previewRefunds.has(orderNumber) ? "Partial" : "None",
+    refundCapabilities: { full: true, partial: true },
     trackingNumbers:
       order.statusCode === "Shipped"
         ? [
@@ -597,6 +602,36 @@ const server = await startConfigurationUi({
       Promise.resolve({ orderNumber, carrier: "USPS", outcome: "applied" }),
     markShipped: (orderNumber) =>
       Promise.resolve({ orderNumber, outcome: "applied" }),
+    getRefundOptions: () =>
+      Promise.resolve({
+        origins: [
+          { name: "Seller initiated", value: "SellerInitiated" },
+          { name: "Buyer initiated", value: "BuyerInitiated" },
+        ],
+        reasons: [
+          { name: "Inventory issue", value: "Product - Inventory Issue" },
+          { name: "Condition issue", value: "Product - Condition Issue" },
+          { name: "Cancellation", value: "General - Cancellation" },
+        ],
+      }),
+    refundOrder: (orderNumber, refund) => {
+      if (refund.type === "partial") {
+        previewRefunds.set(orderNumber, [
+          {
+            shippingAmount: refund.shippingRefundAmount,
+            products: refund.products.map((product) => ({
+              skuId: product.skuId,
+              amount: product.refundAmount,
+            })),
+          },
+        ]);
+      }
+      return Promise.resolve({
+        orderNumber,
+        refundType: refund.type,
+        outcome: "submitted",
+      });
+    },
   },
   paymentService: {
     list: ({ page = 1 }) =>

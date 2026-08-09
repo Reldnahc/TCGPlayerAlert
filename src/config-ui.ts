@@ -41,6 +41,7 @@ import {
 import type { RepricingProgress, RepricingService } from "./repricing.js";
 import type {
   ManualPrintActionType,
+  ManagedOrderRefundInput,
   OrderManagementService,
 } from "./order-management.js";
 import type { OrderSyncCoordinator } from "./order-sync.js";
@@ -1624,6 +1625,23 @@ async function handleRequest(
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (
       request.method === "GET" &&
+      url.pathname === "/api/orders/refunds/options"
+    ) {
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.getRefundOptions({
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
       /^\/api\/orders\/[^/]{1,384}\/pirate-ship$/u.test(url.pathname)
     ) {
       if (orderService === undefined) {
@@ -1747,6 +1765,23 @@ async function handleRequest(
       await readJsonBody(request);
       const result = await withRequestAbort(request, response, (signal) =>
         orderService.markShipped(orderNumber, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/orders\/[^/]{1,384}\/refund$/u.test(url.pathname)
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "refund");
+      const refund = parseOrderRefund(await readJsonBody(request));
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.refundOrder(orderNumber, refund, signal),
       );
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (request.method === "PUT" && url.pathname === "/api/settings") {
@@ -2394,6 +2429,126 @@ function parseManualPrintAction(value: unknown): ManualPrintActionType {
     throw new ConfigurationError(["A valid order print action is required."]);
   }
   return actionType;
+}
+
+function parseOrderRefund(value: unknown): ManagedOrderRefundInput {
+  const source = objectValue(value);
+  if (source === undefined) {
+    throw new ConfigurationError(["A valid refund request is required."]);
+  }
+  const type = source.type;
+  const origin = boundedRefundText(source.origin, "Refund origin", 256);
+  const reason = boundedRefundText(source.reason, "Refund reason", 256);
+  const reasonText = refundMessage(source.reasonText);
+  if (type === "full") return { type, origin, reason, reasonText };
+  if (type !== "partial") {
+    throw new ConfigurationError(["Refund type must be full or partial."]);
+  }
+  const shippingRefundAmount = refundAmount(
+    source.shippingRefundAmount,
+    "Shipping refund",
+  );
+  if (!Array.isArray(source.products) || source.products.length > 500) {
+    throw new ConfigurationError([
+      "A partial refund can contain at most 500 product lines.",
+    ]);
+  }
+  const seen = new Set<string>();
+  const products = source.products.map((value, index) => {
+    const product = objectValue(value);
+    const skuId = boundedRefundText(
+      product?.skuId,
+      `Refund product ${String(index + 1)} SKU`,
+      128,
+    );
+    if (seen.has(skuId)) {
+      throw new ConfigurationError([
+        "A partial refund cannot repeat the same SKU.",
+      ]);
+    }
+    seen.add(skuId);
+    return {
+      skuId,
+      refundAmount: refundAmount(
+        product?.refundAmount,
+        `Refund product ${String(index + 1)} amount`,
+      ),
+    };
+  });
+  if (
+    shippingRefundAmount === 0 &&
+    products.every((product) => product.refundAmount === 0)
+  ) {
+    throw new ConfigurationError([
+      "A partial refund must total at least $0.01.",
+    ]);
+  }
+  return {
+    type,
+    origin,
+    reason,
+    reasonText,
+    shippingRefundAmount,
+    products,
+  };
+}
+
+function boundedRefundText(
+  value: unknown,
+  label: string,
+  maximum: number,
+): string {
+  if (typeof value !== "string") {
+    throw new ConfigurationError([`${label} is required.`]);
+  }
+  const normalized = value.trim();
+  if (
+    normalized.length === 0 ||
+    normalized.length > maximum ||
+    containsControlCharacter(normalized)
+  ) {
+    throw new ConfigurationError([`${label} is invalid.`]);
+  }
+  return normalized;
+}
+
+function refundMessage(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new ConfigurationError(["A refund message is required."]);
+  }
+  const normalized = value.replace(/\r\n?/gu, "\n").trim();
+  if (normalized.length === 0 || normalized.length > 500) {
+    throw new ConfigurationError([
+      "The refund message must contain 1-500 characters.",
+    ]);
+  }
+  for (const character of normalized) {
+    const code = character.charCodeAt(0);
+    if (
+      (code <= 0x1f && character !== "\n" && character !== "\t") ||
+      code === 0x7f
+    ) {
+      throw new ConfigurationError([
+        "The refund message contains an unsupported character.",
+      ]);
+    }
+  }
+  return normalized;
+}
+
+function refundAmount(value: unknown, label: string): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1_000_000 ||
+    Math.abs(value * 100 - Math.round(value * 100)) > 1e-9
+  ) {
+    throw new ConfigurationError([
+      `${label} must be a non-negative amount in cents.`,
+    ]);
+  }
+  return value;
 }
 
 function parsePastedAddress(value: unknown): readonly string[] {

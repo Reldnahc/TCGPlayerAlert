@@ -26,6 +26,25 @@ test("opens the internal order workspace from an order number", async ({
     "auto",
   );
 
+  await page.getByRole("button", { name: "Refund" }).click();
+  await expect(
+    page.getByText("Review is always required before money is returned."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Partial refund" }).click();
+  await page.getByRole("textbox", { name: "Message" }).fill("Synthetic refund");
+  await page.getByRole("spinbutton", { name: "Shipping" }).fill("0.49");
+  await page
+    .getByRole("spinbutton", {
+      name: /Lightning Bolt/u,
+    })
+    .fill("1.00");
+  await page.getByRole("button", { name: "Review refund" }).click();
+
+  await expect(page.getByText("Confirm this partial refund")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Confirm $1.49 refund" }),
+  ).toBeVisible();
+
   await page.screenshot({
     path: testInfo.outputPath("order-detail.png"),
     fullPage: true,

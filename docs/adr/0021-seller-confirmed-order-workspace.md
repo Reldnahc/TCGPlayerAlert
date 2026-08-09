@@ -48,6 +48,7 @@ The application gains an operator-focused order workspace without adding a new
 private endpoint or changing the independently released API package. A cold or
 forced detail read still performs the two requests required by exact seller
 confirmation; ordinary revisits within 30 seconds do not. The local page is not
-an independent lifecycle source and never invents an order status. Payment
-mutation, refunds, cancellations, buyer-message creation, and unrelated Seller
-Portal controls remain out of scope.
+an independent lifecycle source and never invents an order status. Payment and
+payout mutation, cancellations, buyer-message creation, and unrelated Seller
+Portal controls remain out of scope. The later, separately constrained order
+refund capability is governed by ADR 0022.

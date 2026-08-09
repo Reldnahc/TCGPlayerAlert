@@ -415,6 +415,84 @@ describe("configuration UI", () => {
     });
   });
 
+  it("routes validated order refunds through the injected order service", async () => {
+    const current = await fixture();
+    const refundOptions = {
+      origins: [{ name: "Seller initiated", value: "SellerInitiated" }],
+      reasons: [
+        { name: "Inventory issue", value: "Product - Inventory Issue" },
+      ],
+    };
+    const getRefundOptions = vi
+      .fn<
+        (options: {
+          readonly force?: boolean;
+          readonly signal?: AbortSignal;
+        }) => Promise<typeof refundOptions>
+      >()
+      .mockResolvedValue(refundOptions);
+    const refundOrder = vi.fn(() =>
+      Promise.resolve({
+        orderNumber: "SYNTHETIC-ORDER-1",
+        refundType: "partial" as const,
+        outcome: "submitted" as const,
+      }),
+    );
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      orderService: {
+        getRefundOptions,
+        refundOrder,
+      } as unknown as OrderManagementService,
+    });
+
+    const options = await fetch(
+      `${server.url}/api/orders/refunds/options?refresh=1`,
+    );
+    const response = await fetch(
+      `${server.url}/api/orders/SYNTHETIC-ORDER-1/refund`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: server.url,
+        },
+        body: JSON.stringify({
+          type: "partial",
+          origin: "SellerInitiated",
+          reason: "Product - Inventory Issue",
+          reasonText: "Synthetic refund explanation",
+          shippingRefundAmount: 0.49,
+          products: [{ skuId: "synthetic-sku", refundAmount: 2 }],
+        }),
+      },
+    );
+
+    expect(options.status).toBe(200);
+    expect(await options.json()).toEqual(refundOptions);
+    expect(getRefundOptions).toHaveBeenCalledOnce();
+    expect(getRefundOptions.mock.calls[0]?.[0].force).toBe(true);
+    expect(getRefundOptions.mock.calls[0]?.[0].signal).toBeInstanceOf(
+      AbortSignal,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ outcome: "submitted" });
+    expect(refundOrder).toHaveBeenCalledWith(
+      "SYNTHETIC-ORDER-1",
+      {
+        type: "partial",
+        origin: "SellerInitiated",
+        reason: "Product - Inventory Issue",
+        reasonText: "Synthetic refund explanation",
+        shippingRefundAmount: 0.49,
+        products: [{ skuId: "synthetic-sku", refundAmount: 2 }],
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
   it("routes confirmed shipment tags through the injected scanner service", async () => {
     const current = await fixture();
     const status = vi.fn(() =>

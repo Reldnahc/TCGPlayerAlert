@@ -1,5 +1,9 @@
-import type { CatalogProductDetails } from "tcgplayer-private-api";
-import type { SellerPayoutDetail } from "tcgplayer-private-api";
+import type {
+  CatalogProductDetails,
+  OrderRefundMutationResult,
+  SellerOrderRefundOptions,
+  SellerPayoutDetail,
+} from "tcgplayer-private-api";
 import type {
   ConfigurationUiSettings,
   ConfigurationUiUpdate,
@@ -12,6 +16,7 @@ import type {
 } from "../inventory-additions.js";
 import type {
   AddTrackingResult,
+  ManagedOrderRefundInput,
   ManagedOrderDetail,
   ManagedOrderList,
   ManagedOrderSummary,
@@ -42,6 +47,9 @@ export type OrderList = ManagedOrderList;
 export type Order = ManagedOrderSummary;
 export type OrderDetail = ManagedOrderDetail;
 export type TrackingResult = AddTrackingResult;
+export type RefundOptions = SellerOrderRefundOptions;
+export type RefundRequest = ManagedOrderRefundInput;
+export type RefundResult = OrderRefundMutationResult;
 export interface ShipmentResult {
   readonly orderNumber: string;
   readonly outcome: "applied" | "already-applied";

@@ -11,6 +11,7 @@ import {
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/web/App.js";
+import { uiApi } from "../src/web/api.js";
 import type { Settings } from "../src/web/contracts.js";
 
 const settings: Settings = {
@@ -571,9 +572,12 @@ describe("operator console", () => {
           url: "https://www.tcgplayer.com/",
           productId: "123",
           skuId: "456",
+          listoId: 789,
         },
       ],
+      refunds: [],
       refundStatus: "None",
+      refundCapabilities: { full: true, partial: true },
       trackingNumbers: [],
       canMarkShipped: true,
       fetchedAt: "2026-08-07T12:01:00.000Z",
@@ -581,8 +585,28 @@ describe("operator console", () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
+        if (path.startsWith(`/api/orders/${order.orderNumber}?`)) {
+          return Promise.resolve(json(detail));
+        }
         if (path === `/api/orders/${order.orderNumber}`) {
           return Promise.resolve(json(detail));
+        }
+        if (
+          path === `/api/orders/${order.orderNumber}/refund` &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(
+            json({
+              orderNumber: order.orderNumber,
+              refundType: "full",
+              outcome: "submitted",
+            }),
+          );
+        }
+        if (path === "/api/settings") {
+          return Promise.resolve(
+            json({ ...settings, confirmBeforeMarkingShipped: false }),
+          );
         }
         if (path === "/api/orders?") {
           return Promise.resolve(
@@ -596,6 +620,12 @@ describe("operator console", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
+    const refundOptions = vi.spyOn(uiApi, "refundOptions").mockResolvedValue({
+      origins: [{ name: "Seller initiated", value: "SellerInitiated" }],
+      reasons: [
+        { name: "Inventory issue", value: "Product - Inventory Issue" },
+      ],
+    });
     const user = userEvent.setup();
     render(<App />);
 
@@ -624,6 +654,51 @@ describe("operator console", () => {
           requestPath(input) === "/api/orders/SYNTHETIC-ORDER-DETAIL",
       ),
     ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Refund" }));
+    await screen.findByText(
+      "Review is always required before money is returned.",
+    );
+    await waitFor(() => expect(refundOptions).toHaveBeenCalledOnce());
+    await user.type(
+      await screen.findByRole("textbox", { name: "Message" }),
+      "Synthetic refund",
+    );
+    await user.click(screen.getByRole("button", { name: "Review refund" }));
+
+    expect(screen.getByText("Confirm this full refund")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, options]) =>
+          requestPath(input).endsWith("/refund") && options?.method === "POST",
+      ),
+    ).toHaveLength(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Confirm full refund" }),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, options]) =>
+            requestPath(input).endsWith("/refund") &&
+            options?.method === "POST",
+        ),
+      ).toHaveLength(1),
+    );
+    const refundCall = fetchMock.mock.calls.find(([input]) =>
+      requestPath(input).endsWith("/refund"),
+    );
+    const refundBody = refundCall?.[1]?.body;
+    if (typeof refundBody !== "string") {
+      throw new Error("Expected the refund to be submitted as JSON.");
+    }
+    expect(JSON.parse(refundBody) as unknown).toEqual({
+      type: "full",
+      origin: "SellerInitiated",
+      reason: "Product - Inventory Issue",
+      reasonText: "Synthetic refund",
+    });
   });
 
   it("prints a pasted address from the dashboard", async () => {

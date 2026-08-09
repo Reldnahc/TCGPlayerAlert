@@ -62,9 +62,16 @@ function client() {
             postalCode: "00000",
           },
           products: [],
+          refunds: [],
           refundStatus: "None",
+          refundCapabilities: { full: true, partial: true },
           trackingNumbers: [],
-          allowedActions: ["AddTracking", "MarkShipped"],
+          allowedActions: [
+            "AddTracking",
+            "MarkShipped",
+            "FullRefund",
+            "PartialRefund",
+          ],
         },
       }),
     ),
@@ -88,6 +95,28 @@ function client() {
         updatedOrderNumbers: [firstOrder.orderNumber],
         alreadyShippedOrderNumbers: [],
         errors: [],
+      }),
+    ),
+    getOrderRefundOptions: vi.fn(() =>
+      Promise.resolve({
+        origins: [{ name: "Seller initiated", value: "SellerInitiated" }],
+        reasons: [
+          { name: "Inventory issue", value: "Product - Inventory Issue" },
+        ],
+      }),
+    ),
+    refundOrderFull: vi.fn(() =>
+      Promise.resolve({
+        orderNumber: firstOrder.orderNumber,
+        refundType: "full" as const,
+        outcome: "submitted" as const,
+      }),
+    ),
+    refundOrderPartial: vi.fn(() =>
+      Promise.resolve({
+        orderNumber: firstOrder.orderNumber,
+        refundType: "partial" as const,
+        outcome: "submitted" as const,
       }),
     ),
   };
@@ -245,6 +274,80 @@ describe("order management", () => {
       },
       undefined,
     );
+  });
+
+  it("caches refund options and forwards an explicit confirmed refund request", async () => {
+    const fakeClient = client();
+    const orders = service(fakeClient);
+
+    const options = await orders.getRefundOptions();
+    const cached = await orders.getRefundOptions();
+    const result = await orders.refundOrder(firstOrder.orderNumber, {
+      type: "partial",
+      origin: "SellerInitiated",
+      reason: "Product - Inventory Issue",
+      reasonText: "Synthetic refund explanation",
+      shippingRefundAmount: 0.49,
+      products: [{ skuId: "synthetic-sku", refundAmount: 2 }],
+    });
+
+    expect(cached).toBe(options);
+    expect(fakeClient.getOrderRefundOptions).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      refundType: "partial",
+      outcome: "submitted",
+    });
+    expect(fakeClient.refundOrderPartial).toHaveBeenCalledWith(
+      {
+        sellerKey: "synthetic-seller",
+        orderNumber: firstOrder.orderNumber,
+        origin: "SellerInitiated",
+        reason: "Product - Inventory Issue",
+        reasonText: "Synthetic refund explanation",
+        shippingRefundAmount: 0.49,
+        products: [{ skuId: "synthetic-sku", refundAmount: 2 }],
+      },
+      undefined,
+    );
+  });
+
+  it("serializes refund submissions for the same order", async () => {
+    const fakeClient = client();
+    let resolveRefund!: (value: {
+      readonly orderNumber: string;
+      readonly refundType: "full";
+      readonly outcome: "submitted";
+    }) => void;
+    fakeClient.refundOrderFull.mockImplementation(
+      () =>
+        new Promise((resolvePromise) => {
+          resolveRefund = resolvePromise;
+        }),
+    );
+    const orders = service(fakeClient);
+    const input = {
+      type: "full" as const,
+      origin: "SellerInitiated",
+      reason: "Product - Inventory Issue",
+      reasonText: "Synthetic refund explanation",
+    };
+
+    const first = orders.refundOrder(firstOrder.orderNumber, input);
+
+    await expect(
+      orders.refundOrder(firstOrder.orderNumber, input),
+    ).rejects.toMatchObject({
+      code: "REVIEW_REQUIRED",
+      message: "A refund for this order is already being submitted.",
+    });
+    expect(fakeClient.refundOrderFull).toHaveBeenCalledOnce();
+
+    resolveRefund({
+      orderNumber: firstOrder.orderNumber,
+      refundType: "full",
+      outcome: "submitted",
+    });
+    await expect(first).resolves.toMatchObject({ outcome: "submitted" });
   });
 
   it("formats a seller-confirmed address for Pirate Ship without putting it in a URL", async () => {

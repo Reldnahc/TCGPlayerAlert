@@ -20,6 +20,9 @@ import type {
   PricingPreview,
   PricingProgress,
   PricingRules,
+  RefundOptions,
+  RefundRequest,
+  RefundResult,
   QueuedJob,
   QueuedJobs,
   Settings,
@@ -379,6 +382,16 @@ export const uiApi = {
     requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/mark-shipped`, {
       method: "POST",
       body: "{}",
+    }),
+  refundOptions: (force = false): Promise<RefundOptions> =>
+    requestJson(`/api/orders/refunds/options${force ? "?refresh=1" : ""}`),
+  refundOrder: (
+    orderNumber: string,
+    refund: RefundRequest,
+  ): Promise<RefundResult> =>
+    requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/refund`, {
+      method: "POST",
+      body: JSON.stringify(refund),
     }),
   pirateShip: (orderNumber: string): Promise<PirateShipResult> =>
     requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/pirate-ship`),
