@@ -28,6 +28,7 @@ import { useToast } from "../state/ToastContext.js";
 import { errorMessage } from "../utils.js";
 
 const CAMERA_SCAN_INTERVAL_MILLISECONDS = 250;
+const CAMERA_REARM_EMPTY_FRAMES = 5;
 const MAXIMUM_CAMERA_FRAME_WIDTH = 1_280;
 const MAXIMUM_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -96,6 +97,11 @@ export function VisionLabPage() {
   const cameraTimerRef = useRef<number | undefined>(undefined);
   const cameraScanBusyRef = useRef(false);
   const cameraSessionRef = useRef(0);
+  const cameraEmptyFramesRef = useRef(0);
+  const cameraLatchedTagIdRef = useRef<number | null>(null);
+  const [cameraLatchedTagId, setCameraLatchedTagId] = useState<number | null>(
+    null,
+  );
   const cameraConsensusRef = useRef(emptyShipmentTagConsensus());
   const [cameraConsensus, setCameraConsensus] = useState<ShipmentTagConsensus>(
     cameraConsensusRef.current,
@@ -121,6 +127,7 @@ export function VisionLabPage() {
 
   function singleDetection(
     detections: readonly ShipmentTagDetection[],
+    clearResolutionOnError = true,
   ): ShipmentTagDetection | undefined {
     if (detections.length === 0) {
       return undefined;
@@ -129,7 +136,7 @@ export function VisionLabPage() {
       setScanError(
         "Multiple AprilTags were found. Present one parcel at a time.",
       );
-      setResolution(null);
+      if (clearResolutionOnError) setResolution(null);
       return undefined;
     }
     return detections[0];
@@ -159,27 +166,52 @@ export function VisionLabPage() {
 
   function observeCameraDetections(
     detections: readonly ShipmentTagDetection[],
-  ): boolean {
-    const detection = singleDetection(detections);
-    if (detection === undefined) return false;
+  ): void {
+    cameraEmptyFramesRef.current = 0;
+    const detection = singleDetection(detections, false);
+    if (detection === undefined) return;
+    if (detection.tagId === cameraLatchedTagIdRef.current) {
+      if (cameraConsensusRef.current.tagId !== null) resetCameraConsensus();
+      setScanError("");
+      return;
+    }
     const observation = observeShipmentTagDetection(
       cameraConsensusRef.current,
       detection,
       knownTagIds,
     );
-    if (!observation.accepted) return false;
+    if (!observation.accepted) return;
     cameraConsensusRef.current = observation.consensus;
     setCameraConsensus(observation.consensus);
     setScanError("");
-    if (observation.confirmedTagId === undefined) return false;
+    if (observation.confirmedTagId === undefined) return;
     resolveTag(observation.confirmedTagId);
-    return true;
+    cameraLatchedTagIdRef.current = observation.confirmedTagId;
+    setCameraLatchedTagId(observation.confirmedTagId);
+    resetCameraConsensus();
+  }
+
+  function observeEmptyCameraFrame() {
+    cameraEmptyFramesRef.current += 1;
+    if (cameraEmptyFramesRef.current < CAMERA_REARM_EMPTY_FRAMES) return;
+    cameraEmptyFramesRef.current = 0;
+    cameraLatchedTagIdRef.current = null;
+    setCameraLatchedTagId(null);
+    if (cameraConsensusRef.current.tagId !== null) resetCameraConsensus();
+    setScanError("");
   }
 
   function resetCameraConsensus() {
     const empty = emptyShipmentTagConsensus();
     cameraConsensusRef.current = empty;
     setCameraConsensus(empty);
+  }
+
+  function resetCameraCycle() {
+    cameraEmptyFramesRef.current = 0;
+    cameraLatchedTagIdRef.current = null;
+    setCameraLatchedTagId(null);
+    resetCameraConsensus();
   }
 
   function stopCamera() {
@@ -209,7 +241,7 @@ export function VisionLabPage() {
     }
     setResolution(null);
     setScanError("");
-    resetCameraConsensus();
+    resetCameraCycle();
     stopCamera();
   }, [selectedCase]);
 
@@ -268,7 +300,7 @@ export function VisionLabPage() {
     stopCamera();
     setScanError("");
     setResolution(null);
-    resetCameraConsensus();
+    resetCameraCycle();
     const cameraSession = cameraSessionRef.current;
     try {
       const stream = await mediaDevices.getUserMedia({
@@ -310,8 +342,11 @@ export function VisionLabPage() {
             );
             const detections = await detectCanvas(canvas);
             if (cameraSession !== cameraSessionRef.current) return;
-            if (detections.length === 0) return;
-            if (observeCameraDetections(detections)) stopCamera();
+            if (detections.length === 0) {
+              observeEmptyCameraFrame();
+              return;
+            }
+            observeCameraDetections(detections);
           } catch (cause) {
             setScanError(
               errorMessage(cause, "The camera frame could not be scanned."),
@@ -423,7 +458,11 @@ export function VisionLabPage() {
                 {cameraActive ? (
                   <span>
                     {cameraConsensus.tagId === null
-                      ? "Looking for an AprilTag"
+                      ? cameraLatchedTagId === null
+                        ? resolution === null
+                          ? "Looking for an AprilTag"
+                          : "Ready for the next parcel"
+                        : `Processed tag ${String(cameraLatchedTagId)} - remove parcel`
                       : `Confirming tag ${String(cameraConsensus.tagId)} - ${String(cameraConsensus.matchingReads)}/${String(cameraConsensus.requiredReads)}`}
                   </span>
                 ) : (

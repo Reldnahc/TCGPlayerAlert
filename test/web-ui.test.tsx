@@ -663,9 +663,19 @@ describe("operator console", () => {
 
   it("keeps scanning after one wrong camera read and confirms the known tag", async () => {
     vi.useFakeTimers();
-    detectorMocks.detectShipmentAprilTags
-      .mockResolvedValueOnce([{ tagId: 99, hammingDistance: 0, corners: [] }])
-      .mockResolvedValue([{ tagId: 7, hammingDistance: 0, corners: [] }]);
+    let cameraRead = 0;
+    detectorMocks.detectShipmentAprilTags.mockImplementation(() => {
+      cameraRead += 1;
+      if (cameraRead === 1) {
+        return Promise.resolve([
+          { tagId: 99, hammingDistance: 0, corners: [] },
+        ]);
+      }
+      if (cameraRead <= 8 || cameraRead > 13) {
+        return Promise.resolve([{ tagId: 7, hammingDistance: 0, corners: [] }]);
+      }
+      return Promise.resolve([]);
+    });
     const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
       function (this: HTMLCanvasElement) {
@@ -730,6 +740,28 @@ describe("operator console", () => {
       await vi.advanceTimersByTimeAsync(1_250);
     });
     expect(await screen.findByText("Would mark shipped")).toBeTruthy();
+    expect(screen.getByText("Processed tag 7 - remove parcel")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
+    expect(stopTrack).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(screen.queryByText("Already simulated")).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(screen.getByText("Ready for the next parcel")).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(await screen.findByText("Already simulated")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
+    expect(stopTrack).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Stop camera" }));
     expect(stopTrack).toHaveBeenCalledTimes(1);
   });
 
