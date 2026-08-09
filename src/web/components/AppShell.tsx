@@ -33,13 +33,18 @@ export function AppShell({
   onNavigate,
   unreadMessageCount,
   sellerConnectionState,
+  logoutBusy,
+  onLogout,
   connectionBanner,
   children,
 }: {
   readonly route: RouteId;
   readonly onNavigate: (route: RouteId) => void;
   readonly unreadMessageCount: number;
-  readonly sellerConnectionState: "connected" | "expired" | "disconnected";
+  readonly sellerConnectionState:
+    "checking" | "connected" | "expired" | "disconnected";
+  readonly logoutBusy: boolean;
+  readonly onLogout: () => void;
   readonly connectionBanner?: ComponentChildren;
   readonly children: ComponentChildren;
 }) {
@@ -82,16 +87,32 @@ export function AppShell({
           ))}
         </nav>
         <footer class="sidebar__footer">
-          <span class="connection">
-            <i
-              class={`connection__dot connection__dot--${sellerConnectionState}`}
-            />
-            {sellerConnectionState === "connected"
-              ? "TCGplayer connected"
-              : sellerConnectionState === "expired"
-                ? "Session expired"
-                : "TCGplayer disconnected"}
-          </span>
+          <div class="sidebar__connection-row">
+            <span class="connection">
+              <i
+                class={`connection__dot connection__dot--${sellerConnectionState}`}
+              />
+              {sellerConnectionState === "connected"
+                ? "Authenticated"
+                : sellerConnectionState === "checking"
+                  ? "Checking"
+                  : sellerConnectionState === "expired"
+                    ? "Session expired"
+                    : "Disconnected"}
+            </span>
+            {sellerConnectionState === "connected" ? (
+              <button
+                type="button"
+                class="sidebar__logout"
+                disabled={logoutBusy}
+                aria-busy={logoutBusy || undefined}
+                title="Disconnect this application without signing out of the Seller Portal"
+                onClick={onLogout}
+              >
+                {logoutBusy ? "Logging out…" : "Log out"}
+              </button>
+            ) : null}
+          </div>
           <span>Credentials remain server-side</span>
         </footer>
       </aside>

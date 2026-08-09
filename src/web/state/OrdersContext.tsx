@@ -2,13 +2,15 @@ import { createContext, type ComponentChildren } from "preact";
 import {
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "preact/hooks";
-import { uiApi } from "../api.js";
+import { UiApiError, uiApi } from "../api.js";
 import type { OrderList } from "../contracts.js";
 import { errorMessage } from "../utils.js";
+import { useAuthentication } from "./AuthenticationContext.js";
 
 type Scope = "all" | "ready-to-ship";
 
@@ -46,6 +48,8 @@ export function OrdersProvider({
 }: {
   readonly children: ComponentChildren;
 }) {
+  const { status: sellerConnection } = useAuthentication();
+  const connected = sellerConnection?.state === "connected";
   const [lists, setLists] = useState<Readonly<Record<Scope, OrderList | null>>>(
     { all: null, "ready-to-ship": null },
   );
@@ -53,6 +57,10 @@ export function OrdersProvider({
     all: false,
     "ready-to-ship": false,
   });
+  const listsRef = useRef(lists);
+  const loadingRef = useRef(loading);
+  listsRef.current = lists;
+  loadingRef.current = loading;
   const [errors, setErrors] = useState<Readonly<Record<Scope, string>>>({
     all: "",
     "ready-to-ship": "",
@@ -61,28 +69,48 @@ export function OrdersProvider({
   const [shipmentsPendingReconciliation, setShipmentsPendingReconciliation] =
     useState<ReadonlySet<string>>(new Set());
 
+  useEffect(() => {
+    if (connected) return;
+    const emptyLists = { all: null, "ready-to-ship": null } as const;
+    const idle = { all: false, "ready-to-ship": false } as const;
+    shipmentReconciliationsRef.current.clear();
+    listsRef.current = emptyLists;
+    loadingRef.current = idle;
+    setLists(emptyLists);
+    setLoading(idle);
+    setErrors({ all: "", "ready-to-ship": "" });
+    setShipmentsPendingReconciliation(new Set());
+  }, [connected]);
+
   const acknowledgeShipment = useCallback((orderNumber: string) => {
     shipmentReconciliationsRef.current.add(orderNumber);
     setShipmentsPendingReconciliation(
       new Set(shipmentReconciliationsRef.current),
     );
-    setLists((current) => ({
-      ...current,
-      "ready-to-ship":
-        current["ready-to-ship"] === null
-          ? null
-          : readyList(
-              current["ready-to-ship"],
-              shipmentReconciliationsRef.current,
-            ),
-    }));
+    setLists((current) => {
+      const next = {
+        ...current,
+        "ready-to-ship":
+          current["ready-to-ship"] === null
+            ? null
+            : readyList(
+                current["ready-to-ship"],
+                shipmentReconciliationsRef.current,
+              ),
+      };
+      listsRef.current = next;
+      return next;
+    });
   }, []);
 
   const load = useCallback(
     async (scope: Scope, force = false, refreshLoaded = false) => {
-      if (loading[scope]) return;
-      if (!force && !refreshLoaded && lists[scope] !== null) return;
-      setLoading((current) => ({ ...current, [scope]: true }));
+      if (!connected) return;
+      if (loadingRef.current[scope]) return;
+      if (!force && !refreshLoaded && listsRef.current[scope] !== null) return;
+      const started = { ...loadingRef.current, [scope]: true };
+      loadingRef.current = started;
+      setLoading(started);
       setErrors((current) => ({ ...current, [scope]: "" }));
       try {
         const result = await uiApi.orders(scope, force);
@@ -101,23 +129,35 @@ export function OrdersProvider({
             new Set(shipmentReconciliationsRef.current),
           );
         }
-        setLists((current) => ({
-          ...current,
-          [scope]:
-            scope === "ready-to-ship"
-              ? readyList(result, shipmentReconciliationsRef.current)
-              : result,
-        }));
+        setLists((current) => {
+          const next = {
+            ...current,
+            [scope]:
+              scope === "ready-to-ship"
+                ? readyList(result, shipmentReconciliationsRef.current)
+                : result,
+          };
+          listsRef.current = next;
+          return next;
+        });
       } catch (cause) {
+        if (
+          cause instanceof UiApiError &&
+          cause.code === "AUTHENTICATION_REQUIRED"
+        ) {
+          return;
+        }
         setErrors((current) => ({
           ...current,
           [scope]: errorMessage(cause, "Orders could not be loaded."),
         }));
       } finally {
-        setLoading((current) => ({ ...current, [scope]: false }));
+        const finished = { ...loadingRef.current, [scope]: false };
+        loadingRef.current = finished;
+        setLoading(finished);
       }
     },
-    [lists, loading],
+    [connected],
   );
 
   const value = useMemo(

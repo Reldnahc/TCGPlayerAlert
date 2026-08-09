@@ -38,6 +38,15 @@ export class UiApiError extends Error {
   }
 }
 
+export const AUTHENTICATION_REQUIRED_EVENT =
+  "tcgplayer-alert:authentication-required";
+
+function notifyAuthenticationRequired(code: string | undefined): void {
+  if (code === "AUTHENTICATION_REQUIRED") {
+    window.dispatchEvent(new Event(AUTHENTICATION_REQUIRED_EVENT));
+  }
+}
+
 async function responseBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
   return contentType.includes("application/json")
@@ -73,6 +82,7 @@ export async function requestJson<T>(
       typeof body === "object" && body !== null && "code" in body
         ? String(body.code)
         : undefined;
+    notifyAuthenticationRequired(code);
     throw new UiApiError(
       apiMessage(body, `Request failed (${String(response.status)}).`),
       code,
@@ -144,6 +154,7 @@ async function streamingRepricingPreview(
         typeof body === "object" && body !== null && "code" in body
           ? String(body.code)
           : undefined;
+      notifyAuthenticationRequired(code);
       throw new UiApiError(
         apiMessage(body, `Request failed (${String(response.status)}).`),
         code,
@@ -178,9 +189,11 @@ async function streamingRepricingPreview(
       return;
     }
     if (event?.type === "error") {
+      const code = typeof event.code === "string" ? event.code : undefined;
+      notifyAuthenticationRequired(code);
       throw new UiApiError(
         apiMessage(event, "The inventory preview could not be created."),
-        typeof event.code === "string" ? event.code : undefined,
+        code,
       );
     }
     throw new UiApiError("Inventory progress was malformed.");

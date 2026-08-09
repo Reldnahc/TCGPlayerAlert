@@ -4,9 +4,10 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "preact/hooks";
-import { uiApi } from "../api.js";
+import { AUTHENTICATION_REQUIRED_EVENT, uiApi } from "../api.js";
 import type {
   SellerConnectionStatus,
   SellerPairingChallenge,
@@ -38,32 +39,63 @@ export function AuthenticationProvider({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const refreshInFlight = useRef<Promise<void> | null>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const next = await uiApi.sellerConnection();
-      setStatus(next);
-      if (next.state === "connected") setPairing(null);
-      setError("");
-    } catch (cause) {
-      setError(
-        errorMessage(cause, "Seller connection status could not be loaded."),
-      );
-    } finally {
-      setLoading(false);
-    }
+  const refresh = useCallback((): Promise<void> => {
+    if (refreshInFlight.current !== null) return refreshInFlight.current;
+    const operation = (async () => {
+      try {
+        const next = await uiApi.sellerConnection();
+        setStatus(next);
+        if (next.state === "connected") setPairing(null);
+        setError("");
+      } catch (cause) {
+        setError(
+          errorMessage(cause, "Seller connection status could not be loaded."),
+        );
+      } finally {
+        setLoading(false);
+        refreshInFlight.current = null;
+      }
+    })();
+    refreshInFlight.current = operation;
+    return operation;
   }, []);
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 2_000);
     const onFocus = () => void refresh();
+    const onAuthenticationRequired = () => void refresh();
     window.addEventListener("focus", onFocus);
+    window.addEventListener(
+      AUTHENTICATION_REQUIRED_EVENT,
+      onAuthenticationRequired,
+    );
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(
+        AUTHENTICATION_REQUIRED_EVENT,
+        onAuthenticationRequired,
+      );
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (pairing === null) return;
+    const interval = window.setInterval(() => void refresh(), 2_000);
+    const expiresIn = Math.max(0, Date.parse(pairing.expiresAt) - Date.now());
+    const expiration = window.setTimeout(
+      () =>
+        setPairing((current) =>
+          current?.expiresAt === pairing.expiresAt ? null : current,
+        ),
+      expiresIn,
+    );
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(expiration);
+    };
+  }, [pairing, refresh]);
 
   const beginPairing = useCallback(async () => {
     setBusy(true);

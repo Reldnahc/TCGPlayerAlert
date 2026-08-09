@@ -62,12 +62,16 @@ export function SellerConnectionCard({
           <Button
             tone="primary"
             busy={busy}
-            onClick={() => void beginPairing()}
+            onClick={() => void beginPairing().catch(() => undefined)}
           >
             {connected ? "Pair browser" : "Connect"}
           </Button>
           {connected ? (
-            <Button tone="danger" busy={busy} onClick={() => void disconnect()}>
+            <Button
+              tone="danger"
+              busy={busy}
+              onClick={() => void disconnect().catch(() => undefined)}
+            >
               Disconnect
             </Button>
           ) : null}

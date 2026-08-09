@@ -210,6 +210,132 @@ afterEach(() => {
 });
 
 describe("operator console", () => {
+  it("keeps seller requests idle while disconnected", async () => {
+    const requestedPaths: string[] = [];
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = requestPath(input);
+      requestedPaths.push(path);
+      if (path === "/api/auth/status") {
+        return Promise.resolve(
+          json({
+            state: "disconnected",
+            automaticRenewal: false,
+            protectedStorage: true,
+          }),
+        );
+      }
+      if (path === "/api/settings") return Promise.resolve(json(settings));
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(
+      await screen.findByText("Connect TCGplayer to load orders"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sync now" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      requestedPaths.filter((path) => path === "/api/auth/status"),
+    ).toHaveLength(1);
+    expect(
+      requestedPaths.filter(
+        (path) =>
+          path.startsWith("/api/orders") || path.startsWith("/api/messages"),
+      ),
+    ).toHaveLength(0);
+    expect(
+      intervalSpy.mock.calls.filter(([, timeout]) =>
+        [2_000, 5_000, 60_000].includes(Number(timeout)),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("logs out from the authenticated sidebar footer", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        if (requestPath(input) === "/api/auth/disconnect") {
+          return Promise.resolve(
+            json({
+              state: "disconnected",
+              automaticRenewal: false,
+              protectedStorage: true,
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Log out" }));
+
+    expect(await screen.findByText("Disconnected")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/auth/disconnect",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("turns an authentication rejection into one stable expired state", async () => {
+    let statusReads = 0;
+    let orderReads = 0;
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/auth/status") {
+          statusReads += 1;
+          return Promise.resolve(
+            json(
+              statusReads === 1
+                ? {
+                    state: "connected",
+                    source: "browser",
+                    automaticRenewal: true,
+                    protectedStorage: true,
+                  }
+                : {
+                    state: "expired",
+                    automaticRenewal: true,
+                    protectedStorage: true,
+                  },
+            ),
+          );
+        }
+        if (path.startsWith("/api/orders")) {
+          orderReads += 1;
+          return Promise.resolve(
+            json(
+              {
+                code: "AUTHENTICATION_REQUIRED",
+                message: "Synthetic expired session.",
+              },
+              401,
+            ),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "TCGplayer session expired",
+      }),
+    ).toBeTruthy();
+    await waitFor(() => expect(statusReads).toBe(2));
+    expect(orderReads).toBe(1);
+    expect(screen.queryByText("Synthetic expired session.")).toBeNull();
+  });
+
   it("starts browser pairing from a disconnected connection banner", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {

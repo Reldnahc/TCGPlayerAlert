@@ -129,6 +129,14 @@ TCGplayer logged the browser out, sign in normally and select **Refresh
 session** in the connector. Use **Disconnect** in Settings to clear the
 application credential and invalidate the connector token.
 
+The authenticated status in the lower-left sidebar includes **Log out**, which
+performs the same protected disconnect without signing out of the Seller Portal
+browser. While disconnected, the console does not poll seller-data endpoints or
+mount seller-data workspaces. It reads connection status once at startup and on
+window focus or a reported authentication failure; the two-second local status
+check runs only while an explicit pairing code is active and stops when that
+code connects or expires.
+
 `npm run configure` remains available when only the console is needed without
 the scheduled poller or queue workers.
 

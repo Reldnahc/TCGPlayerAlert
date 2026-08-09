@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { AppShell, routes, type RouteId } from "./components/AppShell.js";
-import { Button, Notice, Spinner } from "./components/ui.js";
+import { Button, EmptyState, Notice, Spinner } from "./components/ui.js";
 import { ToastViewport } from "./components/ToastViewport.js";
 import { AddCardsPage } from "./pages/AddCardsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
@@ -28,6 +28,15 @@ const ALIASES: Readonly<Record<string, RouteId>> = {
   repricing: "inventory",
 };
 
+const SELLER_CONNECTION_ROUTES = new Set<RouteId>([
+  "add-cards",
+  "orders",
+  "messages",
+  "payments",
+  "feedback",
+  "inventory",
+]);
+
 function routeFromHash(): RouteId {
   const candidate = window.location.hash.slice(1);
   const aliased = ALIASES[candidate] ?? candidate;
@@ -45,8 +54,15 @@ function Console() {
     useSettings();
   const toast = useToast();
   const { unreadCount } = useMessages();
-  const { status: sellerConnection } = useAuthentication();
-  const sellerConnectionState = sellerConnection?.state ?? "disconnected";
+  const {
+    status: sellerConnection,
+    loading: sellerConnectionLoading,
+    busy: sellerConnectionBusy,
+    disconnect,
+  } = useAuthentication();
+  const sellerConnectionState =
+    sellerConnection?.state ??
+    (sellerConnectionLoading ? "checking" : "disconnected");
   useEffect(() => {
     const sync = () => {
       const next = routeFromHash();
@@ -69,6 +85,18 @@ function Console() {
       toast.show("Settings saved.", "success");
     } catch (cause) {
       toast.show(errorMessage(cause, "Settings could not be saved."), "danger");
+    }
+  }
+
+  async function logout() {
+    try {
+      await disconnect();
+      toast.show("Logged out of TCGPlayerAlert.", "success");
+    } catch (cause) {
+      toast.show(
+        errorMessage(cause, "TCGplayer could not be disconnected."),
+        "danger",
+      );
     }
   }
 
@@ -109,13 +137,35 @@ function Console() {
     content = routes.map((candidate) => {
       if (!visited.has(candidate.id)) return null;
       const Page = pages[candidate.id];
+      const requiresSellerConnection = SELLER_CONNECTION_ROUTES.has(
+        candidate.id,
+      );
       return (
         <div
           key={candidate.id}
           class="route-panel"
           hidden={route !== candidate.id}
         >
-          <Page />
+          {requiresSellerConnection && sellerConnectionState !== "connected" ? (
+            <main class="page">
+              <div class="app-loading">
+                <EmptyState
+                  title={
+                    sellerConnectionState === "checking"
+                      ? "Checking TCGplayer connection"
+                      : `Connect TCGplayer to use ${candidate.label}`
+                  }
+                  detail={
+                    sellerConnectionState === "checking"
+                      ? "Seller requests remain paused until the connection is confirmed."
+                      : "This workspace will not make seller requests while logged out."
+                  }
+                />
+              </div>
+            </main>
+          ) : (
+            <Page />
+          )}
         </div>
       );
     });
@@ -127,7 +177,10 @@ function Console() {
       onNavigate={navigate}
       unreadMessageCount={unreadCount}
       sellerConnectionState={sellerConnectionState}
+      logoutBusy={sellerConnectionBusy}
+      onLogout={() => void logout()}
       connectionBanner={
+        sellerConnectionLoading ||
         sellerConnectionState === "connected" ||
         route === "settings" ? undefined : (
           <SellerConnectionCard compact />

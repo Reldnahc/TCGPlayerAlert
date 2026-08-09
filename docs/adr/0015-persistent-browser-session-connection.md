@@ -45,6 +45,14 @@ authentication-required response, scheduled synchronization waits, and queued
 mutations remain pending. A true Seller Portal logout still requires the
 operator to complete TCGplayer login, MFA, and CAPTCHA normally.
 
+The console reads connection status at startup, on window focus, and when an
+API response reports authentication failure. It polls the loopback status only
+while a user-requested pairing code is active. Disconnected or expired state
+unmounts seller-data workspaces, clears their in-memory order and unread-message
+views, and stops their refresh timers, preventing repeated authentication
+errors and needless seller requests. A lower-left **Log out** control invokes
+the same protected disconnect as Settings.
+
 Firefox development builds remain temporary until the package is signed by
 Mozilla. Signing changes distribution, not the session protocol or application
 architecture. Chromium and Firefox builds share behavior but use their

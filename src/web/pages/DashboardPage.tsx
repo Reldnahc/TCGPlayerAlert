@@ -12,6 +12,7 @@ import {
   Toggle,
 } from "../components/ui.js";
 import { useOrders } from "../state/OrdersContext.js";
+import { useAuthentication } from "../state/AuthenticationContext.js";
 import { useSettings } from "../state/SettingsContext.js";
 import { useToast } from "../state/ToastContext.js";
 import { compactDate, dateTime, errorMessage, money } from "../utils.js";
@@ -19,6 +20,9 @@ import { compactDate, dateTime, errorMessage, money } from "../utils.js";
 const SNAPSHOT_REFRESH_MILLISECONDS = 5_000;
 
 export function DashboardPage() {
+  const { status: sellerConnection } = useAuthentication();
+  const checkingConnection = sellerConnection === null;
+  const connected = sellerConnection?.state === "connected";
   const { settings, update } = useSettings();
   const { lists, loading, errors, load } = useOrders();
   const toast = useToast();
@@ -26,12 +30,13 @@ export function DashboardPage() {
   const [printingAddress, setPrintingAddress] = useState(false);
   const list = lists["ready-to-ship"];
   useEffect(() => {
+    if (!connected) return;
     void load("ready-to-ship");
     const timer = window.setInterval(() => {
       void load("ready-to-ship", false, true);
     }, SNAPSHOT_REFRESH_MILLISECONDS);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [connected, load]);
   const totals = list?.orders.reduce(
     (result, order) => ({
       products: result.products + order.productAmount,
@@ -83,6 +88,7 @@ export function DashboardPage() {
           <Button
             icon="refresh"
             busy={loading["ready-to-ship"]}
+            disabled={!connected}
             onClick={() => void load("ready-to-ship", true)}
           >
             Sync now
@@ -190,14 +196,26 @@ export function DashboardPage() {
               </div>
             </div>
             <div class="data-region data-region--embedded">
-              {loading["ready-to-ship"] && list === null ? (
+              {connected && list === null ? (
                 <div class="empty-state">
                   <Spinner label="Loading orders" />
                 </div>
               ) : list === null || list.orders.length === 0 ? (
                 <EmptyState
-                  title="No orders are ready to ship"
-                  detail="Sync now to check TCGplayer again."
+                  title={
+                    connected
+                      ? "No orders are ready to ship"
+                      : checkingConnection
+                        ? "Checking TCGplayer connection"
+                        : "Connect TCGplayer to load orders"
+                  }
+                  detail={
+                    connected
+                      ? "Sync now to check TCGplayer again."
+                      : checkingConnection
+                        ? "Seller requests remain paused until the connection is confirmed."
+                        : "Seller requests remain paused while logged out."
+                  }
                 />
               ) : (
                 <table class="data-table dashboard-table">
