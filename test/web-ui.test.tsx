@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createCanvas, type Canvas } from "@napi-rs/canvas";
 import {
   act,
   cleanup,
@@ -126,6 +127,11 @@ function baseFetch(
     );
   }
   if (path === "/api/settings") return Promise.resolve(json(settings));
+  if (path === "/api/vision-lab/print" && options?.method === "POST") {
+    return Promise.resolve(
+      json({ printed: true, synthetic: true, caseId: "unique" }),
+    );
+  }
   if (path.startsWith("/api/orders"))
     return Promise.resolve(
       json({ orders: [], fetchedAt: "2026-08-07T12:00:00.000Z" }),
@@ -553,6 +559,7 @@ describe("operator console", () => {
       "Dashboard",
       "Add cards",
       "Orders",
+      "Scan lab",
       "Messages",
       "Payments",
       "Feedback",
@@ -594,6 +601,50 @@ describe("operator console", () => {
     expect(JSON.parse(settingsBody) as Record<string, unknown>).toMatchObject({
       confirmBeforeMarkingShipped: false,
     });
+  });
+
+  it("exercises every fake QR resolution without a seller request", async () => {
+    const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      function (this: HTMLCanvasElement) {
+        let backing = canvasBackings.get(this);
+        if (backing?.width !== this.width || backing.height !== this.height) {
+          backing = createCanvas(this.width, this.height);
+          canvasBackings.set(this, backing);
+        }
+        return backing.getContext("2d") as unknown as CanvasRenderingContext2D;
+      },
+    );
+    const fetchMock = vi.fn(baseFetch);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Scan lab" }));
+    await screen.findByRole("heading", { name: "Scan lab" });
+
+    await user.click(screen.getByRole("button", { name: "Scan preview" }));
+    expect(await screen.findByText("Would mark shipped")).toBeTruthy();
+    expect(screen.getByText(/LAB-1001/u)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Scan preview" }));
+    expect(await screen.findByText("Already simulated")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Two matches/u }));
+    await user.click(screen.getByRole("button", { name: "Scan preview" }));
+    expect(await screen.findByText("Review required")).toBeTruthy();
+    expect(screen.getByText("2 fake orders matched this code.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /No match/u }));
+    await user.click(screen.getByRole("button", { name: "Scan preview" }));
+    expect(await screen.findByText("No matching order")).toBeTruthy();
+
+    expect(
+      fetchMock.mock.calls.every(
+        ([input]) => !requestPath(input).includes("mark-shipped"),
+      ),
+    ).toBe(true);
   });
 
   it("marks an order shipped immediately when confirmation is disabled", async () => {

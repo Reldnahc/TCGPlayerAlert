@@ -675,6 +675,7 @@ const server = await startConfigurationUi({
       }),
   },
   executePrintTest: () => Promise.resolve(),
+  executeVisionLabLabel: () => Promise.resolve(),
 });
 
 process.stdout.write(`Synthetic UI preview: ${server.url}\n`);

@@ -55,12 +55,21 @@ export {
   createReadyOrderSource,
   createPrinters,
   executeConfiguredAddressLabel,
+  executeConfiguredVisionLabLabel,
   createRepricingService,
   createSellerSessionManager,
   createWorkflow,
   executeConfiguredSyntheticPrintTest,
   executeConfiguredOrderPrint,
 } from "./runtime.js";
+export {
+  resolveVisionLabScan,
+  visionLabCase,
+  VISION_LAB_CASES,
+} from "./vision-lab.js";
+export type * from "./vision-lab.js";
+export { createShipmentQrCode, decodeShipmentQrPixels } from "./qr-code.js";
+export type * from "./qr-code.js";
 export {
   createPlatformCredentialStore,
   ProtectedFileCredentialStore,

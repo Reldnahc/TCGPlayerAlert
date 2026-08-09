@@ -27,6 +27,7 @@ import type {
   TrackingResult,
   UnreadMessages,
 } from "./contracts.js";
+import type { VisionLabCaseId } from "../vision-lab.js";
 
 export class UiApiError extends Error {
   readonly code?: string;
@@ -236,6 +237,11 @@ export const uiApi = {
     requestJson("/api/address-labels/print", {
       method: "POST",
       body: JSON.stringify({ address }),
+    }),
+  printVisionLabLabel: (caseId: VisionLabCaseId): Promise<void> =>
+    requestJson("/api/vision-lab/print", {
+      method: "POST",
+      body: JSON.stringify({ caseId }),
     }),
   orders: (
     scope: "all" | "ready-to-ship",

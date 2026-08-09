@@ -8,6 +8,7 @@ import type {
 import type { FulfillmentDocument, FulfillmentOrder } from "./domain.js";
 import { ApplicationError } from "./errors.js";
 import type { AddressLabelPrintJob, PdfPrintJob, Printer } from "./printing.js";
+import { createShipmentQrCode, type QrCodeMatrix } from "./qr-code.js";
 
 export interface ActionContext {
   readonly order: FulfillmentOrder;
@@ -94,6 +95,7 @@ function printableAddressLines(
 async function renderAddressLabelLines(
   lines: readonly string[],
   config: AddressLabelActionConfig,
+  qrCode?: QrCodeMatrix,
 ): Promise<Uint8Array> {
   const document = await PDFDocument.create();
   const width = config.page.widthMm * POINTS_PER_MM;
@@ -101,7 +103,15 @@ async function renderAddressLabelLines(
   const margin = config.page.marginMm * POINTS_PER_MM;
   const page = document.addPage([width, height]);
   const font = await document.embedFont(StandardFonts.Helvetica);
-  const availableWidth = width - margin * 2;
+  const qrSize = (qrCode?.sizeMm ?? 0) * POINTS_PER_MM;
+  const qrGap = qrCode === undefined ? 0 : 2 * POINTS_PER_MM;
+  const availableWidth = width - margin * 2 - qrSize - qrGap;
+  if (availableWidth <= 0) {
+    throw new ApplicationError(
+      "CONFIGURATION_ERROR",
+      "The address label is too narrow for its QR code and margins.",
+    );
+  }
   const lineHeight = config.page.fontSize * 1.18;
   const wrappedLines = lines
     .flatMap((line) =>
@@ -127,7 +137,39 @@ async function renderAddressLabelLines(
     });
     y -= lineHeight;
   }
+  if (qrCode !== undefined) {
+    drawQrCode(
+      page,
+      qrCode,
+      width - margin - qrSize,
+      height - margin - qrSize,
+      qrSize,
+    );
+  }
   return document.save({ useObjectStreams: false });
+}
+
+function drawQrCode(
+  page: ReturnType<PDFDocument["addPage"]>,
+  qrCode: QrCodeMatrix,
+  x: number,
+  y: number,
+  size: number,
+): void {
+  const totalModules = qrCode.rows.length + qrCode.quietZoneModules * 2;
+  const moduleSize = size / totalModules;
+  for (const [row, modules] of qrCode.rows.entries()) {
+    for (let column = 0; column < modules.length; column += 1) {
+      if (modules[column] !== "1") continue;
+      page.drawRectangle({
+        x: x + (column + qrCode.quietZoneModules) * moduleSize,
+        y: y + size - (row + qrCode.quietZoneModules + 1) * moduleSize,
+        width: moduleSize,
+        height: moduleSize,
+        color: rgb(0, 0, 0),
+      });
+    }
+  }
 }
 
 export async function renderAddressLabel(
@@ -142,6 +184,7 @@ function addressLabelPrintJob(
   config: AddressLabelActionConfig,
   jobName: string,
   lines: readonly string[],
+  qrCode?: QrCodeMatrix,
 ): AddressLabelPrintJob {
   return {
     idempotencyKey,
@@ -149,6 +192,7 @@ function addressLabelPrintJob(
     mediaType: "application/vnd.tcgplayer-alert.address-label+json",
     page: config.page,
     lines,
+    ...(qrCode === undefined ? {} : { qrCode }),
   };
 }
 
@@ -159,17 +203,22 @@ async function submitAddressLabel(
   idempotencyKey: string,
   jobName: string,
   signal?: AbortSignal,
+  verificationCode?: string,
 ): Promise<void> {
+  const qrCode =
+    verificationCode === undefined
+      ? undefined
+      : createShipmentQrCode(verificationCode);
   const job = printer.acceptedMediaTypes.has(
     "application/vnd.tcgplayer-alert.address-label+json",
   )
-    ? addressLabelPrintJob(idempotencyKey, config, jobName, lines)
+    ? addressLabelPrintJob(idempotencyKey, config, jobName, lines, qrCode)
     : printer.acceptedMediaTypes.has("application/pdf")
       ? {
           idempotencyKey,
           jobName,
           mediaType: "application/pdf" as const,
-          bytes: await renderAddressLabelLines(lines, config),
+          bytes: await renderAddressLabelLines(lines, config, qrCode),
         }
       : undefined;
   if (job === undefined) throw unsupportedPrinter("manual-address-label");
@@ -182,6 +231,7 @@ export async function executeAddressLabelLines(
   lines: readonly string[],
   idempotencyKey: string,
   signal?: AbortSignal,
+  verificationCode?: string,
 ): Promise<void> {
   const printable = printableAddressLines(lines, config);
   if (printable.length === 0) {
@@ -197,6 +247,7 @@ export async function executeAddressLabelLines(
     idempotencyKey,
     `address-label-${printIdentifier(idempotencyKey)}`,
     signal,
+    verificationCode,
   );
 }
 

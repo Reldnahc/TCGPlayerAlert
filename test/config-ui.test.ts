@@ -684,4 +684,45 @@ describe("configuration UI", () => {
     expect(invalid.status).toBe(400);
     expect(executeAddressLabel).toHaveBeenCalledOnce();
   });
+
+  it("routes synthetic QR-label printing only to the injected lab printer", async () => {
+    const current = await fixture();
+    const executeVisionLabLabel = vi
+      .fn<
+        (
+          caseId: "unique" | "missing" | "ambiguous",
+          signal?: AbortSignal,
+        ) => Promise<void>
+      >()
+      .mockResolvedValue(undefined);
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      executeVisionLabLabel,
+    });
+    const serverUrl = server.url;
+    const print = (caseId: string) =>
+      fetch(`${serverUrl}/api/vision-lab/print`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: serverUrl },
+        body: JSON.stringify({ caseId }),
+      });
+
+    const response = await print("unique");
+    const invalid = await print("real-order");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      printed: true,
+      synthetic: true,
+      caseId: "unique",
+    });
+    expect(executeVisionLabLabel).toHaveBeenCalledWith(
+      "unique",
+      expect.any(AbortSignal),
+    );
+    expect(invalid.status).toBe(400);
+    expect(executeVisionLabLabel).toHaveBeenCalledOnce();
+  });
 });

@@ -18,6 +18,19 @@ Each action has an independent `enabled` setting. A disabled action is omitted f
 
 The native Windows adapter describes custom stock in portrait dimensions and selects landscape orientation automatically when the configured label is wider than it is tall. This avoids vendor drivers rotating wide labels sideways. It preserves the printer driver's hardware margin, then applies the configured label margin within that printable origin.
 
+## Synthetic QR labels
+
+The Scan lab can submit an explicitly requested synthetic address label through
+the configured address-label adapter even when address-label automation is
+disabled. It reserves 14 mm at the right edge for a QR code and keeps a
+four-module quiet zone. The native Windows adapter draws its modules through
+`PrintDocument`; PDF-only adapters receive the same matrix rendered as vector
+rectangles. The QR payload and address belong to fixed fake lab cases.
+
+This path is a printer/scanner proof only. Normal order labels and pasted
+Dashboard labels do not include a QR code, and printing a lab label cannot
+contact TCGplayer or mark an order shipped.
+
 Supported template fields are:
 
 - `{recipientName}`

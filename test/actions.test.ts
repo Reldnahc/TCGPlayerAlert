@@ -3,6 +3,7 @@ import {
   createActions,
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
+  executeConfiguredVisionLabLabel,
   renderAddressLabel,
   type PrintJob,
   type Printer,
@@ -180,5 +181,45 @@ describe("address-label action", () => {
       throw new Error("Synthetic PDF print job is missing.");
     }
     expect(new TextDecoder().decode(job.bytes.slice(0, 5))).toBe("%PDF-");
+  });
+
+  it("prints a synthetic vision-lab label with a QR code and no seller provider", async () => {
+    const submitted: PrintJob[] = [];
+    const printer: Printer = {
+      acceptedMediaTypes: new Set([
+        "application/vnd.tcgplayer-alert.address-label+json",
+      ]),
+      submit: (job) => {
+        submitted.push(job);
+        return Promise.resolve();
+      },
+    };
+    const config = appConfig({
+      actions: {
+        label: {
+          type: "print-address-label",
+          enabled: false,
+          printer: "synthetic",
+          page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
+          lines: ["{recipientName}"],
+          omitLineValues: ["US", "USA"],
+        },
+      },
+    });
+
+    await executeConfiguredVisionLabLabel(config, "unique", {
+      printers: { synthetic: printer },
+    });
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]).toMatchObject({
+      mediaType: "application/vnd.tcgplayer-alert.address-label+json",
+      lines: ["Morgan Sample", "125 Example Avenue", "Test City, IL 60000"],
+      qrCode: {
+        quietZoneModules: 4,
+        sizeMm: 14,
+        rows: { length: 25 },
+      },
+    });
   });
 });

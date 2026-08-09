@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   CommandPrinter,
+  createShipmentQrCode,
   PdfJsPageRenderer,
   WindowsNativeLabelPrinter,
   WindowsPdfPrinter,
@@ -120,6 +121,52 @@ describe("Windows printer adapters", () => {
         page: { landscape: true },
         lines: ["Example Recipient", "123 Example Street"],
       });
+      expect(payload).not.toHaveProperty("qrCode");
+      expect(await readdir(directory)).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("passes QR modules to the native label renderer", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tcgplayer-alert-print-"));
+    let payload: WindowsSpoolPayload | undefined;
+    try {
+      const printer = new WindowsNativeLabelPrinter(
+        {
+          adapter: "windows-native-label",
+          printerName: "Synthetic Label Printer",
+          timeoutSeconds: 10,
+        },
+        directory,
+        async (payloadPath) => {
+          payload = JSON.parse(
+            await readFile(payloadPath, "utf8"),
+          ) as WindowsSpoolPayload;
+        },
+      );
+      const qrCode = createShipmentQrCode("TCGA1:7K4M9Q2V8D6R3X5P");
+
+      await printer.submit({
+        idempotencyKey: "vision-lab:unique",
+        jobName: "synthetic-qr-label",
+        mediaType: "application/vnd.tcgplayer-alert.address-label+json",
+        page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
+        lines: ["Synthetic Recipient", "123 Example Street"],
+        qrCode,
+      });
+
+      expect(payload).toMatchObject({
+        kind: "label",
+        qrCode: {
+          quietZoneModules: 4,
+          sizeMm: 14,
+          rows: qrCode.rows,
+        },
+      });
+      expect(WINDOWS_PRINT_SCRIPT).toContain(
+        "$eventArgs.Graphics.FillRectangle([System.Drawing.Brushes]::Black",
+      );
       expect(await readdir(directory)).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });

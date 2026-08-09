@@ -11,6 +11,7 @@ import type {
   WindowsPdfPrinterConfig,
 } from "./config.js";
 import { ApplicationError } from "./errors.js";
+import type { QrCodeMatrix } from "./qr-code.js";
 
 export interface PrintJobBase {
   readonly idempotencyKey: string;
@@ -31,6 +32,7 @@ export interface AddressLabelPrintJob extends PrintJobBase {
     readonly fontSize: number;
   };
   readonly lines: readonly string[];
+  readonly qrCode?: QrCodeMatrix;
 }
 
 export type PrintJob = PdfPrintJob | AddressLabelPrintJob;
@@ -210,6 +212,7 @@ interface WindowsLabelPayload extends WindowsSpoolPayloadBase {
     readonly landscape: boolean;
   };
   readonly lines: readonly string[];
+  readonly qrCode?: QrCodeMatrix;
 }
 
 interface WindowsRasterPayload extends WindowsSpoolPayloadBase {
@@ -259,6 +262,7 @@ export class WindowsNativeLabelPrinter implements Printer {
             landscape: job.page.widthMm > job.page.heightMm,
           },
           lines: job.lines,
+          ...(job.qrCode === undefined ? {} : { qrCode: job.qrCode }),
         };
         const payloadPath = join(directory, "payload.json");
         await writePrivateJson(payloadPath, payload);
@@ -589,15 +593,36 @@ try {
     $font = New-Object System.Drawing.Font('Arial', [single]$payload.page.fontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $text = [String]::Join([Environment]::NewLine, @($payload.lines))
     $margin = [single]([double]$payload.page.marginMm / 25.4 * 100)
+    $qr = $payload.qrCode
+    $qrSize = if ($null -eq $qr) { [single]0 } else { [single]([double]$qr.sizeMm / 25.4 * 100) }
+    $qrGap = if ($null -eq $qr) { [single]0 } else { [single](2 / 25.4 * 100) }
     $handler = [System.Drawing.Printing.PrintPageEventHandler]{
       param($sender, $eventArgs)
       $eventArgs.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
-      $bounds = New-Object System.Drawing.RectangleF($margin, $margin, [single]($eventArgs.PageBounds.Width - 2 * $margin), [single]($eventArgs.PageBounds.Height - 2 * $margin))
+      $textWidth = [single]($eventArgs.PageBounds.Width - 2 * $margin - $qrSize - $qrGap)
+      $bounds = New-Object System.Drawing.RectangleF($margin, $margin, $textWidth, [single]($eventArgs.PageBounds.Height - 2 * $margin))
       $format = New-Object System.Drawing.StringFormat
       try {
         $format.Trimming = [System.Drawing.StringTrimming]::Word
         $format.FormatFlags = [System.Drawing.StringFormatFlags]::LineLimit
         $eventArgs.Graphics.DrawString($text, $font, [System.Drawing.Brushes]::Black, $bounds, $format)
+        if ($null -ne $qr) {
+          $rows = @($qr.rows)
+          $quiet = [int]$qr.quietZoneModules
+          $totalModules = $rows.Count + 2 * $quiet
+          $moduleSize = [single]($qrSize / $totalModules)
+          $qrX = [single]($eventArgs.PageBounds.Width - $margin - $qrSize)
+          $qrY = $margin
+          for ($row = 0; $row -lt $rows.Count; $row += 1) {
+            $modules = [string]$rows[$row]
+            for ($column = 0; $column -lt $modules.Length; $column += 1) {
+              if ($modules[$column] -ne '1') { continue }
+              $moduleX = [single]($qrX + ($column + $quiet) * $moduleSize)
+              $moduleY = [single]($qrY + ($row + $quiet) * $moduleSize)
+              $eventArgs.Graphics.FillRectangle([System.Drawing.Brushes]::Black, $moduleX, $moduleY, $moduleSize, $moduleSize)
+            }
+          }
+        }
       } finally {
         $format.Dispose()
       }

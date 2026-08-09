@@ -41,3 +41,17 @@ Both dependencies are pinned. Their platform-specific runtime artifacts are inst
 - Testing Library and jsdom are pinned development-only dependencies used for interaction tests. The compiled application and server route tests remain part of `npm test`.
 
 No upstream application source from `todd-skelton/tcgplayer-automation-app` is copied into this repository.
+
+## QR shipment-verification lab
+
+- `qrcode@1.5.4` (MIT), from <https://github.com/soldair/node-qrcode>,
+  generates the compact error-corrected module matrix shared by native and PDF
+  label renderers.
+- `jsqr@1.4.0` (Apache-2.0), from
+  <https://github.com/cozmo/jsQR>, decodes raw pixels from synthetic previews,
+  bounded image uploads, and explicitly started camera frames.
+- `@types/qrcode@1.5.6` is a development-only TypeScript declaration package.
+
+The scanner libraries receive only local pixel buffers. They make no network
+requests and are lazily loaded with the Scan lab rather than increasing the
+initial operator-console bundle.

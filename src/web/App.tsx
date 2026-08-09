@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { lazy, Suspense } from "preact/compat";
 import { useEffect, useState } from "preact/hooks";
 import { AppShell, routes, type RouteId } from "./components/AppShell.js";
 import { Button, EmptyState, Notice, Spinner } from "./components/ui.js";
@@ -36,6 +37,11 @@ const SELLER_CONNECTION_ROUTES = new Set<RouteId>([
   "feedback",
   "inventory",
 ]);
+
+const VisionLabPage = lazy(async () => {
+  const module = await import("./pages/VisionLabPage.js");
+  return { default: module.VisionLabPage };
+});
 
 function routeFromHash(): RouteId {
   const candidate = window.location.hash.slice(1);
@@ -129,6 +135,7 @@ function Console() {
       payments: PaymentsPage,
       feedback: FeedbackPage,
       messages: MessagesPage,
+      "scan-lab": VisionLabPage,
       "add-cards": AddCardsPage,
       inventory: InventoryPage,
       settings: SettingsPage,
@@ -164,7 +171,17 @@ function Console() {
               </div>
             </main>
           ) : (
-            <Page />
+            <Suspense
+              fallback={
+                <main class="page">
+                  <div class="app-loading">
+                    <Spinner label="Loading workspace" />
+                  </div>
+                </main>
+              }
+            >
+              <Page />
+            </Suspense>
           )}
         </div>
       );

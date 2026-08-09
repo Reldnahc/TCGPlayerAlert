@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import {
   startConfigurationUi,
   type ConfigurationAddressLabelPrint,
+  type ConfigurationVisionLabPrint,
 } from "./config-ui.js";
 import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { jsonLogger } from "./logger.js";
@@ -23,6 +24,7 @@ import {
   createRepricingService,
   createSellerSessionManager,
   createWorkflow,
+  executeConfiguredVisionLabLabel,
 } from "./runtime.js";
 import { JsonStateStore } from "./state.js";
 import { PriceUpdateWorker } from "./price-update-queue.js";
@@ -39,6 +41,13 @@ const executeAddressLabel: ConfigurationAddressLabelPrint = async (
   signal,
 ) =>
   executeConfiguredAddressLabel(await loadConfig(configPath), lines, {
+    ...(signal === undefined ? {} : { signal }),
+  });
+const executeVisionLabLabel: ConfigurationVisionLabPrint = async (
+  caseId,
+  signal,
+) =>
+  executeConfiguredVisionLabLabel(await loadConfig(configPath), caseId, {
     ...(signal === undefined ? {} : { signal }),
   });
 
@@ -135,6 +144,7 @@ try {
       ),
       sessionManager,
       executeAddressLabel,
+      executeVisionLabLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     process.stdout.write(`TCGPlayerAlert settings: ${ui.url}\n`);
@@ -244,6 +254,7 @@ try {
       ),
       sessionManager,
       executeAddressLabel,
+      executeVisionLabLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
     const priceWorkerPromise = priceWorker

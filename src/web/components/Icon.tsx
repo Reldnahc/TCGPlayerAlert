@@ -6,6 +6,7 @@ export type IconName =
   | "payments"
   | "feedback"
   | "messages"
+  | "scan"
   | "add"
   | "inventory"
   | "settings"
@@ -54,6 +55,15 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="m4 7 8 6 8-6" />
+    </>
+  ),
+  scan: (
+    <>
+      <path d="M8 4H4v4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+      <rect x="8" y="8" width="3" height="3" />
+      <rect x="14" y="8" width="3" height="3" />
+      <rect x="8" y="14" width="3" height="3" />
+      <path d="M15 14h2v3h-3v-2" />
     </>
   ),
   add: (
