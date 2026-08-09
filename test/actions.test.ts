@@ -3,7 +3,6 @@ import {
   createActions,
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
-  executeConfiguredVisionLabLabel,
   renderAddressLabel,
   shipmentTagId,
   type PrintJob,
@@ -262,91 +261,5 @@ describe("address-label action", () => {
       throw new Error("Synthetic PDF print job is missing.");
     }
     expect(new TextDecoder().decode(job.bytes.slice(0, 5))).toBe("%PDF-");
-  });
-
-  it("prints a synthetic vision-lab label with an AprilTag and no seller provider", async () => {
-    const submitted: PrintJob[] = [];
-    const printer: Printer = {
-      acceptedMediaTypes: new Set([
-        "application/vnd.tcgplayer-alert.address-label+json",
-      ]),
-      submit: (job) => {
-        submitted.push(job);
-        return Promise.resolve();
-      },
-    };
-    const config = appConfig({
-      actions: {
-        label: {
-          type: "print-address-label",
-          enabled: false,
-          printer: "synthetic",
-          page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
-          lines: ["{recipientName}"],
-          omitLineValues: ["US", "USA"],
-        },
-      },
-    });
-
-    await executeConfiguredVisionLabLabel(config, "unique", {
-      printers: { synthetic: printer },
-    });
-
-    expect(submitted).toHaveLength(1);
-    expect(submitted[0]).toMatchObject({
-      mediaType: "application/vnd.tcgplayer-alert.address-label+json",
-      lines: ["Morgan Sample", "125 Example Avenue", "Test City, IL 60000"],
-      fiducialMarker: {
-        family: "APRILTAG_36h11",
-        tagId: 7,
-        quietZoneModules: 1,
-        sizeMm: 14,
-        rows: { length: 8 },
-      },
-    });
-  });
-
-  it("prints each label in the five-parcel basket sample", async () => {
-    const submitted: PrintJob[] = [];
-    const printer: Printer = {
-      acceptedMediaTypes: new Set([
-        "application/vnd.tcgplayer-alert.address-label+json",
-      ]),
-      submit: (job) => {
-        submitted.push(job);
-        return Promise.resolve();
-      },
-    };
-    const config = appConfig({
-      actions: {
-        label: {
-          type: "print-address-label",
-          enabled: false,
-          printer: "synthetic",
-          page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },
-          lines: ["{recipientName}"],
-          omitLineValues: ["US", "USA"],
-        },
-      },
-    });
-
-    for (let labelIndex = 0; labelIndex < 5; labelIndex += 1) {
-      await executeConfiguredVisionLabLabel(config, "basket", {
-        labelIndex,
-        printers: { synthetic: printer },
-      });
-    }
-
-    expect(submitted).toHaveLength(5);
-    expect(
-      submitted.map((job) =>
-        job.mediaType === "application/vnd.tcgplayer-alert.address-label+json"
-          ? job.fiducialMarker?.tagId
-          : undefined,
-      ),
-    ).toEqual([41, 84, 126, 205, 333]);
-    expect(submitted[4]).toMatchObject({
-      lines: ["Emery Mock", "52 Simulation Circle", "Test City, IL 60014"],
-    });
   });
 });

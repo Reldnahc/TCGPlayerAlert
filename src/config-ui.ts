@@ -49,11 +49,6 @@ import type { FeedbackManagementService } from "./feedback-management.js";
 import type { MessageManagementService } from "./message-management.js";
 import type { SellerSessionService } from "./seller-session.js";
 import type { ShipmentScannerService } from "./shipment-scanner.js";
-import {
-  parseVisionLabCaseId,
-  parseVisionLabLabelIndex,
-  type VisionLabCaseId,
-} from "./vision-lab.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   Object.values(SellerPayoutStatus),
@@ -262,12 +257,6 @@ export type ConfigurationAddressLabelPrint = (
   signal?: AbortSignal,
 ) => Promise<void>;
 
-export type ConfigurationVisionLabPrint = (
-  caseId: VisionLabCaseId,
-  labelIndex: number,
-  signal?: AbortSignal,
-) => Promise<void>;
-
 export interface StartConfigurationUiOptions {
   readonly configPath: string;
   readonly port?: number;
@@ -287,7 +276,6 @@ export interface StartConfigurationUiOptions {
   readonly shipmentScannerService?: ShipmentScannerService;
   readonly sessionManager?: SellerSessionService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
-  readonly executeVisionLabLabel?: ConfigurationVisionLabPrint;
   readonly executePrintTest?: ConfigurationPrintTest;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
@@ -335,7 +323,6 @@ export async function startConfigurationUi(
       options.shipmentScannerService,
       options.sessionManager,
       options.executeAddressLabel,
-      options.executeVisionLabLabel,
       options.executePrintTest,
       webAssets,
     );
@@ -1072,7 +1059,6 @@ async function handleRequest(
   shipmentScannerService: ShipmentScannerService | undefined,
   sessionManager: SellerSessionService | undefined,
   executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
-  executeVisionLabLabel: ConfigurationVisionLabPrint | undefined,
   executePrintTest: ConfigurationPrintTest | undefined,
   webAssets: ConfigurationUiAssets,
 ): Promise<void> {
@@ -1516,37 +1502,6 @@ async function handleRequest(
           'attachment; filename="packing-slip.pdf"',
         );
         sendBytes(response, 200, "application/pdf", document.bytes);
-      }
-    } else if (
-      request.method === "POST" &&
-      url.pathname === "/api/vision-lab/print"
-    ) {
-      if (!isAllowedMutationRequest(request, response)) return;
-      if (executeVisionLabLabel === undefined) {
-        sendJson(response, 503, {
-          message: "Synthetic AprilTag-label printing is unavailable.",
-        });
-        return;
-      }
-      const body = objectValue(await readJsonBody(request));
-      const caseId = parseVisionLabCaseId(body?.caseId);
-      if (caseId === undefined) {
-        throw new ConfigurationError(["A valid vision-lab case is required."]);
-      }
-      const labelIndex = parseVisionLabLabelIndex(body?.labelIndex, caseId);
-      if (labelIndex === undefined) {
-        throw new ConfigurationError(["A valid synthetic label is required."]);
-      }
-      await withRequestAbort(request, response, (signal) =>
-        executeVisionLabLabel(caseId, labelIndex, signal),
-      );
-      if (!response.destroyed) {
-        sendJson(response, 200, {
-          printed: true,
-          synthetic: true,
-          caseId,
-          labelIndex,
-        });
       }
     } else if (
       request.method === "POST" &&

@@ -163,7 +163,7 @@ describe("Windows printer adapters", () => {
       const marker = createShipmentAprilTag(7);
 
       await printer.submit({
-        idempotencyKey: "vision-lab:unique",
+        idempotencyKey: "shipment-label:synthetic",
         jobName: "synthetic-apriltag-label",
         mediaType: "application/vnd.tcgplayer-alert.address-label+json",
         page: { widthMm: 89, heightMm: 28, marginMm: 3, fontSize: 14 },

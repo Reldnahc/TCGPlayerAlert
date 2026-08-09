@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted; supersedes the initial QR implementation of this lab. ADR 0017
-separately activates the opt-in production workflow.
+Superseded by ADR 0018 after the experiment validated ADR 0017's production
+workflow.
 
 ## Context
 

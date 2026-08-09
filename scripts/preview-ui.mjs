@@ -714,12 +714,22 @@ const server = await startConfigurationUi({
         reviewRequiredCount: 0,
         snapshotFetchedAt: now,
       }),
-    scan: (tagId) => Promise.resolve({ state: "no-match", tagId }),
+    scan: (tagId) => {
+      const order = orders.find(
+        (candidate) =>
+          candidate.canMarkShipped &&
+          shipmentTagId(candidate.orderNumber) === tagId,
+      );
+      return Promise.resolve(
+        order === undefined
+          ? { state: "no-match", tagId }
+          : { state: "matched", tagId, order },
+      );
+    },
     markShipped: (tagId, orderNumber) =>
       Promise.resolve({ state: "already-processed", tagId, orderNumber }),
   },
   executePrintTest: () => Promise.resolve(),
-  executeVisionLabLabel: () => Promise.resolve(),
 });
 
 process.stdout.write(`Synthetic UI preview: ${server.url}\n`);

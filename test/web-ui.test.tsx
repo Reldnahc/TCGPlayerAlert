@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { createCanvas, type Canvas } from "@napi-rs/canvas";
 import {
   act,
   cleanup,
@@ -138,11 +137,6 @@ function baseFetch(
     );
   }
   if (path === "/api/settings") return Promise.resolve(json(settings));
-  if (path === "/api/vision-lab/print" && options?.method === "POST") {
-    return Promise.resolve(
-      json({ printed: true, synthetic: true, caseId: "unique" }),
-    );
-  }
   if (path === "/api/shipment-scanner") {
     return Promise.resolve(
       json({
@@ -587,7 +581,6 @@ describe("operator console", () => {
       "Add cards",
       "Orders",
       "Scanner",
-      "Scan lab",
       "Messages",
       "Payments",
       "Feedback",
@@ -673,87 +666,6 @@ describe("operator console", () => {
     ).toBe(false);
   });
 
-  it("exercises every fake AprilTag resolution without a seller request", async () => {
-    detectorMocks.detectShipmentAprilTags
-      .mockResolvedValueOnce([{ tagId: 7, hammingDistance: 0, corners: [] }])
-      .mockResolvedValueOnce([{ tagId: 7, hammingDistance: 0, corners: [] }])
-      .mockResolvedValueOnce([{ tagId: 18, hammingDistance: 0, corners: [] }])
-      .mockResolvedValueOnce([{ tagId: 29, hammingDistance: 0, corners: [] }]);
-    const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      function (this: HTMLCanvasElement) {
-        let backing = canvasBackings.get(this);
-        if (backing?.width !== this.width || backing.height !== this.height) {
-          backing = createCanvas(this.width, this.height);
-          canvasBackings.set(this, backing);
-        }
-        return backing.getContext("2d") as unknown as CanvasRenderingContext2D;
-      },
-    );
-    const fetchMock = vi.fn(baseFetch);
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Scan lab" }));
-    await screen.findByRole("heading", { name: "Scan lab" });
-
-    await user.click(screen.getByRole("button", { name: "Scan preview" }));
-    expect(await screen.findByText("Would mark shipped")).toBeTruthy();
-    expect(screen.getByText(/LAB-1001/u)).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Scan preview" }));
-    expect(await screen.findByText("Already simulated")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: /Two matches/u }));
-    await user.click(screen.getByRole("button", { name: "Scan preview" }));
-    expect(await screen.findByText("Review required")).toBeTruthy();
-    expect(screen.getByText("2 fake orders matched this tag.")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: /No match/u }));
-    await user.click(screen.getByRole("button", { name: "Scan preview" }));
-    expect(await screen.findByText("No matching order")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: /Basket of 5/u }));
-    await user.click(
-      screen.getByRole("button", { name: "Label 5: Emery Mock" }),
-    );
-    expect(screen.getByText("52 Simulation Circle")).toBeTruthy();
-    await user.click(
-      screen.getByRole("button", { name: "Print all 5 labels" }),
-    );
-    expect(
-      await screen.findByText("5 synthetic labels sent to the printer."),
-    ).toBeTruthy();
-
-    const basketPrintBodies = fetchMock.mock.calls
-      .filter(
-        ([input, options]) =>
-          requestPath(input) === "/api/vision-lab/print" &&
-          options?.method === "POST",
-      )
-      .map(([, options]) => {
-        if (typeof options?.body !== "string") {
-          throw new Error("Expected a synthetic label print body.");
-        }
-        return JSON.parse(options.body) as Record<string, unknown>;
-      });
-    expect(basketPrintBodies).toEqual([
-      { caseId: "basket", labelIndex: 0 },
-      { caseId: "basket", labelIndex: 1 },
-      { caseId: "basket", labelIndex: 2 },
-      { caseId: "basket", labelIndex: 3 },
-      { caseId: "basket", labelIndex: 4 },
-    ]);
-
-    expect(
-      fetchMock.mock.calls.every(
-        ([input]) => !requestPath(input).includes("mark-shipped"),
-      ),
-    ).toBe(true);
-  });
-
   it("keeps scanning after one wrong camera read and confirms the known tag", async () => {
     vi.useFakeTimers();
     let cameraRead = 0;
@@ -769,25 +681,16 @@ describe("operator console", () => {
       }
       return Promise.resolve([]);
     });
-    const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
       function (this: HTMLCanvasElement) {
-        if (this.classList.contains("scan-work-canvas")) {
-          return {
-            drawImage: vi.fn(),
-            getImageData: () => ({
-              data: new Uint8ClampedArray(this.width * this.height * 4),
-              width: this.width,
-              height: this.height,
-            }),
-          } as unknown as CanvasRenderingContext2D;
-        }
-        let backing = canvasBackings.get(this);
-        if (backing?.width !== this.width || backing.height !== this.height) {
-          backing = createCanvas(this.width, this.height);
-          canvasBackings.set(this, backing);
-        }
-        return backing.getContext("2d") as unknown as CanvasRenderingContext2D;
+        return {
+          drawImage: vi.fn(),
+          getImageData: () => ({
+            data: new Uint8ClampedArray(this.width * this.height * 4),
+            width: this.width,
+            height: this.height,
+          }),
+        } as unknown as CanvasRenderingContext2D;
       },
     );
     const stopTrack = vi.fn();
@@ -800,15 +703,57 @@ describe("operator console", () => {
       },
     });
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-    vi.stubGlobal("fetch", vi.fn(baseFetch));
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/shipment-scanner") {
+          return Promise.resolve(
+            json({
+              enabled: true,
+              automaticallyMarkShipped: false,
+              soundEnabled: false,
+              readyOrderCount: 1,
+              readyTagIds: [7],
+              conflictingTagCount: 0,
+              reviewRequiredCount: 0,
+            }),
+          );
+        }
+        if (
+          path === "/api/shipment-scanner/scan" &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(
+            json({
+              state: "matched",
+              tagId: 7,
+              order: {
+                orderNumber: "SYNTHETIC-ORDER-7",
+                buyerName: "Synthetic Buyer",
+                orderDate: "2026-08-07T12:00:00.000Z",
+                status: "Ready to Ship",
+                statusCode: "ReadyToShip",
+                canMarkShipped: true,
+                shippingType: "Standard",
+                productAmount: 10,
+                shippingAmount: 1.49,
+                totalAmount: 11.49,
+              },
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    window.location.hash = "scanner";
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Scan lab" }));
-    await screen.findByRole("heading", { name: "Scan lab" });
+    await screen.findByRole("heading", { name: "Shipment scanner" });
+    await screen.findByText("Review before shipping");
     const video = document.querySelector("video");
-    if (video === null) throw new Error("Expected the Scan lab video.");
+    if (video === null) throw new Error("Expected the shipment scanner video.");
     Object.defineProperties(video, {
       readyState: {
         configurable: true,
@@ -818,7 +763,9 @@ describe("operator console", () => {
       videoHeight: { configurable: true, value: 16 },
     });
 
-    await user.click(screen.getByRole("button", { name: "Start camera" }));
+    const startCamera = screen.getByRole("button", { name: "Start camera" });
+    expect((startCamera as HTMLButtonElement).disabled).toBe(false);
+    await user.click(startCamera);
     await act(async () => {
       await Promise.resolve();
     });
@@ -832,7 +779,7 @@ describe("operator console", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_250);
     });
-    expect(await screen.findByText("Would mark shipped")).toBeTruthy();
+    expect(await screen.findByText("Exact ready-order match")).toBeTruthy();
     expect(screen.getByText("Processed tag 7 - remove parcel")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
     expect(stopTrack).not.toHaveBeenCalled();
@@ -840,7 +787,13 @@ describe("operator console", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(screen.queryByText("Already simulated")).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, options]) =>
+          requestPath(input) === "/api/shipment-scanner/scan" &&
+          options?.method === "POST",
+      ),
+    ).toHaveLength(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_250);
@@ -850,7 +803,15 @@ describe("operator console", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_250);
     });
-    expect(await screen.findByText("Already simulated")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, options]) =>
+            requestPath(input) === "/api/shipment-scanner/scan" &&
+            options?.method === "POST",
+        ),
+      ).toHaveLength(2),
+    );
     expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
     expect(stopTrack).not.toHaveBeenCalled();
 

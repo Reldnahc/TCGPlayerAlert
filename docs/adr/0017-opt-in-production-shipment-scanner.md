@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted; activates the production path proven by ADR 0016 while retaining the
-simulation lab.
+Accepted; activates the production path proven by ADR 0016. ADR 0018 later
+retires the simulation lab after successful workstation validation.
 
 ## Context
 
@@ -22,16 +22,15 @@ choose an order.
 
 ## Decision
 
-Add a separate production **Scanner** workspace and keep **Scan lab** as a
-permanent synthetic regression tool. Production scanning is disabled for new
-and migrated configuration. Settings exposes three independent choices:
+Add a production **Scanner** workspace. Production scanning is disabled for
+new and migrated configuration. Settings exposes three independent choices:
 
 1. enable shipment tags on configured order-address labels;
 2. opt in to automatically marking an exact match shipped; and
 3. enable local audible success and failure cues.
 
 Automatic shipment changes cannot be enabled while shipment scanning is
-disabled. Pasted Dashboard labels and synthetic lab labels do not acquire a
+disabled. Pasted Dashboard labels and printer-test labels do not acquire a
 production shipment identity. Existing labels printed before scanning was
 enabled remain ordinary labels and cannot be used by the production scanner.
 
@@ -42,8 +41,7 @@ marker contains only the resulting small integer. The mapping can collide by
 design. The active ready-order pool is therefore grouped by derived tag, and a
 collision is surfaced before and during scanning.
 
-The browser shares the same detector and camera controller as Scan lab. It
-examines at most four frames per second, allows one detection in flight,
+The browser uses the detector and continuous-camera controller proven by ADR 0016. It examines at most four frames per second, allows one detection in flight,
 requires five matching reads, latches the processed tag, and re-arms after five
 empty frames. Multiple visible tags stop for review. The status route reads the
 existing in-memory ready-order snapshot and never contacts TCGplayer. Camera

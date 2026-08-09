@@ -13,7 +13,6 @@ import { createPrinter, type Printer } from "./printing.js";
 import { FulfillmentWorkflow } from "./orchestrator.js";
 import { JsonStateStore } from "./state.js";
 import { TcgplayerOrderProvider } from "./tcgplayer-provider.js";
-import { visionLabPrintedOrder, type VisionLabCaseId } from "./vision-lab.js";
 import { FileSyncLease } from "./sync-lease.js";
 import {
   createTcgplayerPriceUpdateExecutor,
@@ -142,41 +141,6 @@ export async function executeConfiguredAddressLabel(
     lines,
     `manual-address-label:${randomUUID()}`,
     options.signal,
-  );
-}
-
-export async function executeConfiguredVisionLabLabel(
-  config: AppConfig,
-  caseId: VisionLabCaseId,
-  options: {
-    readonly labelIndex?: number;
-    readonly printers?: Readonly<Record<string, Printer>>;
-    readonly signal?: AbortSignal;
-  } = {},
-): Promise<void> {
-  const labelIndex = options.labelIndex ?? 0;
-  const printedOrder = visionLabPrintedOrder(caseId, labelIndex);
-  const selected = Object.values(config.actions).find(
-    (action) => action.type === "print-address-label",
-  );
-  if (selected === undefined) {
-    throw new ConfigurationError(["No address-label action is configured."]);
-  }
-  const printer = (options.printers ?? createPrinters(config))[
-    selected.printer
-  ];
-  if (printer === undefined) {
-    throw new ConfigurationError([
-      "The configured address-label printer is unavailable.",
-    ]);
-  }
-  await executeAddressLabelLines(
-    selected,
-    printer,
-    printedOrder.addressLines,
-    `vision-lab:${caseId}:${String(labelIndex)}:${randomUUID()}`,
-    options.signal,
-    printedOrder.tagId,
   );
 }
 

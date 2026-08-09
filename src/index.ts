@@ -55,7 +55,6 @@ export {
   createReadyOrderSource,
   createPrinters,
   executeConfiguredAddressLabel,
-  executeConfiguredVisionLabLabel,
   createRepricingService,
   createSellerSessionManager,
   createShipmentScannerService,
@@ -63,14 +62,6 @@ export {
   executeConfiguredSyntheticPrintTest,
   executeConfiguredOrderPrint,
 } from "./runtime.js";
-export {
-  parseVisionLabLabelIndex,
-  resolveVisionLabScan,
-  visionLabCase,
-  visionLabPrintedOrder,
-  VISION_LAB_CASES,
-} from "./vision-lab.js";
-export type * from "./vision-lab.js";
 export { createShipmentAprilTag, SHIPMENT_TAG_FAMILY } from "./april-tag.js";
 export {
   emptyShipmentScanState,

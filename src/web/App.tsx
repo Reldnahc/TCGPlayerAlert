@@ -39,11 +39,6 @@ const SELLER_CONNECTION_ROUTES = new Set<RouteId>([
   "inventory",
 ]);
 
-const VisionLabPage = lazy(async () => {
-  const module = await import("./pages/VisionLabPage.js");
-  return { default: module.VisionLabPage };
-});
-
 const ShipmentScannerPage = lazy(async () => {
   const module = await import("./pages/ShipmentScannerPage.js");
   return { default: module.ShipmentScannerPage };
@@ -142,7 +137,6 @@ function Console() {
       feedback: FeedbackPage,
       messages: MessagesPage,
       scanner: ShipmentScannerPage,
-      "scan-lab": VisionLabPage,
       "add-cards": AddCardsPage,
       inventory: InventoryPage,
       settings: SettingsPage,

@@ -8,7 +8,6 @@ export type RouteId =
   | "feedback"
   | "messages"
   | "scanner"
-  | "scan-lab"
   | "add-cards"
   | "inventory"
   | "settings"
@@ -23,7 +22,6 @@ export const routes: readonly {
   { id: "add-cards", label: "Add cards", icon: "add" },
   { id: "orders", label: "Orders", icon: "orders" },
   { id: "scanner", label: "Scanner", icon: "scan" },
-  { id: "scan-lab", label: "Scan lab", icon: "scan" },
   { id: "messages", label: "Messages", icon: "messages" },
   { id: "payments", label: "Payments", icon: "payments" },
   { id: "feedback", label: "Feedback", icon: "feedback" },

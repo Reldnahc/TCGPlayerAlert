@@ -108,7 +108,7 @@ export function ShipmentScannerPage() {
           : "Ready for the next parcel";
 
   return (
-    <main class="page scan-lab-page">
+    <main class="page scanner-page">
       <PageHeader
         title="Shipment scanner"
         description="Match tagged parcels to the authoritative ready-to-ship queue"
@@ -126,7 +126,7 @@ export function ShipmentScannerPage() {
           )
         }
       />
-      <div class="page-body scan-lab-body">
+      <div class="page-body scanner-body">
         {statusError === "" ? null : (
           <Notice tone="danger">
             <strong>Scanner unavailable</strong>
@@ -178,15 +178,15 @@ export function ShipmentScannerPage() {
           </Notice>
         )}
 
-        <div class="scan-lab-grid scanner-grid">
-          <section class="surface scan-lab-panel">
+        <div class="scanner-grid">
+          <section class="surface scanner-panel">
             <div class="surface__header">
               <div>
                 <h2>Basket camera</h2>
                 <p>One parcel at a time; five matching reads are required.</p>
               </div>
             </div>
-            <div class="surface__body scan-lab-panel__body">
+            <div class="surface__body scanner-panel__body">
               <div
                 class={`camera-stage${scanner.cameraActive ? " is-active" : ""}`}
               >
@@ -200,7 +200,7 @@ export function ShipmentScannerPage() {
                   </div>
                 )}
               </div>
-              <div class="scan-lab-actions">
+              <div class="scanner-actions">
                 {scanner.cameraActive ? (
                   <Button tone="danger" onClick={scanner.stopCamera}>
                     Stop camera

@@ -65,8 +65,7 @@ commit. This keeps server-side vector label generation on the same 587 IDs as
 the browser detector without loading browser-only WebAssembly into the server.
 
 The detector receives only local pixel buffers and makes no network requests.
-It is lazily loaded by Scanner and Scan lab rather than increasing the initial
-operator-console bundle. The browser regression opens the built Scan lab,
-initializes the worker and WebAssembly module, detects the generated preview,
-verifies repeated-scan idempotency, and then verifies the production Scanner
-workspace against synthetic server doubles.
+It is lazily loaded by Scanner rather than increasing the initial
+operator-console bundle. The browser regression opens the built Scanner,
+initializes the worker and WebAssembly module, detects a generated synthetic
+tag upload, and resolves a ready order against synthetic server doubles.
