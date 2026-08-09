@@ -603,7 +603,7 @@ describe("operator console", () => {
     });
   });
 
-  it("exercises every fake QR resolution without a seller request", async () => {
+  it("exercises every fake AprilTag resolution without a seller request", async () => {
     const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
       function (this: HTMLCanvasElement) {
@@ -634,7 +634,7 @@ describe("operator console", () => {
     await user.click(screen.getByRole("button", { name: /Two matches/u }));
     await user.click(screen.getByRole("button", { name: "Scan preview" }));
     expect(await screen.findByText("Review required")).toBeTruthy();
-    expect(screen.getByText("2 fake orders matched this code.")).toBeTruthy();
+    expect(screen.getByText("2 fake orders matched this tag.")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /No match/u }));
     await user.click(screen.getByRole("button", { name: "Scan preview" }));

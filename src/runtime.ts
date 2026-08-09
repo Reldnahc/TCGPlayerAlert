@@ -168,7 +168,7 @@ export async function executeConfiguredVisionLabLabel(
     labCase.printedOrder.addressLines,
     `vision-lab:${caseId}:${randomUUID()}`,
     options.signal,
-    labCase.printedOrder.verificationCode,
+    labCase.printedOrder.tagId,
   );
 }
 

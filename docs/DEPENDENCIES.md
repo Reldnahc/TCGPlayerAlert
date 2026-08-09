@@ -42,16 +42,19 @@ Both dependencies are pinned. Their platform-specific runtime artifacts are inst
 
 No upstream application source from `todd-skelton/tcgplayer-automation-app` is copied into this repository.
 
-## QR shipment-verification lab
+## AprilTag shipment-verification lab
 
-- `qrcode@1.5.4` (MIT), from <https://github.com/soldair/node-qrcode>,
-  generates the compact error-corrected module matrix shared by native and PDF
-  label renderers.
-- `jsqr@1.4.0` (Apache-2.0), from
-  <https://github.com/cozmo/jsQR>, decodes raw pixels from synthetic previews,
-  bounded image uploads, and explicitly started camera frames.
-- `@types/qrcode@1.5.6` is a development-only TypeScript declaration package.
+- `js-aruco2@2.0.0`, from
+  <https://github.com/damianofalcioni/js-aruco2>, is a pure-JavaScript
+  fiducial detector whose package metadata and detector source are MIT
+  licensed. Its `tag36h11` dictionary retains the Regents of the University of
+  Michigan BSD notice and records extraction from the April Robotics tag
+  generation project. The application uses the dictionary for a shared vector
+  marker matrix and detects raw pixels from synthetic previews, bounded image
+  uploads, and explicitly started camera frames.
 
-The scanner libraries receive only local pixel buffers. They make no network
-requests and are lazily loaded with the Scan lab rather than increasing the
-initial operator-console bundle.
+The detector receives only local pixel buffers and makes no network requests.
+It is lazily loaded with Scan lab rather than increasing the initial
+operator-console bundle. A narrow local declaration file covers only the
+package API used by this application because the package does not publish
+TypeScript declarations.

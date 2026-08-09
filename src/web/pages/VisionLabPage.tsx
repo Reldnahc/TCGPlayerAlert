@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { createShipmentQrCode, decodeShipmentQrPixels } from "../../qr-code.js";
+import {
+  createShipmentAprilTag,
+  detectShipmentAprilTags,
+  type ShipmentTagDetection,
+} from "../../april-tag.js";
 import {
   resolveVisionLabScan,
   visionLabCase,
@@ -22,10 +26,10 @@ const CAMERA_SCAN_INTERVAL_MILLISECONDS = 250;
 const MAXIMUM_CAMERA_FRAME_WIDTH = 1_280;
 const MAXIMUM_UPLOAD_BYTES = 10 * 1024 * 1024;
 
-function drawQrCode(canvas: HTMLCanvasElement, code: string): void {
-  const qrCode = createShipmentQrCode(code);
-  const pixelsPerModule = 6;
-  const totalModules = qrCode.rows.length + qrCode.quietZoneModules * 2;
+function drawAprilTag(canvas: HTMLCanvasElement, tagId: number): void {
+  const marker = createShipmentAprilTag(tagId);
+  const pixelsPerModule = 14;
+  const totalModules = marker.rows.length + marker.quietZoneModules * 2;
   const size = totalModules * pixelsPerModule;
   canvas.width = size;
   canvas.height = size;
@@ -34,12 +38,12 @@ function drawQrCode(canvas: HTMLCanvasElement, code: string): void {
   context.fillStyle = "white";
   context.fillRect(0, 0, size, size);
   context.fillStyle = "black";
-  for (const [row, modules] of qrCode.rows.entries()) {
+  for (const [row, modules] of marker.rows.entries()) {
     for (let column = 0; column < modules.length; column += 1) {
       if (modules[column] !== "1") continue;
       context.fillRect(
-        (column + qrCode.quietZoneModules) * pixelsPerModule,
-        (row + qrCode.quietZoneModules) * pixelsPerModule,
+        (column + marker.quietZoneModules) * pixelsPerModule,
+        (row + marker.quietZoneModules) * pixelsPerModule,
         pixelsPerModule,
         pixelsPerModule,
       );
@@ -47,11 +51,13 @@ function drawQrCode(canvas: HTMLCanvasElement, code: string): void {
   }
 }
 
-function decodeCanvas(canvas: HTMLCanvasElement): string | undefined {
+function detectCanvas(
+  canvas: HTMLCanvasElement,
+): readonly ShipmentTagDetection[] {
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (context === null) return undefined;
+  if (context === null) return [];
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
-  return decodeShipmentQrPixels(image.data, image.width, image.height);
+  return detectShipmentAprilTags(image.data, image.width, image.height);
 }
 
 function drawSourceToCanvas(
@@ -78,15 +84,15 @@ export function VisionLabPage() {
   const [cameraActive, setCameraActive] = useState(false);
   const [printing, setPrinting] = useState(false);
   const completedRef = useRef(new Set<string>());
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const markerCanvasRef = useRef<HTMLCanvasElement>(null);
   const workCanvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraTimerRef = useRef<number | undefined>(undefined);
   const selectedCase = useMemo(() => visionLabCase(caseId), [caseId]);
 
-  function resolveCode(code: string) {
+  function resolveTag(tagId: number) {
     const next = resolveVisionLabScan(
-      code,
+      tagId,
       selectedCase.candidates,
       completedRef.current,
     );
@@ -95,6 +101,25 @@ export function VisionLabPage() {
     }
     setResolution(next);
     setScanError("");
+  }
+
+  function resolveDetections(detections: readonly ShipmentTagDetection[]) {
+    if (detections.length === 0) {
+      setScanError("No AprilTag was found in that image.");
+      setResolution(null);
+      return false;
+    }
+    if (detections.length > 1) {
+      setScanError(
+        "Multiple AprilTags were found. Present one parcel at a time.",
+      );
+      setResolution(null);
+      return false;
+    }
+    const detection = detections[0];
+    if (detection === undefined) return false;
+    resolveTag(detection.tagId);
+    return true;
   }
 
   function stopCamera() {
@@ -117,9 +142,9 @@ export function VisionLabPage() {
   }
 
   useEffect(() => {
-    const canvas = qrCanvasRef.current;
+    const canvas = markerCanvasRef.current;
     if (canvas !== null) {
-      drawQrCode(canvas, selectedCase.printedOrder.verificationCode);
+      drawAprilTag(canvas, selectedCase.printedOrder.tagId);
     }
     setResolution(null);
     setScanError("");
@@ -129,14 +154,14 @@ export function VisionLabPage() {
   useEffect(() => () => stopCamera(), []);
 
   function scanPreview() {
-    const canvas = qrCanvasRef.current;
-    const code = canvas === null ? undefined : decodeCanvas(canvas);
-    if (code === undefined) {
-      setScanError("The generated QR code could not be decoded.");
+    const canvas = markerCanvasRef.current;
+    const detections = canvas === null ? [] : detectCanvas(canvas);
+    if (detections.length === 0) {
+      setScanError("The generated AprilTag could not be detected.");
       setResolution(null);
       return;
     }
-    resolveCode(code);
+    resolveDetections(detections);
   }
 
   async function scanFile(file: File) {
@@ -151,13 +176,7 @@ export function VisionLabPage() {
         const canvas = workCanvasRef.current;
         if (canvas === null) throw new Error("Scanner canvas is unavailable.");
         drawSourceToCanvas(image, image.width, image.height, canvas);
-        const code = decodeCanvas(canvas);
-        if (code === undefined) {
-          setScanError("No QR code was found in that image.");
-          setResolution(null);
-        } else {
-          resolveCode(code);
-        }
+        resolveDetections(detectCanvas(canvas));
       } finally {
         image.close();
       }
@@ -197,9 +216,9 @@ export function VisionLabPage() {
       cameraTimerRef.current = window.setInterval(() => {
         if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
         drawSourceToCanvas(video, video.videoWidth, video.videoHeight, canvas);
-        const code = decodeCanvas(canvas);
-        if (code === undefined) return;
-        resolveCode(code);
+        const detections = detectCanvas(canvas);
+        if (detections.length === 0) return;
+        resolveDetections(detections);
         stopCamera();
       }, CAMERA_SCAN_INTERVAL_MILLISECONDS);
     } catch (cause) {
@@ -212,10 +231,13 @@ export function VisionLabPage() {
     setPrinting(true);
     try {
       await uiApi.printVisionLabLabel(caseId);
-      toast.show("Synthetic QR label sent to the printer.", "success");
+      toast.show("Synthetic AprilTag label sent to the printer.", "success");
     } catch (cause) {
       toast.show(
-        errorMessage(cause, "The synthetic QR label could not be printed."),
+        errorMessage(
+          cause,
+          "The synthetic AprilTag label could not be printed.",
+        ),
         "danger",
       );
     } finally {
@@ -227,7 +249,7 @@ export function VisionLabPage() {
     <main class="page scan-lab-page">
       <PageHeader
         title="Scan lab"
-        description="Exercise the QR workflow with synthetic orders and no seller mutations"
+        description="Exercise the AprilTag workflow with synthetic orders and no seller mutations"
         actions={<StatusBadge status="Simulation only" />}
       />
       <div class="page-body scan-lab-body">
@@ -261,9 +283,9 @@ export function VisionLabPage() {
                   ))}
                 </div>
                 <canvas
-                  ref={qrCanvasRef}
-                  class="synthetic-label__qr"
-                  aria-label="Synthetic shipment QR code"
+                  ref={markerCanvasRef}
+                  class="synthetic-label__marker"
+                  aria-label="Synthetic shipment AprilTag"
                 />
               </div>
               <div class="scan-lab-actions">
@@ -294,7 +316,7 @@ export function VisionLabPage() {
               <div class={`camera-stage${cameraActive ? " is-active" : ""}`}>
                 <video ref={videoRef} muted playsInline />
                 {cameraActive ? (
-                  <span>Looking for a QR code</span>
+                  <span>Looking for an AprilTag</span>
                 ) : (
                   <div>
                     <strong>Camera is off</strong>
@@ -345,7 +367,9 @@ export function VisionLabPage() {
             ) : resolution === null ? (
               <div class="scan-result__idle">
                 <strong>Waiting for a scan</strong>
-                <span>Start with Scan preview to verify the full QR loop.</span>
+                <span>
+                  Start with Scan preview to verify the full AprilTag loop.
+                </span>
               </div>
             ) : resolution.state === "match" ? (
               <Notice tone="success">
@@ -367,14 +391,14 @@ export function VisionLabPage() {
                 <strong>Review required</strong>
                 <span>
                   {String(resolution.orders.length)} fake orders matched this
-                  code.
+                  tag.
                 </span>
               </Notice>
             ) : (
               <Notice tone="danger">
                 <strong>No matching order</strong>
                 <span>
-                  The fake ready-order pool does not contain this code.
+                  The fake ready-order pool does not contain this tag.
                 </span>
               </Notice>
             )}

@@ -685,7 +685,7 @@ describe("configuration UI", () => {
     expect(executeAddressLabel).toHaveBeenCalledOnce();
   });
 
-  it("routes synthetic QR-label printing only to the injected lab printer", async () => {
+  it("routes synthetic AprilTag-label printing only to the injected lab printer", async () => {
     const current = await fixture();
     const executeVisionLabLabel = vi
       .fn<

@@ -8,7 +8,10 @@ import type {
 import type { FulfillmentDocument, FulfillmentOrder } from "./domain.js";
 import { ApplicationError } from "./errors.js";
 import type { AddressLabelPrintJob, PdfPrintJob, Printer } from "./printing.js";
-import { createShipmentQrCode, type QrCodeMatrix } from "./qr-code.js";
+import {
+  createShipmentAprilTag,
+  type FiducialMarkerMatrix,
+} from "./april-tag.js";
 
 export interface ActionContext {
   readonly order: FulfillmentOrder;
@@ -95,7 +98,7 @@ function printableAddressLines(
 async function renderAddressLabelLines(
   lines: readonly string[],
   config: AddressLabelActionConfig,
-  qrCode?: QrCodeMatrix,
+  fiducialMarker?: FiducialMarkerMatrix,
 ): Promise<Uint8Array> {
   const document = await PDFDocument.create();
   const width = config.page.widthMm * POINTS_PER_MM;
@@ -103,13 +106,13 @@ async function renderAddressLabelLines(
   const margin = config.page.marginMm * POINTS_PER_MM;
   const page = document.addPage([width, height]);
   const font = await document.embedFont(StandardFonts.Helvetica);
-  const qrSize = (qrCode?.sizeMm ?? 0) * POINTS_PER_MM;
-  const qrGap = qrCode === undefined ? 0 : 2 * POINTS_PER_MM;
-  const availableWidth = width - margin * 2 - qrSize - qrGap;
+  const markerSize = (fiducialMarker?.sizeMm ?? 0) * POINTS_PER_MM;
+  const markerGap = fiducialMarker === undefined ? 0 : 2 * POINTS_PER_MM;
+  const availableWidth = width - margin * 2 - markerSize - markerGap;
   if (availableWidth <= 0) {
     throw new ApplicationError(
       "CONFIGURATION_ERROR",
-      "The address label is too narrow for its QR code and margins.",
+      "The address label is too narrow for its fiducial marker and margins.",
     );
   }
   const lineHeight = config.page.fontSize * 1.18;
@@ -137,33 +140,33 @@ async function renderAddressLabelLines(
     });
     y -= lineHeight;
   }
-  if (qrCode !== undefined) {
-    drawQrCode(
+  if (fiducialMarker !== undefined) {
+    drawFiducialMarker(
       page,
-      qrCode,
-      width - margin - qrSize,
-      height - margin - qrSize,
-      qrSize,
+      fiducialMarker,
+      width - margin - markerSize,
+      height - margin - markerSize,
+      markerSize,
     );
   }
   return document.save({ useObjectStreams: false });
 }
 
-function drawQrCode(
+function drawFiducialMarker(
   page: ReturnType<PDFDocument["addPage"]>,
-  qrCode: QrCodeMatrix,
+  marker: FiducialMarkerMatrix,
   x: number,
   y: number,
   size: number,
 ): void {
-  const totalModules = qrCode.rows.length + qrCode.quietZoneModules * 2;
+  const totalModules = marker.rows.length + marker.quietZoneModules * 2;
   const moduleSize = size / totalModules;
-  for (const [row, modules] of qrCode.rows.entries()) {
+  for (const [row, modules] of marker.rows.entries()) {
     for (let column = 0; column < modules.length; column += 1) {
       if (modules[column] !== "1") continue;
       page.drawRectangle({
-        x: x + (column + qrCode.quietZoneModules) * moduleSize,
-        y: y + size - (row + qrCode.quietZoneModules + 1) * moduleSize,
+        x: x + (column + marker.quietZoneModules) * moduleSize,
+        y: y + size - (row + marker.quietZoneModules + 1) * moduleSize,
         width: moduleSize,
         height: moduleSize,
         color: rgb(0, 0, 0),
@@ -184,7 +187,7 @@ function addressLabelPrintJob(
   config: AddressLabelActionConfig,
   jobName: string,
   lines: readonly string[],
-  qrCode?: QrCodeMatrix,
+  fiducialMarker?: FiducialMarkerMatrix,
 ): AddressLabelPrintJob {
   return {
     idempotencyKey,
@@ -192,7 +195,7 @@ function addressLabelPrintJob(
     mediaType: "application/vnd.tcgplayer-alert.address-label+json",
     page: config.page,
     lines,
-    ...(qrCode === undefined ? {} : { qrCode }),
+    ...(fiducialMarker === undefined ? {} : { fiducialMarker }),
   };
 }
 
@@ -203,22 +206,26 @@ async function submitAddressLabel(
   idempotencyKey: string,
   jobName: string,
   signal?: AbortSignal,
-  verificationCode?: string,
+  tagId?: number,
 ): Promise<void> {
-  const qrCode =
-    verificationCode === undefined
-      ? undefined
-      : createShipmentQrCode(verificationCode);
+  const fiducialMarker =
+    tagId === undefined ? undefined : createShipmentAprilTag(tagId);
   const job = printer.acceptedMediaTypes.has(
     "application/vnd.tcgplayer-alert.address-label+json",
   )
-    ? addressLabelPrintJob(idempotencyKey, config, jobName, lines, qrCode)
+    ? addressLabelPrintJob(
+        idempotencyKey,
+        config,
+        jobName,
+        lines,
+        fiducialMarker,
+      )
     : printer.acceptedMediaTypes.has("application/pdf")
       ? {
           idempotencyKey,
           jobName,
           mediaType: "application/pdf" as const,
-          bytes: await renderAddressLabelLines(lines, config, qrCode),
+          bytes: await renderAddressLabelLines(lines, config, fiducialMarker),
         }
       : undefined;
   if (job === undefined) throw unsupportedPrinter("manual-address-label");
@@ -231,7 +238,7 @@ export async function executeAddressLabelLines(
   lines: readonly string[],
   idempotencyKey: string,
   signal?: AbortSignal,
-  verificationCode?: string,
+  tagId?: number,
 ): Promise<void> {
   const printable = printableAddressLines(lines, config);
   if (printable.length === 0) {
@@ -247,7 +254,7 @@ export async function executeAddressLabelLines(
     idempotencyKey,
     `address-label-${printIdentifier(idempotencyKey)}`,
     signal,
-    verificationCode,
+    tagId,
   );
 }
 

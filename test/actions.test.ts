@@ -183,7 +183,7 @@ describe("address-label action", () => {
     expect(new TextDecoder().decode(job.bytes.slice(0, 5))).toBe("%PDF-");
   });
 
-  it("prints a synthetic vision-lab label with a QR code and no seller provider", async () => {
+  it("prints a synthetic vision-lab label with an AprilTag and no seller provider", async () => {
     const submitted: PrintJob[] = [];
     const printer: Printer = {
       acceptedMediaTypes: new Set([
@@ -215,10 +215,12 @@ describe("address-label action", () => {
     expect(submitted[0]).toMatchObject({
       mediaType: "application/vnd.tcgplayer-alert.address-label+json",
       lines: ["Morgan Sample", "125 Example Avenue", "Test City, IL 60000"],
-      qrCode: {
-        quietZoneModules: 4,
+      fiducialMarker: {
+        family: "APRILTAG_36h11",
+        tagId: 7,
+        quietZoneModules: 1,
         sizeMm: 14,
-        rows: { length: 25 },
+        rows: { length: 8 },
       },
     });
   });

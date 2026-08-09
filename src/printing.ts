@@ -11,7 +11,7 @@ import type {
   WindowsPdfPrinterConfig,
 } from "./config.js";
 import { ApplicationError } from "./errors.js";
-import type { QrCodeMatrix } from "./qr-code.js";
+import type { FiducialMarkerMatrix } from "./april-tag.js";
 
 export interface PrintJobBase {
   readonly idempotencyKey: string;
@@ -32,7 +32,7 @@ export interface AddressLabelPrintJob extends PrintJobBase {
     readonly fontSize: number;
   };
   readonly lines: readonly string[];
-  readonly qrCode?: QrCodeMatrix;
+  readonly fiducialMarker?: FiducialMarkerMatrix;
 }
 
 export type PrintJob = PdfPrintJob | AddressLabelPrintJob;
@@ -212,7 +212,7 @@ interface WindowsLabelPayload extends WindowsSpoolPayloadBase {
     readonly landscape: boolean;
   };
   readonly lines: readonly string[];
-  readonly qrCode?: QrCodeMatrix;
+  readonly fiducialMarker?: FiducialMarkerMatrix;
 }
 
 interface WindowsRasterPayload extends WindowsSpoolPayloadBase {
@@ -262,7 +262,9 @@ export class WindowsNativeLabelPrinter implements Printer {
             landscape: job.page.widthMm > job.page.heightMm,
           },
           lines: job.lines,
-          ...(job.qrCode === undefined ? {} : { qrCode: job.qrCode }),
+          ...(job.fiducialMarker === undefined
+            ? {}
+            : { fiducialMarker: job.fiducialMarker }),
         };
         const payloadPath = join(directory, "payload.json");
         await writePrivateJson(payloadPath, payload);
@@ -593,9 +595,9 @@ try {
     $font = New-Object System.Drawing.Font('Arial', [single]$payload.page.fontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $text = [String]::Join([Environment]::NewLine, @($payload.lines))
     $margin = [single]([double]$payload.page.marginMm / 25.4 * 100)
-    $qr = $payload.qrCode
-    $qrSize = if ($null -eq $qr) { [single]0 } else { [single]([double]$qr.sizeMm / 25.4 * 100) }
-    $qrGap = if ($null -eq $qr) { [single]0 } else { [single](2 / 25.4 * 100) }
+    $marker = $payload.fiducialMarker
+    $markerSize = if ($null -eq $marker) { [single]0 } else { [single]([double]$marker.sizeMm / 25.4 * 100) }
+    $markerGap = if ($null -eq $marker) { [single]0 } else { [single](2 / 25.4 * 100) }
     $handler = [System.Drawing.Printing.PrintPageEventHandler]{
       param($sender, $eventArgs)
       $eventArgs.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
@@ -612,28 +614,28 @@ try {
       $contentWidth = [single]($printableWidth - 2 * $margin)
       $contentHeight = [single]($printableHeight - 2 * $margin)
       if ($contentWidth -le 0 -or $contentHeight -le 0) { throw 'The configured label margins exceed the printer printable area.' }
-      if ($null -ne $qr -and ($qrSize -gt $contentWidth -or $qrSize -gt $contentHeight)) { throw 'The QR code does not fit inside the printer printable area.' }
-      $textWidth = [single]($contentWidth - $qrSize - $qrGap)
-      if ($textWidth -le 0) { throw 'The address and QR code do not fit inside the printer printable area.' }
+      if ($null -ne $marker -and ($markerSize -gt $contentWidth -or $markerSize -gt $contentHeight)) { throw 'The fiducial marker does not fit inside the printer printable area.' }
+      $textWidth = [single]($contentWidth - $markerSize - $markerGap)
+      if ($textWidth -le 0) { throw 'The address and fiducial marker do not fit inside the printer printable area.' }
       $bounds = New-Object System.Drawing.RectangleF($margin, $margin, $textWidth, $contentHeight)
       $format = New-Object System.Drawing.StringFormat
       try {
         $format.Trimming = [System.Drawing.StringTrimming]::Word
         $format.FormatFlags = [System.Drawing.StringFormatFlags]::LineLimit
         $eventArgs.Graphics.DrawString($text, $font, [System.Drawing.Brushes]::Black, $bounds, $format)
-        if ($null -ne $qr) {
-          $rows = @($qr.rows)
-          $quiet = [int]$qr.quietZoneModules
+        if ($null -ne $marker) {
+          $rows = @($marker.rows)
+          $quiet = [int]$marker.quietZoneModules
           $totalModules = $rows.Count + 2 * $quiet
-          $moduleSize = [single]($qrSize / $totalModules)
-          $qrX = [single]($printableWidth - $margin - $qrSize)
-          $qrY = $margin
+          $moduleSize = [single]($markerSize / $totalModules)
+          $markerX = [single]($printableWidth - $margin - $markerSize)
+          $markerY = $margin
           for ($row = 0; $row -lt $rows.Count; $row += 1) {
             $modules = [string]$rows[$row]
             for ($column = 0; $column -lt $modules.Length; $column += 1) {
               if ($modules[$column] -ne '1') { continue }
-              $moduleX = [single]($qrX + ($column + $quiet) * $moduleSize)
-              $moduleY = [single]($qrY + ($row + $quiet) * $moduleSize)
+              $moduleX = [single]($markerX + ($column + $quiet) * $moduleSize)
+              $moduleY = [single]($markerY + ($row + $quiet) * $moduleSize)
               $eventArgs.Graphics.FillRectangle([System.Drawing.Brushes]::Black, $moduleX, $moduleY, $moduleSize, $moduleSize)
             }
           }

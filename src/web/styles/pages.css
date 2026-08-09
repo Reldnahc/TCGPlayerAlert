@@ -1322,7 +1322,7 @@
   line-height: 1.15;
   white-space: nowrap;
 }
-.synthetic-label__qr {
+.synthetic-label__marker {
   width: auto;
   height: min(14vw, 112px);
   max-height: calc(100% - 2px);

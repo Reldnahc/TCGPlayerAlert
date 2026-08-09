@@ -1386,7 +1386,7 @@ async function handleRequest(
       if (!isAllowedMutationRequest(request, response)) return;
       if (executeVisionLabLabel === undefined) {
         sendJson(response, 503, {
-          message: "Synthetic QR-label printing is unavailable.",
+          message: "Synthetic AprilTag-label printing is unavailable.",
         });
         return;
       }

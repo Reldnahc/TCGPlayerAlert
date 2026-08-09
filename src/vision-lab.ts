@@ -4,7 +4,7 @@ export interface VisionLabOrder {
   readonly orderNumber: string;
   readonly buyerName: string;
   readonly addressLines: readonly string[];
-  readonly verificationCode: string;
+  readonly tagId: number;
 }
 
 export interface VisionLabCase {
@@ -18,29 +18,29 @@ export interface VisionLabCase {
 export type VisionLabResolution =
   | {
       readonly state: "match";
-      readonly code: string;
+      readonly tagId: number;
       readonly order: VisionLabOrder;
     }
   | {
       readonly state: "duplicate";
-      readonly code: string;
+      readonly tagId: number;
       readonly order: VisionLabOrder;
     }
   | {
       readonly state: "ambiguous";
-      readonly code: string;
+      readonly tagId: number;
       readonly orders: readonly VisionLabOrder[];
     }
   | {
       readonly state: "missing";
-      readonly code: string;
+      readonly tagId: number;
     };
 
 const uniqueOrder: VisionLabOrder = {
   orderNumber: "LAB-1001",
   buyerName: "Morgan Sample",
   addressLines: ["Morgan Sample", "125 Example Avenue", "Test City, IL 60000"],
-  verificationCode: "TCGA1:7K4M9Q2V8D6R3X5P",
+  tagId: 7,
 };
 
 const firstAmbiguousOrder: VisionLabOrder = {
@@ -51,7 +51,7 @@ const firstAmbiguousOrder: VisionLabOrder = {
     "40 Demonstration Road",
     "Sampletown, IL 60001",
   ],
-  verificationCode: "TCGA1:2N8C4W7H5J9M3R6T",
+  tagId: 18,
 };
 
 const secondAmbiguousOrder: VisionLabOrder = {
@@ -63,28 +63,28 @@ const missingOrder: VisionLabOrder = {
   orderNumber: "LAB-3001",
   buyerName: "Jordan Fixture",
   addressLines: ["Jordan Fixture", "88 Prototype Lane", "Mock City, IL 60002"],
-  verificationCode: "TCGA1:9F3P6T2X7K4M8Q5V",
+  tagId: 29,
 };
 
 export const VISION_LAB_CASES: readonly VisionLabCase[] = [
   {
     id: "unique",
     label: "One match",
-    detail: "The code identifies exactly one fake ready-to-ship order.",
+    detail: "The tag identifies exactly one fake ready-to-ship order.",
     printedOrder: uniqueOrder,
     candidates: [uniqueOrder],
   },
   {
     id: "missing",
     label: "No match",
-    detail: "The label code is absent from the fake ready-order pool.",
+    detail: "The label tag is absent from the fake ready-order pool.",
     printedOrder: missingOrder,
     candidates: [uniqueOrder, firstAmbiguousOrder],
   },
   {
     id: "ambiguous",
     label: "Two matches",
-    detail: "Two fake orders intentionally share one code.",
+    detail: "Two fake orders intentionally share one tag.",
     printedOrder: firstAmbiguousOrder,
     candidates: [firstAmbiguousOrder, secondAmbiguousOrder],
   },
@@ -105,18 +105,16 @@ export function visionLabCase(caseId: VisionLabCaseId): VisionLabCase {
 }
 
 export function resolveVisionLabScan(
-  code: string,
+  tagId: number,
   candidates: readonly VisionLabOrder[],
   completedOrderNumbers: ReadonlySet<string> = new Set(),
 ): VisionLabResolution {
-  const matches = candidates.filter(
-    (candidate) => candidate.verificationCode === code,
-  );
-  if (matches.length === 0) return { state: "missing", code };
-  if (matches.length > 1) return { state: "ambiguous", code, orders: matches };
+  const matches = candidates.filter((candidate) => candidate.tagId === tagId);
+  if (matches.length === 0) return { state: "missing", tagId };
+  if (matches.length > 1) return { state: "ambiguous", tagId, orders: matches };
   const order = matches[0];
-  if (order === undefined) return { state: "missing", code };
+  if (order === undefined) return { state: "missing", tagId };
   return completedOrderNumbers.has(order.orderNumber)
-    ? { state: "duplicate", code, order }
-    : { state: "match", code, order };
+    ? { state: "duplicate", tagId, order }
+    : { state: "match", tagId, order };
 }

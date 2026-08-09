@@ -68,8 +68,12 @@ export {
   VISION_LAB_CASES,
 } from "./vision-lab.js";
 export type * from "./vision-lab.js";
-export { createShipmentQrCode, decodeShipmentQrPixels } from "./qr-code.js";
-export type * from "./qr-code.js";
+export {
+  createShipmentAprilTag,
+  detectShipmentAprilTags,
+  SHIPMENT_TAG_FAMILY,
+} from "./april-tag.js";
+export type * from "./april-tag.js";
 export {
   createPlatformCredentialStore,
   ProtectedFileCredentialStore,
