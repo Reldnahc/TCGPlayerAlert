@@ -35,9 +35,15 @@ Production address-label actions remain unchanged and do not receive a marker.
 
 The browser scanner is local and operator initiated. The camera is off by
 default, starts only after the operator selects **Start camera**, examines
-downscaled frames in memory, and stops when a marker is detected. Image uploads
-are bounded to 10 MB. Neither frames nor uploads are persisted, logged, or sent
-to TCGplayer. The official AprilTag 3 detector runs as WebAssembly in a
+downscaled frames in memory, and stops only after repeated frames agree on a
+marker. A tag belonging to the active ready-order pool requires three matching
+reads. An unknown tag requires five exact, zero-correction reads before the lab
+reports no match; corrected unknown reads are ignored. This prevents one noisy
+frame from being treated as an order identity or a final no-match result. The
+interface displays confirmation progress while the camera remains active.
+Single uploaded images must produce an exact read. Image uploads are bounded to
+10 MB. Neither frames nor uploads are persisted, logged, or sent to TCGplayer.
+The official AprilTag 3 detector runs as WebAssembly in a
 dedicated browser worker. Only one frame may be in flight; later camera frames
 are dropped while detection is busy so scanning cannot build an unbounded queue
 or block the operator interface. A frame containing multiple visual tags

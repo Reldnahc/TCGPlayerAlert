@@ -5,6 +5,11 @@ import {
 } from "../../april-tag.js";
 import { detectShipmentAprilTags } from "../april-tag-detector.js";
 import {
+  emptyShipmentTagConsensus,
+  observeShipmentTagDetection,
+  type ShipmentTagConsensus,
+} from "../../shipment-tag-consensus.js";
+import {
   resolveVisionLabScan,
   visionLabCase,
   VISION_LAB_CASES,
@@ -90,7 +95,16 @@ export function VisionLabPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraTimerRef = useRef<number | undefined>(undefined);
   const cameraScanBusyRef = useRef(false);
+  const cameraSessionRef = useRef(0);
+  const cameraConsensusRef = useRef(emptyShipmentTagConsensus());
+  const [cameraConsensus, setCameraConsensus] = useState<ShipmentTagConsensus>(
+    cameraConsensusRef.current,
+  );
   const selectedCase = useMemo(() => visionLabCase(caseId), [caseId]);
+  const knownTagIds = useMemo(
+    () => new Set(selectedCase.candidates.map((candidate) => candidate.tagId)),
+    [selectedCase],
+  );
 
   function resolveTag(tagId: number) {
     const next = resolveVisionLabScan(
@@ -105,26 +119,71 @@ export function VisionLabPage() {
     setScanError("");
   }
 
-  function resolveDetections(detections: readonly ShipmentTagDetection[]) {
+  function singleDetection(
+    detections: readonly ShipmentTagDetection[],
+  ): ShipmentTagDetection | undefined {
     if (detections.length === 0) {
-      setScanError("No AprilTag was found in that image.");
-      setResolution(null);
-      return false;
+      return undefined;
     }
     if (detections.length > 1) {
       setScanError(
         "Multiple AprilTags were found. Present one parcel at a time.",
       );
       setResolution(null);
+      return undefined;
+    }
+    return detections[0];
+  }
+
+  function resolveStaticDetections(
+    detections: readonly ShipmentTagDetection[],
+  ) {
+    const detection = singleDetection(detections);
+    if (detection === undefined) {
+      if (detections.length === 0) {
+        setScanError("No AprilTag was found in that image.");
+        setResolution(null);
+      }
       return false;
     }
-    const detection = detections[0];
-    if (detection === undefined) return false;
+    if (detection.hammingDistance !== 0) {
+      setScanError(
+        "The tag read was uncertain. Move closer or use a sharper image and try again.",
+      );
+      setResolution(null);
+      return false;
+    }
     resolveTag(detection.tagId);
     return true;
   }
 
+  function observeCameraDetections(
+    detections: readonly ShipmentTagDetection[],
+  ): boolean {
+    const detection = singleDetection(detections);
+    if (detection === undefined) return false;
+    const observation = observeShipmentTagDetection(
+      cameraConsensusRef.current,
+      detection,
+      knownTagIds,
+    );
+    if (!observation.accepted) return false;
+    cameraConsensusRef.current = observation.consensus;
+    setCameraConsensus(observation.consensus);
+    setScanError("");
+    if (observation.confirmedTagId === undefined) return false;
+    resolveTag(observation.confirmedTagId);
+    return true;
+  }
+
+  function resetCameraConsensus() {
+    const empty = emptyShipmentTagConsensus();
+    cameraConsensusRef.current = empty;
+    setCameraConsensus(empty);
+  }
+
   function stopCamera() {
+    cameraSessionRef.current += 1;
     if (cameraTimerRef.current !== undefined) {
       window.clearInterval(cameraTimerRef.current);
       cameraTimerRef.current = undefined;
@@ -150,6 +209,7 @@ export function VisionLabPage() {
     }
     setResolution(null);
     setScanError("");
+    resetCameraConsensus();
     stopCamera();
   }, [selectedCase]);
 
@@ -165,7 +225,7 @@ export function VisionLabPage() {
         setResolution(null);
         return;
       }
-      resolveDetections(detections);
+      resolveStaticDetections(detections);
     } catch (cause) {
       setScanError(
         errorMessage(cause, "The AprilTag scanner could not start."),
@@ -188,7 +248,7 @@ export function VisionLabPage() {
         const canvas = workCanvasRef.current;
         if (canvas === null) throw new Error("Scanner canvas is unavailable.");
         drawSourceToCanvas(image, image.width, image.height, canvas);
-        resolveDetections(await detectCanvas(canvas));
+        resolveStaticDetections(await detectCanvas(canvas));
       } finally {
         image.close();
       }
@@ -207,6 +267,9 @@ export function VisionLabPage() {
     }
     stopCamera();
     setScanError("");
+    setResolution(null);
+    resetCameraConsensus();
+    const cameraSession = cameraSessionRef.current;
     try {
       const stream = await mediaDevices.getUserMedia({
         audio: false,
@@ -216,6 +279,10 @@ export function VisionLabPage() {
           height: { ideal: 1_080 },
         },
       });
+      if (cameraSession !== cameraSessionRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
       const video = videoRef.current;
       const canvas = workCanvasRef.current;
       if (video === null || canvas === null) {
@@ -227,6 +294,7 @@ export function VisionLabPage() {
       setCameraActive(true);
       cameraTimerRef.current = window.setInterval(() => {
         if (
+          cameraSession !== cameraSessionRef.current ||
           cameraScanBusyRef.current ||
           video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
         )
@@ -241,9 +309,9 @@ export function VisionLabPage() {
               canvas,
             );
             const detections = await detectCanvas(canvas);
+            if (cameraSession !== cameraSessionRef.current) return;
             if (detections.length === 0) return;
-            resolveDetections(detections);
-            stopCamera();
+            if (observeCameraDetections(detections)) stopCamera();
           } catch (cause) {
             setScanError(
               errorMessage(cause, "The camera frame could not be scanned."),
@@ -353,7 +421,11 @@ export function VisionLabPage() {
               <div class={`camera-stage${cameraActive ? " is-active" : ""}`}>
                 <video ref={videoRef} muted playsInline />
                 {cameraActive ? (
-                  <span>Looking for an AprilTag</span>
+                  <span>
+                    {cameraConsensus.tagId === null
+                      ? "Looking for an AprilTag"
+                      : `Confirming tag ${String(cameraConsensus.tagId)} - ${String(cameraConsensus.matchingReads)}/${String(cameraConsensus.requiredReads)}`}
+                  </span>
                 ) : (
                   <div>
                     <strong>Camera is off</strong>
@@ -412,7 +484,7 @@ export function VisionLabPage() {
               <Notice tone="success">
                 <strong>Would mark shipped</strong>
                 <span>
-                  {resolution.order.orderNumber} {" · "}
+                  {resolution.order.orderNumber} {" - "}
                   {resolution.order.buyerName}
                 </span>
               </Notice>
@@ -435,7 +507,8 @@ export function VisionLabPage() {
               <Notice tone="danger">
                 <strong>No matching order</strong>
                 <span>
-                  The fake ready-order pool does not contain this tag.
+                  The fake ready-order pool does not contain tag{" "}
+                  {String(resolution.tagId)}.
                 </span>
               </Notice>
             )}

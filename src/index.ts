@@ -69,6 +69,11 @@ export {
 } from "./vision-lab.js";
 export type * from "./vision-lab.js";
 export { createShipmentAprilTag, SHIPMENT_TAG_FAMILY } from "./april-tag.js";
+export {
+  emptyShipmentTagConsensus,
+  observeShipmentTagDetection,
+} from "./shipment-tag-consensus.js";
+export type * from "./shipment-tag-consensus.js";
 export type * from "./april-tag.js";
 export {
   createPlatformCredentialStore,

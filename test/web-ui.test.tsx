@@ -216,7 +216,9 @@ function baseFetch(
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "mediaDevices");
   detectorMocks.detectShipmentAprilTags.mockReset();
   window.localStorage.clear();
   window.location.hash = "";
@@ -657,6 +659,78 @@ describe("operator console", () => {
         ([input]) => !requestPath(input).includes("mark-shipped"),
       ),
     ).toBe(true);
+  });
+
+  it("keeps scanning after one wrong camera read and confirms the known tag", async () => {
+    vi.useFakeTimers();
+    detectorMocks.detectShipmentAprilTags
+      .mockResolvedValueOnce([{ tagId: 99, hammingDistance: 0, corners: [] }])
+      .mockResolvedValue([{ tagId: 7, hammingDistance: 0, corners: [] }]);
+    const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      function (this: HTMLCanvasElement) {
+        if (this.classList.contains("scan-work-canvas")) {
+          return {
+            drawImage: vi.fn(),
+            getImageData: () => ({
+              data: new Uint8ClampedArray(this.width * this.height * 4),
+              width: this.width,
+              height: this.height,
+            }),
+          } as unknown as CanvasRenderingContext2D;
+        }
+        let backing = canvasBackings.get(this);
+        if (backing?.width !== this.width || backing.height !== this.height) {
+          backing = createCanvas(this.width, this.height);
+          canvasBackings.set(this, backing);
+        }
+        return backing.getContext("2d") as unknown as CanvasRenderingContext2D;
+      },
+    );
+    const stopTrack = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [{ stop: stopTrack }],
+        }),
+      },
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    vi.stubGlobal("fetch", vi.fn(baseFetch));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Scan lab" }));
+    await screen.findByRole("heading", { name: "Scan lab" });
+    const video = document.querySelector("video");
+    if (video === null) throw new Error("Expected the Scan lab video.");
+    Object.defineProperties(video, {
+      readyState: {
+        configurable: true,
+        value: HTMLMediaElement.HAVE_CURRENT_DATA,
+      },
+      videoWidth: { configurable: true, value: 16 },
+      videoHeight: { configurable: true, value: 16 },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Start camera" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: "Stop camera" })).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(screen.queryByText("No matching order")).toBeNull();
+    expect(screen.getByText("Confirming tag 99 - 1/5")).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750);
+    });
+    expect(await screen.findByText("Would mark shipped")).toBeTruthy();
+    expect(stopTrack).toHaveBeenCalledTimes(1);
   });
 
   it("marks an order shipped immediately when confirmation is disabled", async () => {
