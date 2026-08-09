@@ -12,8 +12,7 @@ export interface ShipmentTagConsensusObservation {
   readonly confirmedTagId?: number;
 }
 
-const REQUIRED_KNOWN_TAG_READS = 3;
-const REQUIRED_UNKNOWN_TAG_READS = 5;
+const REQUIRED_TAG_READS = 5;
 
 export function emptyShipmentTagConsensus(): ShipmentTagConsensus {
   return { tagId: null, matchingReads: 0, requiredReads: 0 };
@@ -29,9 +28,7 @@ export function observeShipmentTagDetection(
     return { consensus: current, accepted: false };
   }
 
-  const requiredReads = known
-    ? REQUIRED_KNOWN_TAG_READS
-    : REQUIRED_UNKNOWN_TAG_READS;
+  const requiredReads = REQUIRED_TAG_READS;
   const matchingReads =
     current.tagId === detection.tagId ? current.matchingReads + 1 : 1;
   const consensus = {

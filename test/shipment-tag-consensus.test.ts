@@ -23,10 +23,10 @@ describe("shipment tag camera consensus", () => {
     });
   });
 
-  it("confirms a known order tag after three matching reads", () => {
+  it("confirms a known order tag after five matching reads", () => {
     let consensus = emptyShipmentTagConsensus();
     let confirmedTagId: number | undefined;
-    for (let read = 0; read < 3; read += 1) {
+    for (let read = 0; read < 5; read += 1) {
       const observation = observeShipmentTagDetection(
         consensus,
         detection(7, 1),
@@ -38,8 +38,8 @@ describe("shipment tag camera consensus", () => {
 
     expect(consensus).toEqual({
       tagId: 7,
-      matchingReads: 3,
-      requiredReads: 3,
+      matchingReads: 5,
+      requiredReads: 5,
     });
     expect(confirmedTagId).toBe(7);
   });

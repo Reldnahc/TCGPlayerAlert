@@ -36,7 +36,7 @@ Production address-label actions remain unchanged and do not receive a marker.
 The browser scanner is local and operator initiated. The camera is off by
 default, starts only after the operator selects **Start camera**, examines
 downscaled frames in memory, and stops only after repeated frames agree on a
-marker. A tag belonging to the active ready-order pool requires three matching
+marker. A tag belonging to the active ready-order pool requires five matching
 reads. An unknown tag requires five exact, zero-correction reads before the lab
 reports no match; corrected unknown reads are ignored. This prevents one noisy
 frame from being treated as an order identity or a final no-match result. The

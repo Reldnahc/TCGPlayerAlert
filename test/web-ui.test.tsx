@@ -727,7 +727,7 @@ describe("operator console", () => {
     expect(screen.getByText("Confirming tag 99 - 1/5")).toBeTruthy();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(1_250);
     });
     expect(await screen.findByText("Would mark shipped")).toBeTruthy();
     expect(stopTrack).toHaveBeenCalledTimes(1);
