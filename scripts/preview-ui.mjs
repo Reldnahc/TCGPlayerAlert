@@ -3,7 +3,11 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { ConfigurationService, startConfigurationUi } from "../dist/index.js";
+import {
+  ConfigurationService,
+  shipmentTagId,
+  startConfigurationUi,
+} from "../dist/index.js";
 
 const previewDirectory = await mkdtemp(
   join(tmpdir(), "tcgplayer-alert-preview-"),
@@ -446,10 +450,32 @@ const service = new ConfigurationService({
       ],
     }),
 });
+const previewConnectionStatus = {
+  state: "connected",
+  source: "browser",
+  updatedAt: now,
+  automaticRenewal: true,
+  protectedStorage: true,
+};
+const sessionManager = {
+  connectionStatus: () => previewConnectionStatus,
+  startPairing: () => ({
+    pairingCode: "synthetic-preview",
+    expiresAt: now,
+  }),
+  connect: () =>
+    Promise.resolve({
+      connectorToken: "synthetic-preview",
+      status: previewConnectionStatus,
+    }),
+  renew: () => Promise.resolve(previewConnectionStatus),
+  disconnect: () => Promise.resolve(previewConnectionStatus),
+};
 const server = await startConfigurationUi({
   configPath,
   port: Number(process.env.PREVIEW_PORT ?? 47839),
   service,
+  sessionManager,
   inventoryService,
   inventoryQueue,
   inventoryWorkerRunning: false,
@@ -673,6 +699,24 @@ const server = await startConfigurationUi({
         portalUrl: `https://sellerportal.tcgplayer.com/messages/${String(threadId)}`,
         fetchedAt: now,
       }),
+  },
+  shipmentScannerService: {
+    status: () =>
+      Promise.resolve({
+        enabled: true,
+        automaticallyMarkShipped: false,
+        soundEnabled: false,
+        readyOrderCount: 2,
+        readyTagIds: orders
+          .filter((order) => order.canMarkShipped)
+          .map((order) => shipmentTagId(order.orderNumber)),
+        conflictingTagCount: 0,
+        reviewRequiredCount: 0,
+        snapshotFetchedAt: now,
+      }),
+    scan: (tagId) => Promise.resolve({ state: "no-match", tagId }),
+    markShipped: (tagId, orderNumber) =>
+      Promise.resolve({ state: "already-processed", tagId, orderNumber }),
   },
   executePrintTest: () => Promise.resolve(),
   executeVisionLabLabel: () => Promise.resolve(),

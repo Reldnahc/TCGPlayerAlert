@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted; supersedes the initial QR implementation of this lab.
+Accepted; supersedes the initial QR implementation of this lab. ADR 0017
+separately activates the opt-in production workflow.
 
 ## Context
 
@@ -64,13 +65,10 @@ matches require review. The lab print route accepts only a fixed synthetic case
 identifier and an in-range label index and is injected with a print-only
 function; it has no order service, seller client, or shipment-mutation path.
 
-Production activation is a separate decision. It will require a durable,
-non-secret mapping from active tag identifiers to real orders, authoritative
-ready-order reconciliation at scan time, explicit configuration, durable
-idempotency, audit history, and a supervised live-order compatibility test.
-Webcam motion detection and audible or visual signals are deferred until the
-fiducial identity loop is proven on the intended camera, basket, and label
-stock.
+ADR 0017 records the later production decision: a deterministic non-secret
+mapping, authoritative ready-order reconciliation at scan time, explicit
+configuration, a durable shipment-mutation ledger, and visible and audible
+outcomes. Webcam motion detection remains deferred.
 
 ## Consequences
 
@@ -87,4 +85,5 @@ stock.
   source provides deterministic server-side vector labels.
 - The operator can test a real printer and webcam without accessing customer
   data or changing a seller order.
-- Passing the lab does not authorize unattended or real shipment mutations.
+- The lab itself remains incapable of seller mutations even after the separate
+  production Scanner workspace is enabled.

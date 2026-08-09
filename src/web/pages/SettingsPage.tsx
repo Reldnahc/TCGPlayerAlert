@@ -7,7 +7,12 @@ import { PrintingSettings } from "./settings/PrintingSettings.js";
 import { SellerConnectionCard } from "../components/SellerConnectionCard.js";
 
 type SettingsSection =
-  "general" | "pricing" | "merchandise" | "printing" | "processing";
+  | "general"
+  | "pricing"
+  | "merchandise"
+  | "printing"
+  | "scanning"
+  | "processing";
 const sections: readonly {
   readonly id: SettingsSection;
   readonly label: string;
@@ -16,6 +21,7 @@ const sections: readonly {
   { id: "pricing", label: "Pricing" },
   { id: "merchandise", label: "Merchandise" },
   { id: "printing", label: "Printing" },
+  { id: "scanning", label: "Scanning" },
   { id: "processing", label: "Processing" },
 ];
 
@@ -99,6 +105,63 @@ export function SettingsPage() {
               settings={settings}
               onChange={(next) => update(() => next)}
             />
+          ) : section === "scanning" ? (
+            <section class="editor-section settings-editor settings-editor--single">
+              <div class="editor-section__head">
+                <div>
+                  <h2>Shipment scanner</h2>
+                  <p>Control AprilTag labels, shipment mutations, and cues.</p>
+                </div>
+              </div>
+              <div class="processing-grid">
+                <Toggle
+                  label="Add shipment tags to order labels"
+                  description="Enables the production Scanner workspace"
+                  checked={settings.shipmentScanner.enabled}
+                  onChange={(checked) =>
+                    update((current) => ({
+                      ...current,
+                      shipmentScanner: {
+                        ...current.shipmentScanner,
+                        enabled: checked,
+                        automaticallyMarkShipped: checked
+                          ? current.shipmentScanner.automaticallyMarkShipped
+                          : false,
+                      },
+                    }))
+                  }
+                />
+                <Toggle
+                  label="Automatically mark exact matches shipped"
+                  description="Changes TCGplayer after five confirmed reads and an authoritative order refresh"
+                  checked={settings.shipmentScanner.automaticallyMarkShipped}
+                  disabled={!settings.shipmentScanner.enabled}
+                  onChange={(checked) =>
+                    update((current) => ({
+                      ...current,
+                      shipmentScanner: {
+                        ...current.shipmentScanner,
+                        automaticallyMarkShipped: checked,
+                      },
+                    }))
+                  }
+                />
+                <Toggle
+                  label="Play scan sounds"
+                  description="High cue for success; low cue when review is required"
+                  checked={settings.shipmentScanner.soundEnabled}
+                  onChange={(checked) =>
+                    update((current) => ({
+                      ...current,
+                      shipmentScanner: {
+                        ...current.shipmentScanner,
+                        soundEnabled: checked,
+                      },
+                    }))
+                  }
+                />
+              </div>
+            </section>
           ) : (
             <section class="editor-section settings-editor settings-editor--single">
               <div class="editor-section__head">

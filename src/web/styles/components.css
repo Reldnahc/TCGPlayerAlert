@@ -303,12 +303,14 @@
 .status--applied,
 .status--submitted,
 .status--success,
+.status--review-before-shipping,
 .status--succeeded {
   color: #096442;
   border-color: #9ed1bc;
   background: #e8f6f0;
 }
 .status--pending,
+.status--automatic-shipping,
 .status--applying,
 .status--staged,
 .status--committed,

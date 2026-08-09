@@ -13,6 +13,12 @@ describe("application configuration", () => {
     expect(config.version).toBe(1);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
+    expect(config.shipmentScanner).toEqual({
+      enabled: false,
+      automaticallyMarkShipped: false,
+      soundEnabled: true,
+      stateFile: ".data/shipment-scans.json",
+    });
     expect(config.priceUpdateQueue.delaySeconds).toBe(1);
     expect(config.inventoryAdditionQueue).toMatchObject({
       enabled: false,
@@ -105,6 +111,34 @@ describe("application configuration", () => {
     delete value.confirmBeforeMarkingShipped;
 
     expect(parseConfig(value).confirmBeforeMarkingShipped).toBe(true);
+  });
+
+  it("keeps shipment scanning safely disabled for older configuration files", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    delete value.shipmentScanner;
+
+    expect(parseConfig(value).shipmentScanner).toEqual({
+      enabled: false,
+      automaticallyMarkShipped: false,
+      soundEnabled: true,
+      stateFile: ".data/shipment-scans.json",
+    });
+  });
+
+  it("rejects automatic shipment changes unless scanning is enabled", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    value.shipmentScanner = {
+      enabled: false,
+      automaticallyMarkShipped: true,
+      soundEnabled: true,
+      stateFile: ".data/shipment-scans.json",
+    };
+
+    expect(() => parseConfig(value)).toThrow(ConfigurationError);
   });
 
   it("migrates an older version-one config with inventory-addition defaults", async () => {

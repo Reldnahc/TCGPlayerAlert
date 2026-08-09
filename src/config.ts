@@ -103,6 +103,13 @@ export interface InventoryAdditionQueueConfig {
   readonly historyLimit: number;
 }
 
+export interface ShipmentScannerConfig {
+  readonly enabled: boolean;
+  readonly automaticallyMarkShipped: boolean;
+  readonly soundEnabled: boolean;
+  readonly stateFile: string;
+}
+
 export interface MerchandiseProfileConfig {
   readonly id: string;
   readonly name: string;
@@ -149,6 +156,7 @@ export interface AppConfig {
   readonly pricingProfileDefaultsVersion: 1;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly shipmentScanner: ShipmentScannerConfig;
   readonly actionMaximumAttempts: number;
   readonly stateFile: string;
   readonly spoolDirectory: string;
@@ -712,6 +720,7 @@ export function parseConfig(value: unknown): AppConfig {
     issues.push("config.priceUpdateQueue must be an object.");
   }
   const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
+  const shipmentScanner = record(root?.shipmentScanner);
   const legacyRepricingProfileValues = root?.repricingProfiles;
   const firstLegacyRepricingProfile = Array.isArray(
     legacyRepricingProfileValues,
@@ -1079,6 +1088,48 @@ export function parseConfig(value: unknown): AppConfig {
     root?.confirmBeforeMarkingShipped === undefined
       ? true
       : booleanValue(root, "confirmBeforeMarkingShipped", "config", issues);
+  const shipmentScannerConfig: ShipmentScannerConfig =
+    shipmentScanner === undefined
+      ? {
+          enabled: false,
+          automaticallyMarkShipped: false,
+          soundEnabled: true,
+          stateFile: ".data/shipment-scans.json",
+        }
+      : {
+          enabled: booleanValue(
+            shipmentScanner,
+            "enabled",
+            "config.shipmentScanner",
+            issues,
+          ),
+          automaticallyMarkShipped: booleanValue(
+            shipmentScanner,
+            "automaticallyMarkShipped",
+            "config.shipmentScanner",
+            issues,
+          ),
+          soundEnabled: booleanValue(
+            shipmentScanner,
+            "soundEnabled",
+            "config.shipmentScanner",
+            issues,
+          ),
+          stateFile: text(
+            shipmentScanner,
+            "stateFile",
+            "config.shipmentScanner",
+            issues,
+          ),
+        };
+  if (
+    shipmentScannerConfig.automaticallyMarkShipped &&
+    !shipmentScannerConfig.enabled
+  ) {
+    issues.push(
+      "config.shipmentScanner must be enabled before automatic shipment changes can be enabled.",
+    );
+  }
   const actionMaximumAttempts = integer(
     root,
     "actionMaximumAttempts",
@@ -1218,6 +1269,13 @@ export function parseConfig(value: unknown): AppConfig {
   const effectiveInventoryAdditionQueueConfig = disableLegacySideEffects
     ? { ...inventoryAdditionQueueConfig, enabled: false }
     : inventoryAdditionQueueConfig;
+  const effectiveShipmentScannerConfig = disableLegacySideEffects
+    ? {
+        ...shipmentScannerConfig,
+        enabled: false,
+        automaticallyMarkShipped: false,
+      }
+    : shipmentScannerConfig;
 
   const activePrinterIds = new Set(
     Object.values(effectiveActions)
@@ -1245,6 +1303,7 @@ export function parseConfig(value: unknown): AppConfig {
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
     confirmBeforeMarkingShipped,
+    shipmentScanner: effectiveShipmentScannerConfig,
     actionMaximumAttempts,
     stateFile,
     spoolDirectory,

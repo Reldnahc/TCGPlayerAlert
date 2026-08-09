@@ -15,6 +15,7 @@ import {
   type PaymentManagementService,
   type RepricingService,
   type SellerSessionService,
+  type ShipmentScannerService,
 } from "../src/index.js";
 
 const discovery = () =>
@@ -73,6 +74,11 @@ describe("configuration UI", () => {
       revision: initial.revision,
       pollIntervalMinutes: 15,
       confirmBeforeMarkingShipped: false,
+      shipmentScanner: {
+        enabled: true,
+        automaticallyMarkShipped: false,
+        soundEnabled: false,
+      },
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
       inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
       merchandiseProfiles: [
@@ -110,6 +116,11 @@ describe("configuration UI", () => {
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
       confirmBeforeMarkingShipped: false,
+      shipmentScanner: {
+        enabled: true,
+        automaticallyMarkShipped: false,
+        soundEnabled: false,
+      },
       merchandiseProfiles: [
         { estimatedShippingPrice: 0.99, defaultCondition: "Lightly Played" },
       ],
@@ -350,6 +361,87 @@ describe("configuration UI", () => {
       AbortSignal,
     );
     expect(listOrders).not.toHaveBeenCalled();
+  });
+
+  it("routes confirmed shipment tags through the injected scanner service", async () => {
+    const current = await fixture();
+    const status = vi.fn(() =>
+      Promise.resolve({
+        enabled: true,
+        automaticallyMarkShipped: false,
+        soundEnabled: true,
+        readyOrderCount: 1,
+        readyTagIds: [42],
+        conflictingTagCount: 0,
+        reviewRequiredCount: 0,
+      }),
+    );
+    const scan = vi.fn(() =>
+      Promise.resolve({ state: "no-match" as const, tagId: 42 }),
+    );
+    const markShipped = vi.fn(() =>
+      Promise.resolve({
+        state: "already-processed" as const,
+        tagId: 42,
+        orderNumber: "SYNTHETIC-ORDER",
+      }),
+    );
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      shipmentScannerService: {
+        status,
+        scan,
+        markShipped,
+      } as unknown as ShipmentScannerService,
+    });
+    const mutationHeaders = {
+      "Content-Type": "application/json",
+      Origin: server.url,
+    };
+
+    const statusResponse = await fetch(`${server.url}/api/shipment-scanner`);
+    const scanResponse = await fetch(
+      `${server.url}/api/shipment-scanner/scan`,
+      {
+        method: "POST",
+        headers: mutationHeaders,
+        body: JSON.stringify({ tagId: 42 }),
+      },
+    );
+    const markResponse = await fetch(
+      `${server.url}/api/shipment-scanner/mark-shipped`,
+      {
+        method: "POST",
+        headers: mutationHeaders,
+        body: JSON.stringify({ tagId: 42, orderNumber: "SYNTHETIC-ORDER" }),
+      },
+    );
+
+    expect(statusResponse.status).toBe(200);
+    expect(await statusResponse.json()).toEqual({
+      enabled: true,
+      automaticallyMarkShipped: false,
+      soundEnabled: true,
+      readyOrderCount: 1,
+      readyTagIds: [42],
+      conflictingTagCount: 0,
+      reviewRequiredCount: 0,
+    });
+    expect(status).toHaveBeenCalledOnce();
+    expect(await scanResponse.json()).toEqual({ state: "no-match", tagId: 42 });
+    expect(await markResponse.json()).toEqual({
+      state: "already-processed",
+      tagId: 42,
+      orderNumber: "SYNTHETIC-ORDER",
+    });
+    expect(scan).toHaveBeenCalledWith(42, expect.any(AbortSignal));
+    expect(markShipped).toHaveBeenCalledWith(
+      42,
+      "SYNTHETIC-ORDER",
+      expect.any(AbortSignal),
+    );
   });
 
   it("streams concrete repricing progress before the completed preview", async () => {

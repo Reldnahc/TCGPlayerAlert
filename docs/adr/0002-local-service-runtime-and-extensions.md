@@ -19,7 +19,7 @@ The first deployment needs to poll one seller account, remember workflow decisio
 - Use a command-printer adapter that invokes a configured executable directly without a shell. Argument placeholders provide the temporary PDF path, logical job name, and configured printer name. This supports OS-visible DYMO and network printers without coupling the core to one vendor SDK.
 - The initial command-printer decision has been superseded as the default by ADR 0003. The adapter remains available as a custom and cross-platform escape hatch.
 - Default every side-effecting action and mutation queue to disabled. The first successful sync establishes a baseline and never dispatches existing orders unless `--process-backlog` is explicitly selected.
-- Keep tracking and shipment mutations outside the automatic fulfillment workflow. ADR 0005 separately authorizes an explicit, durable price-update queue.
+- Keep tracking and shipment mutations outside the scheduled fulfillment workflow. ADR 0017 separately authorizes an explicitly enabled camera-triggered shipment workflow with its own durable mutation ledger. ADR 0005 separately authorizes an explicit, durable price-update queue.
 
 ## Consequences
 

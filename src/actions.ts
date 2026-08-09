@@ -12,6 +12,7 @@ import {
   createShipmentAprilTag,
   type FiducialMarkerMatrix,
 } from "./april-tag.js";
+import { shipmentTagId } from "./shipment-scanner.js";
 
 export interface ActionContext {
   readonly order: FulfillmentOrder;
@@ -393,6 +394,7 @@ class AddressLabelAction implements WorkflowAction {
     readonly id: string,
     private readonly config: AddressLabelActionConfig,
     private readonly printer: Printer,
+    private readonly includeShipmentTag: boolean,
   ) {}
 
   async execute(context: ActionContext): Promise<void> {
@@ -403,6 +405,7 @@ class AddressLabelAction implements WorkflowAction {
       context.idempotencyKey,
       `address-label-${printIdentifier(context.idempotencyKey)}`,
       context.signal,
+      this.includeShipmentTag ? shipmentTagId(context.order.id) : undefined,
     );
   }
 }
@@ -453,7 +456,10 @@ function pdfPrintJob(
 export function createActions(
   config: AppConfig,
   printers: Readonly<Record<string, Printer>>,
+  options: { readonly includeShipmentTags?: boolean } = {},
 ): Readonly<Record<string, WorkflowAction>> {
+  const includeShipmentTags =
+    options.includeShipmentTags ?? config.shipmentScanner.enabled;
   return Object.fromEntries(
     Object.entries(config.actions).flatMap(([id, actionConfig]) => {
       if (actionConfig.enabled === false) return [];
@@ -464,7 +470,9 @@ export function createActions(
           "An action references an unavailable printer.",
         );
       }
-      return [[id, createAction(id, actionConfig, printer)]];
+      return [
+        [id, createAction(id, actionConfig, printer, includeShipmentTags)],
+      ];
     }),
   );
 }
@@ -473,6 +481,7 @@ function createAction(
   id: string,
   config: ActionConfig,
   printer: Printer,
+  includeShipmentTags: boolean,
 ): WorkflowAction {
   if (config.type === "print-address-label") {
     if (
@@ -483,7 +492,7 @@ function createAction(
     ) {
       throw unsupportedPrinter(id);
     }
-    return new AddressLabelAction(id, config, printer);
+    return new AddressLabelAction(id, config, printer, includeShipmentTags);
   }
   if (!printer.acceptedMediaTypes.has("application/pdf")) {
     throw unsupportedPrinter(id);

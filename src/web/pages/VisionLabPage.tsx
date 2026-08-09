@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import {
-  createShipmentAprilTag,
-  type ShipmentTagDetection,
-} from "../../april-tag.js";
-import { detectShipmentAprilTags } from "../april-tag-detector.js";
-import {
-  emptyShipmentTagConsensus,
-  observeShipmentTagDetection,
-  type ShipmentTagConsensus,
-} from "../../shipment-tag-consensus.js";
+import { createShipmentAprilTag } from "../../april-tag.js";
 import {
   resolveVisionLabScan,
   visionLabCase,
@@ -26,11 +17,7 @@ import {
 } from "../components/ui.js";
 import { useToast } from "../state/ToastContext.js";
 import { errorMessage } from "../utils.js";
-
-const CAMERA_SCAN_INTERVAL_MILLISECONDS = 250;
-const CAMERA_REARM_EMPTY_FRAMES = 5;
-const MAXIMUM_CAMERA_FRAME_WIDTH = 1_280;
-const MAXIMUM_UPLOAD_BYTES = 10 * 1024 * 1024;
+import { useAprilTagScanner } from "../useAprilTagScanner.js";
 
 function drawAprilTag(canvas: HTMLCanvasElement, tagId: number): void {
   const marker = createShipmentAprilTag(tagId);
@@ -57,29 +44,6 @@ function drawAprilTag(canvas: HTMLCanvasElement, tagId: number): void {
   }
 }
 
-async function detectCanvas(
-  canvas: HTMLCanvasElement,
-): Promise<readonly ShipmentTagDetection[]> {
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (context === null) return [];
-  const image = context.getImageData(0, 0, canvas.width, canvas.height);
-  return detectShipmentAprilTags(image.data, image.width, image.height);
-}
-
-function drawSourceToCanvas(
-  source: CanvasImageSource,
-  sourceWidth: number,
-  sourceHeight: number,
-  canvas: HTMLCanvasElement,
-): void {
-  const scale = Math.min(1, MAXIMUM_CAMERA_FRAME_WIDTH / sourceWidth);
-  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (context === null) throw new Error("Canvas rendering is unavailable.");
-  context.drawImage(source, 0, 0, canvas.width, canvas.height);
-}
-
 export function VisionLabPage() {
   const toast = useToast();
   const [caseId, setCaseId] = useState<VisionLabCaseId>("unique");
@@ -87,28 +51,12 @@ export function VisionLabPage() {
   const [resolution, setResolution] = useState<VisionLabResolution | null>(
     null,
   );
-  const [scanError, setScanError] = useState("");
-  const [cameraActive, setCameraActive] = useState(false);
   const [scanningPreview, setScanningPreview] = useState(false);
   const [printingMode, setPrintingMode] = useState<"selected" | "all" | null>(
     null,
   );
   const completedRef = useRef(new Set<string>());
   const markerCanvasRef = useRef<HTMLCanvasElement>(null);
-  const workCanvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const cameraTimerRef = useRef<number | undefined>(undefined);
-  const cameraScanBusyRef = useRef(false);
-  const cameraSessionRef = useRef(0);
-  const cameraEmptyFramesRef = useRef(0);
-  const cameraLatchedTagIdRef = useRef<number | null>(null);
-  const [cameraLatchedTagId, setCameraLatchedTagId] = useState<number | null>(
-    null,
-  );
-  const cameraConsensusRef = useRef(emptyShipmentTagConsensus());
-  const [cameraConsensus, setCameraConsensus] = useState<ShipmentTagConsensus>(
-    cameraConsensusRef.current,
-  );
   const selectedCase = useMemo(() => visionLabCase(caseId), [caseId]);
   const selectedPrintedOrder = useMemo(() => {
     const order =
@@ -120,6 +68,10 @@ export function VisionLabPage() {
     () => new Set(selectedCase.candidates.map((candidate) => candidate.tagId)),
     [selectedCase],
   );
+  const scanner = useAprilTagScanner({
+    knownTagIds,
+    onConfirmed: resolveTag,
+  });
 
   function resolveTag(tagId: number) {
     const next = resolveVisionLabScan(
@@ -131,124 +83,15 @@ export function VisionLabPage() {
       completedRef.current.add(next.order.orderNumber);
     }
     setResolution(next);
-    setScanError("");
-  }
-
-  function singleDetection(
-    detections: readonly ShipmentTagDetection[],
-    clearResolutionOnError = true,
-  ): ShipmentTagDetection | undefined {
-    if (detections.length === 0) {
-      return undefined;
-    }
-    if (detections.length > 1) {
-      setScanError(
-        "Multiple AprilTags were found. Present one parcel at a time.",
-      );
-      if (clearResolutionOnError) setResolution(null);
-      return undefined;
-    }
-    return detections[0];
-  }
-
-  function resolveStaticDetections(
-    detections: readonly ShipmentTagDetection[],
-  ) {
-    const detection = singleDetection(detections);
-    if (detection === undefined) {
-      if (detections.length === 0) {
-        setScanError("No AprilTag was found in that image.");
-        setResolution(null);
-      }
-      return false;
-    }
-    if (detection.hammingDistance !== 0) {
-      setScanError(
-        "The tag read was uncertain. Move closer or use a sharper image and try again.",
-      );
-      setResolution(null);
-      return false;
-    }
-    resolveTag(detection.tagId);
-    return true;
-  }
-
-  function observeCameraDetections(
-    detections: readonly ShipmentTagDetection[],
-  ): void {
-    cameraEmptyFramesRef.current = 0;
-    const detection = singleDetection(detections, false);
-    if (detection === undefined) return;
-    if (detection.tagId === cameraLatchedTagIdRef.current) {
-      if (cameraConsensusRef.current.tagId !== null) resetCameraConsensus();
-      setScanError("");
-      return;
-    }
-    const observation = observeShipmentTagDetection(
-      cameraConsensusRef.current,
-      detection,
-      knownTagIds,
-    );
-    if (!observation.accepted) return;
-    cameraConsensusRef.current = observation.consensus;
-    setCameraConsensus(observation.consensus);
-    setScanError("");
-    if (observation.confirmedTagId === undefined) return;
-    resolveTag(observation.confirmedTagId);
-    cameraLatchedTagIdRef.current = observation.confirmedTagId;
-    setCameraLatchedTagId(observation.confirmedTagId);
-    resetCameraConsensus();
-  }
-
-  function observeEmptyCameraFrame() {
-    cameraEmptyFramesRef.current += 1;
-    if (cameraEmptyFramesRef.current < CAMERA_REARM_EMPTY_FRAMES) return;
-    cameraEmptyFramesRef.current = 0;
-    cameraLatchedTagIdRef.current = null;
-    setCameraLatchedTagId(null);
-    if (cameraConsensusRef.current.tagId !== null) resetCameraConsensus();
-    setScanError("");
-  }
-
-  function resetCameraConsensus() {
-    const empty = emptyShipmentTagConsensus();
-    cameraConsensusRef.current = empty;
-    setCameraConsensus(empty);
-  }
-
-  function resetCameraCycle() {
-    cameraEmptyFramesRef.current = 0;
-    cameraLatchedTagIdRef.current = null;
-    setCameraLatchedTagId(null);
-    resetCameraConsensus();
-  }
-
-  function stopCamera() {
-    cameraSessionRef.current += 1;
-    if (cameraTimerRef.current !== undefined) {
-      window.clearInterval(cameraTimerRef.current);
-      cameraTimerRef.current = undefined;
-    }
-    const video = videoRef.current;
-    const stream = video?.srcObject;
-    if (
-      stream !== null &&
-      stream !== undefined &&
-      "getTracks" in stream &&
-      typeof stream.getTracks === "function"
-    ) {
-      for (const track of stream.getTracks()) track.stop();
-    }
-    if (video !== null) video.srcObject = null;
-    setCameraActive(false);
+    scanner.setScanError("");
   }
 
   useEffect(() => {
     setLabelIndex(0);
     setResolution(null);
-    setScanError("");
-    resetCameraCycle();
-    stopCamera();
+    scanner.setScanError("");
+    scanner.resetCameraCycle();
+    scanner.stopCamera();
   }, [selectedCase]);
 
   useEffect(() => {
@@ -258,21 +101,14 @@ export function VisionLabPage() {
     }
   }, [selectedPrintedOrder]);
 
-  useEffect(() => () => stopCamera(), []);
-
   async function scanPreview() {
     const canvas = markerCanvasRef.current;
     setScanningPreview(true);
     try {
-      const detections = canvas === null ? [] : await detectCanvas(canvas);
-      if (detections.length === 0) {
-        setScanError("The generated AprilTag could not be detected.");
-        setResolution(null);
-        return;
-      }
-      resolveStaticDetections(detections);
+      const success = canvas !== null && (await scanner.scanCanvas(canvas));
+      if (!success) setResolution(null);
     } catch (cause) {
-      setScanError(
+      scanner.setScanError(
         errorMessage(cause, "The AprilTag scanner could not start."),
       );
       setResolution(null);
@@ -282,98 +118,7 @@ export function VisionLabPage() {
   }
 
   async function scanFile(file: File) {
-    if (file.size < 1 || file.size > MAXIMUM_UPLOAD_BYTES) {
-      setScanError("Choose an image smaller than 10 MB.");
-      setResolution(null);
-      return;
-    }
-    try {
-      const image = await createImageBitmap(file);
-      try {
-        const canvas = workCanvasRef.current;
-        if (canvas === null) throw new Error("Scanner canvas is unavailable.");
-        drawSourceToCanvas(image, image.width, image.height, canvas);
-        resolveStaticDetections(await detectCanvas(canvas));
-      } finally {
-        image.close();
-      }
-    } catch (cause) {
-      setScanError(errorMessage(cause, "The image could not be scanned."));
-      setResolution(null);
-    }
-  }
-
-  async function startCamera() {
-    const mediaDevices = Reflect.get(navigator, "mediaDevices") as
-      MediaDevices | undefined;
-    if (mediaDevices?.getUserMedia === undefined) {
-      setScanError("This browser cannot access a camera.");
-      return;
-    }
-    stopCamera();
-    setScanError("");
-    setResolution(null);
-    resetCameraCycle();
-    const cameraSession = cameraSessionRef.current;
-    try {
-      const stream = await mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1_920 },
-          height: { ideal: 1_080 },
-        },
-      });
-      if (cameraSession !== cameraSessionRef.current) {
-        for (const track of stream.getTracks()) track.stop();
-        return;
-      }
-      const video = videoRef.current;
-      const canvas = workCanvasRef.current;
-      if (video === null || canvas === null) {
-        for (const track of stream.getTracks()) track.stop();
-        throw new Error("The camera workspace is unavailable.");
-      }
-      video.srcObject = stream;
-      await video.play();
-      setCameraActive(true);
-      cameraTimerRef.current = window.setInterval(() => {
-        if (
-          cameraSession !== cameraSessionRef.current ||
-          cameraScanBusyRef.current ||
-          video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-        )
-          return;
-        cameraScanBusyRef.current = true;
-        void (async () => {
-          try {
-            drawSourceToCanvas(
-              video,
-              video.videoWidth,
-              video.videoHeight,
-              canvas,
-            );
-            const detections = await detectCanvas(canvas);
-            if (cameraSession !== cameraSessionRef.current) return;
-            if (detections.length === 0) {
-              observeEmptyCameraFrame();
-              return;
-            }
-            observeCameraDetections(detections);
-          } catch (cause) {
-            setScanError(
-              errorMessage(cause, "The camera frame could not be scanned."),
-            );
-            stopCamera();
-          } finally {
-            cameraScanBusyRef.current = false;
-          }
-        })();
-      }, CAMERA_SCAN_INTERVAL_MILLISECONDS);
-    } catch (cause) {
-      stopCamera();
-      setScanError(errorMessage(cause, "Camera access could not be started."));
-    }
+    if (!(await scanner.scanFile(file))) setResolution(null);
   }
 
   async function printLabel() {
@@ -463,7 +208,7 @@ export function VisionLabPage() {
                       onClick={() => {
                         setLabelIndex(index);
                         setResolution(null);
-                        setScanError("");
+                        scanner.setScanError("");
                       }}
                     >
                       <strong>{String(index + 1)}</strong>
@@ -526,17 +271,19 @@ export function VisionLabPage() {
               </div>
             </div>
             <div class="surface__body scan-lab-panel__body">
-              <div class={`camera-stage${cameraActive ? " is-active" : ""}`}>
-                <video ref={videoRef} muted playsInline />
-                {cameraActive ? (
+              <div
+                class={`camera-stage${scanner.cameraActive ? " is-active" : ""}`}
+              >
+                <video ref={scanner.videoRef} muted playsInline />
+                {scanner.cameraActive ? (
                   <span>
-                    {cameraConsensus.tagId === null
-                      ? cameraLatchedTagId === null
+                    {scanner.cameraConsensus.tagId === null
+                      ? scanner.cameraLatchedTagId === null
                         ? resolution === null
                           ? "Looking for an AprilTag"
                           : "Ready for the next parcel"
-                        : `Processed tag ${String(cameraLatchedTagId)} - remove parcel`
-                      : `Confirming tag ${String(cameraConsensus.tagId)} - ${String(cameraConsensus.matchingReads)}/${String(cameraConsensus.requiredReads)}`}
+                        : `Processed tag ${String(scanner.cameraLatchedTagId)} - remove parcel`
+                      : `Confirming tag ${String(scanner.cameraConsensus.tagId)} - ${String(scanner.cameraConsensus.matchingReads)}/${String(scanner.cameraConsensus.requiredReads)}`}
                   </span>
                 ) : (
                   <div>
@@ -546,12 +293,15 @@ export function VisionLabPage() {
                 )}
               </div>
               <div class="scan-lab-actions">
-                {cameraActive ? (
-                  <Button tone="danger" onClick={stopCamera}>
+                {scanner.cameraActive ? (
+                  <Button tone="danger" onClick={scanner.stopCamera}>
                     Stop camera
                   </Button>
                 ) : (
-                  <Button tone="primary" onClick={() => void startCamera()}>
+                  <Button
+                    tone="primary"
+                    onClick={() => void scanner.startCamera()}
+                  >
                     Start camera
                   </Button>
                 )}
@@ -570,7 +320,7 @@ export function VisionLabPage() {
                   />
                 </Field>
               </div>
-              <canvas ref={workCanvasRef} class="scan-work-canvas" />
+              <canvas ref={scanner.workCanvasRef} class="scan-work-canvas" />
             </div>
           </section>
         </div>
@@ -583,8 +333,8 @@ export function VisionLabPage() {
             </div>
           </div>
           <div class="surface__body">
-            {scanError !== "" ? (
-              <Notice tone="danger">{scanError}</Notice>
+            {scanner.scanError !== "" ? (
+              <Notice tone="danger">{scanner.scanError}</Notice>
             ) : resolution === null ? (
               <div class="scan-result__idle">
                 <strong>Waiting for a scan</strong>

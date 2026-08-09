@@ -33,5 +33,18 @@ test("the built Scan lab initializes AprilTag WASM and detects its preview", asy
   await expect(
     page.getByRole("button", { name: "Print all 5 labels" }),
   ).toBeVisible();
+
+  await page.getByRole("link", { name: "Scanner" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Shipment scanner", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Review before shipping")).toBeVisible();
+  await expect(
+    page
+      .getByLabel("Shipment scanner status")
+      .locator("div")
+      .filter({ hasText: "Ready orders" })
+      .getByText("2", { exact: true }),
+  ).toBeVisible();
   expect(pageErrors).toEqual([]);
 });

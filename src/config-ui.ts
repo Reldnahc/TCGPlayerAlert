@@ -48,6 +48,7 @@ import type { PaymentManagementService } from "./payment-management.js";
 import type { FeedbackManagementService } from "./feedback-management.js";
 import type { MessageManagementService } from "./message-management.js";
 import type { SellerSessionService } from "./seller-session.js";
+import type { ShipmentScannerService } from "./shipment-scanner.js";
 import {
   parseVisionLabCaseId,
   parseVisionLabLabelIndex,
@@ -88,6 +89,11 @@ export interface ConfigurationUiSettings {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly shipmentScanner: {
+    readonly enabled: boolean;
+    readonly automaticallyMarkShipped: boolean;
+    readonly soundEnabled: boolean;
+  };
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
@@ -109,6 +115,11 @@ export interface ConfigurationUiUpdate {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly shipmentScanner: {
+    readonly enabled: boolean;
+    readonly automaticallyMarkShipped: boolean;
+    readonly soundEnabled: boolean;
+  };
   readonly priceUpdateQueue: {
     readonly enabled: boolean;
     readonly delaySeconds: number;
@@ -207,6 +218,12 @@ export class ConfigurationService {
       revision,
       pollIntervalMinutes: config.pollIntervalMinutes,
       confirmBeforeMarkingShipped: config.confirmBeforeMarkingShipped,
+      shipmentScanner: {
+        enabled: config.shipmentScanner.enabled,
+        automaticallyMarkShipped:
+          config.shipmentScanner.automaticallyMarkShipped,
+        soundEnabled: config.shipmentScanner.soundEnabled,
+      },
       priceUpdateQueue: {
         enabled: config.priceUpdateQueue.enabled,
         delaySeconds: config.priceUpdateQueue.delaySeconds,
@@ -267,6 +284,7 @@ export interface StartConfigurationUiOptions {
   readonly paymentService?: PaymentManagementService;
   readonly feedbackService?: FeedbackManagementService;
   readonly messageService?: MessageManagementService;
+  readonly shipmentScannerService?: ShipmentScannerService;
   readonly sessionManager?: SellerSessionService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
   readonly executeVisionLabLabel?: ConfigurationVisionLabPrint;
@@ -314,6 +332,7 @@ export async function startConfigurationUi(
       options.paymentService,
       options.feedbackService,
       options.messageService,
+      options.shipmentScannerService,
       options.sessionManager,
       options.executeAddressLabel,
       options.executeVisionLabLabel,
@@ -418,6 +437,24 @@ function parseUiUpdate(
   const confirmBeforeMarkingShipped = source?.confirmBeforeMarkingShipped;
   if (typeof confirmBeforeMarkingShipped !== "boolean") {
     issues.push("Mark-shipped confirmation must be true or false.");
+  }
+  const shipmentScanner = objectValue(source?.shipmentScanner);
+  const shipmentScannerEnabled = shipmentScanner?.enabled;
+  const automaticallyMarkShipped = shipmentScanner?.automaticallyMarkShipped;
+  const shipmentScannerSoundEnabled = shipmentScanner?.soundEnabled;
+  if (typeof shipmentScannerEnabled !== "boolean") {
+    issues.push("Shipment scanning must be enabled or disabled.");
+  }
+  if (typeof automaticallyMarkShipped !== "boolean") {
+    issues.push("Automatic scan shipment changes must be enabled or disabled.");
+  }
+  if (typeof shipmentScannerSoundEnabled !== "boolean") {
+    issues.push("Shipment scan sounds must be enabled or disabled.");
+  }
+  if (automaticallyMarkShipped === true && shipmentScannerEnabled !== true) {
+    issues.push(
+      "Shipment scanning must be enabled before automatic shipment changes can be enabled.",
+    );
   }
   const priceUpdateQueueSource = objectValue(source?.priceUpdateQueue);
   if (priceUpdateQueueSource === undefined) {
@@ -556,6 +593,11 @@ function parseUiUpdate(
     revision: revision as string,
     pollIntervalMinutes: Number(pollIntervalMinutes),
     confirmBeforeMarkingShipped: confirmBeforeMarkingShipped as boolean,
+    shipmentScanner: {
+      enabled: shipmentScannerEnabled as boolean,
+      automaticallyMarkShipped: automaticallyMarkShipped as boolean,
+      soundEnabled: shipmentScannerSoundEnabled as boolean,
+    },
     priceUpdateQueue: {
       enabled: priceUpdateQueueEnabled as boolean,
       delaySeconds: Number(priceUpdateDelaySeconds),
@@ -934,6 +976,12 @@ function applyUpdate(
     ...config,
     pollIntervalMinutes: update.pollIntervalMinutes,
     confirmBeforeMarkingShipped: update.confirmBeforeMarkingShipped,
+    shipmentScanner: {
+      ...config.shipmentScanner,
+      enabled: update.shipmentScanner.enabled,
+      automaticallyMarkShipped: update.shipmentScanner.automaticallyMarkShipped,
+      soundEnabled: update.shipmentScanner.soundEnabled,
+    },
     priceUpdateQueue: {
       ...config.priceUpdateQueue,
       enabled: update.priceUpdateQueue.enabled,
@@ -1021,6 +1069,7 @@ async function handleRequest(
   paymentService: PaymentManagementService | undefined,
   feedbackService: FeedbackManagementService | undefined,
   messageService: MessageManagementService | undefined,
+  shipmentScannerService: ShipmentScannerService | undefined,
   sessionManager: SellerSessionService | undefined,
   executeAddressLabel: ConfigurationAddressLabelPrint | undefined,
   executeVisionLabLabel: ConfigurationVisionLabPrint | undefined,
@@ -1153,6 +1202,72 @@ async function handleRequest(
         scope === "ready-to-ship" && orderSync !== undefined
           ? orderSync.listReadyOrders({ force, signal })
           : orderService.listOrders(scope, { force, signal }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
+      url.pathname === "/api/shipment-scanner"
+    ) {
+      if (shipmentScannerService === undefined) {
+        sendJson(response, 503, {
+          message:
+            "Shipment scanning is available while the service is running.",
+        });
+        return;
+      }
+      sendJson(response, 200, await shipmentScannerService.status());
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/shipment-scanner/scan"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (shipmentScannerService === undefined) {
+        sendJson(response, 503, {
+          message:
+            "Shipment scanning is available while the service is running.",
+        });
+        return;
+      }
+      const body = objectValue(await readJsonBody(request));
+      const tagId = body?.tagId;
+      if (
+        !Number.isInteger(tagId) ||
+        Number(tagId) < 0 ||
+        Number(tagId) > 586
+      ) {
+        throw new ConfigurationError(["A valid shipment tag id is required."]);
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        shipmentScannerService.scan(Number(tagId), signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "POST" &&
+      url.pathname === "/api/shipment-scanner/mark-shipped"
+    ) {
+      if (!isAllowedMutationRequest(request, response)) return;
+      if (shipmentScannerService === undefined) {
+        sendJson(response, 503, {
+          message:
+            "Shipment scanning is available while the service is running.",
+        });
+        return;
+      }
+      const body = objectValue(await readJsonBody(request));
+      const tagId = body?.tagId;
+      const orderNumber = body?.orderNumber;
+      if (
+        !Number.isInteger(tagId) ||
+        Number(tagId) < 0 ||
+        Number(tagId) > 586
+      ) {
+        throw new ConfigurationError(["A valid shipment tag id is required."]);
+      }
+      if (!safeText(orderNumber) || orderNumber.length > 128) {
+        throw new ConfigurationError(["A valid order number is required."]);
+      }
+      const result = await withRequestAbort(request, response, (signal) =>
+        shipmentScannerService.markShipped(Number(tagId), orderNumber, signal),
       );
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (request.method === "GET" && url.pathname === "/api/payments") {

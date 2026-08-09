@@ -42,7 +42,7 @@ Both dependencies are pinned. Their platform-specific runtime artifacts are inst
 
 No upstream application source from `todd-skelton/tcgplayer-automation-app` is copied into this repository.
 
-## AprilTag shipment-verification lab
+## AprilTag shipment verification
 
 - Browser port: <https://github.com/AliAlimohamad/apriltag-js>
 - Pinned browser-port commit: `8569e26673b83d1b2baae68c953d83e1ba94fc4e`
@@ -65,7 +65,8 @@ commit. This keeps server-side vector label generation on the same 587 IDs as
 the browser detector without loading browser-only WebAssembly into the server.
 
 The detector receives only local pixel buffers and makes no network requests.
-It is lazily loaded with Scan lab rather than increasing the initial
-operator-console bundle. The production browser regression opens the built Scan
-lab, initializes the worker and WebAssembly module, detects the generated
-preview, and verifies repeated-scan idempotency.
+It is lazily loaded by Scanner and Scan lab rather than increasing the initial
+operator-console bundle. The browser regression opens the built Scan lab,
+initializes the worker and WebAssembly module, detects the generated preview,
+verifies repeated-scan idempotency, and then verifies the production Scanner
+workspace against synthetic server doubles.

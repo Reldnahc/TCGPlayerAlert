@@ -47,6 +47,12 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     confirmBeforeMarkingShipped: true,
+    shipmentScanner: {
+      enabled: false,
+      automaticallyMarkShipped: false,
+      soundEnabled: true,
+      stateFile: ".data/test-shipment-scans.json",
+    },
     actionMaximumAttempts: 3,
     stateFile: ".data/test-state.json",
     spoolDirectory: ".spool-test",

@@ -58,6 +58,7 @@ export {
   executeConfiguredVisionLabLabel,
   createRepricingService,
   createSellerSessionManager,
+  createShipmentScannerService,
   createWorkflow,
   executeConfiguredSyntheticPrintTest,
   executeConfiguredOrderPrint,
@@ -71,6 +72,21 @@ export {
 } from "./vision-lab.js";
 export type * from "./vision-lab.js";
 export { createShipmentAprilTag, SHIPMENT_TAG_FAMILY } from "./april-tag.js";
+export {
+  emptyShipmentScanState,
+  JsonShipmentScanStore,
+  recoverInterruptedMutations,
+  shipmentTagId,
+  ShipmentScannerService,
+  SHIPMENT_TAG_COUNT,
+} from "./shipment-scanner.js";
+export type {
+  ShipmentMutationRecord,
+  ShipmentScanResult,
+  ShipmentScanState,
+  ShipmentScannerStatus,
+  ShipmentScanStore,
+} from "./shipment-scanner.js";
 export {
   emptyShipmentTagConsensus,
   observeShipmentTagDetection,

@@ -24,6 +24,8 @@ import type {
   SellerConnectionStatus,
   SellerPairingChallenge,
   ShipmentResult,
+  ShipmentScannerStatus,
+  ShipmentScanResult,
   TrackingResult,
   UnreadMessages,
 } from "./contracts.js";
@@ -245,6 +247,21 @@ export const uiApi = {
     requestJson("/api/vision-lab/print", {
       method: "POST",
       body: JSON.stringify({ caseId, labelIndex }),
+    }),
+  shipmentScannerStatus: (): Promise<ShipmentScannerStatus> =>
+    requestJson("/api/shipment-scanner"),
+  scanShipmentTag: (tagId: number): Promise<ShipmentScanResult> =>
+    requestJson("/api/shipment-scanner/scan", {
+      method: "POST",
+      body: JSON.stringify({ tagId }),
+    }),
+  markScannedShipment: (
+    tagId: number,
+    orderNumber: string,
+  ): Promise<ShipmentScanResult> =>
+    requestJson("/api/shipment-scanner/mark-shipped", {
+      method: "POST",
+      body: JSON.stringify({ tagId, orderNumber }),
     }),
   orders: (
     scope: "all" | "ready-to-ship",

@@ -24,6 +24,11 @@ const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
   confirmBeforeMarkingShipped: true,
+  shipmentScanner: {
+    enabled: false,
+    automaticallyMarkShipped: false,
+    soundEnabled: true,
+  },
   priceUpdateQueue: { enabled: true, delaySeconds: 0 },
   inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
   merchandiseProfiles: [
@@ -136,6 +141,19 @@ function baseFetch(
   if (path === "/api/vision-lab/print" && options?.method === "POST") {
     return Promise.resolve(
       json({ printed: true, synthetic: true, caseId: "unique" }),
+    );
+  }
+  if (path === "/api/shipment-scanner") {
+    return Promise.resolve(
+      json({
+        enabled: false,
+        automaticallyMarkShipped: false,
+        soundEnabled: true,
+        readyOrderCount: 0,
+        readyTagIds: [],
+        conflictingTagCount: 0,
+        reviewRequiredCount: 0,
+      }),
     );
   }
   if (path.startsWith("/api/orders"))
@@ -568,6 +586,7 @@ describe("operator console", () => {
       "Dashboard",
       "Add cards",
       "Orders",
+      "Scanner",
       "Scan lab",
       "Messages",
       "Payments",
@@ -610,6 +629,48 @@ describe("operator console", () => {
     expect(JSON.parse(settingsBody) as Record<string, unknown>).toMatchObject({
       confirmBeforeMarkingShipped: false,
     });
+  });
+
+  it("shows the production scanner state without a seller request per camera frame", async () => {
+    window.location.hash = "scanner";
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        if (requestPath(input) === "/api/shipment-scanner") {
+          return Promise.resolve(
+            json({
+              enabled: true,
+              automaticallyMarkShipped: true,
+              soundEnabled: false,
+              readyOrderCount: 5,
+              readyTagIds: [7, 18, 29, 41, 84],
+              conflictingTagCount: 0,
+              reviewRequiredCount: 0,
+              snapshotFetchedAt: "2026-08-09T12:00:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Shipment scanner" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("Automatic shipping")).toBeTruthy();
+    expect(await screen.findByText("On confirmed scan")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start camera" })).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/shipment-scanner",
+      ),
+    ).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        requestPath(input).startsWith("/api/orders"),
+      ),
+    ).toBe(false);
   });
 
   it("exercises every fake AprilTag resolution without a seller request", async () => {

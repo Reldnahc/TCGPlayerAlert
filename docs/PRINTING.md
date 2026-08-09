@@ -27,9 +27,11 @@ keeps a one-cell white quiet zone. The native Windows adapter draws its modules 
 `PrintDocument`; PDF-only adapters receive the same matrix rendered as vector
 rectangles. The tag identifier and address belong to fixed fake lab cases.
 
-This path is a printer/scanner proof only. Normal order labels and pasted
-Dashboard labels do not include a fiducial marker, and printing a lab label cannot
-contact TCGplayer or mark an order shipped.
+The synthetic path remains a printer/scanner proof only and cannot contact
+TCGplayer or mark an order shipped. When production shipment scanning is
+enabled, configured order labels receive a marker derived from their order
+number. Pasted Dashboard labels never receive one. Disabling shipment scanning
+restores ordinary order labels without a marker.
 
 Supported template fields are:
 

@@ -32,6 +32,7 @@ const ALIASES: Readonly<Record<string, RouteId>> = {
 const SELLER_CONNECTION_ROUTES = new Set<RouteId>([
   "add-cards",
   "orders",
+  "scanner",
   "messages",
   "payments",
   "feedback",
@@ -41,6 +42,11 @@ const SELLER_CONNECTION_ROUTES = new Set<RouteId>([
 const VisionLabPage = lazy(async () => {
   const module = await import("./pages/VisionLabPage.js");
   return { default: module.VisionLabPage };
+});
+
+const ShipmentScannerPage = lazy(async () => {
+  const module = await import("./pages/ShipmentScannerPage.js");
+  return { default: module.ShipmentScannerPage };
 });
 
 function routeFromHash(): RouteId {
@@ -135,6 +141,7 @@ function Console() {
       payments: PaymentsPage,
       feedback: FeedbackPage,
       messages: MessagesPage,
+      scanner: ShipmentScannerPage,
       "scan-lab": VisionLabPage,
       "add-cards": AddCardsPage,
       inventory: InventoryPage,

@@ -3,6 +3,12 @@
   "pricingProfileDefaultsVersion": 1,
   "pollIntervalMinutes": 60,
   "confirmBeforeMarkingShipped": true,
+  "shipmentScanner": {
+    "enabled": false,
+    "automaticallyMarkShipped": false,
+    "soundEnabled": true,
+    "stateFile": ".data/shipment-scans.json"
+  },
   "actionMaximumAttempts": 3,
   "stateFile": ".data/state.json",
   "spoolDirectory": ".spool",

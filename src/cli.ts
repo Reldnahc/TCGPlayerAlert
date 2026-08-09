@@ -23,6 +23,7 @@ import {
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
   createSellerSessionManager,
+  createShipmentScannerService,
   createWorkflow,
   executeConfiguredVisionLabLabel,
 } from "./runtime.js";
@@ -169,6 +170,19 @@ try {
       process.env,
       sessionManager,
     );
+    const orderService = createOrderManagementService(
+      initialConfig,
+      configPath,
+      process.env,
+      readyOrders,
+      sessionManager,
+    );
+    const shipmentScannerService = createShipmentScannerService(
+      initialConfig,
+      configPath,
+      readyOrders,
+      orderService,
+    );
     const orderSync = new OrderSyncCoordinator({
       readyOrders,
       createWorkflow: async () =>
@@ -231,14 +245,9 @@ try {
         process.env,
         sessionManager,
       ),
-      orderService: createOrderManagementService(
-        initialConfig,
-        configPath,
-        process.env,
-        readyOrders,
-        sessionManager,
-      ),
+      orderService,
       orderSync,
+      shipmentScannerService,
       paymentService: createPaymentManagementService(
         initialConfig,
         process.env,

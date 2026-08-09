@@ -1420,6 +1420,46 @@
   color: inherit;
   opacity: 0.82;
 }
+.scanner-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--border);
+}
+.scanner-summary > div {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 5rem;
+  align-content: center;
+  padding: 0.85rem 1rem;
+  background: var(--bg-surface);
+}
+.scanner-summary span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.scanner-summary strong {
+  color: var(--text);
+  font-size: 1.15rem;
+}
+.scanner-grid {
+  align-items: stretch;
+}
+.scanner-result {
+  min-height: 100%;
+}
+.scanner-result .notice {
+  align-items: flex-start;
+}
+.scanner-result .notice .button {
+  margin-top: 0.45rem;
+}
 @media (max-width: 1180px) {
   .dashboard-control-grid {
     grid-template-columns: 1fr;
@@ -1504,6 +1544,9 @@
     grid-template-columns: 1fr;
   }
   .scan-lab-label-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .scanner-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .scan-lab-actions {

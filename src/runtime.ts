@@ -42,6 +42,10 @@ import {
   type SellerCredentialAccess,
 } from "./seller-credentials.js";
 import { SellerSessionManager } from "./seller-session.js";
+import {
+  JsonShipmentScanStore,
+  ShipmentScannerService,
+} from "./shipment-scanner.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -101,7 +105,9 @@ export async function executeConfiguredSyntheticPrintTest(
     ...config,
     actions: { [actionId]: testActionConfig },
   };
-  const action = createActions(testConfig, printers)[actionId];
+  const action = createActions(testConfig, printers, {
+    includeShipmentTags: false,
+  })[actionId];
   if (action === undefined) {
     throw new ConfigurationError(["The selected print action is unavailable."]);
   }
@@ -338,6 +344,20 @@ export function createReadyOrderSource(
     sellerKey: access.sellerKey,
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
+  });
+}
+
+export function createShipmentScannerService(
+  config: AppConfig,
+  configPath: string,
+  readyOrders: ReadyOrderSource,
+  orders: OrderManagementService,
+): ShipmentScannerService {
+  return new ShipmentScannerService({
+    settings: async () => (await loadConfig(configPath)).shipmentScanner,
+    readyOrders,
+    orders,
+    store: new JsonShipmentScanStore(config.shipmentScanner.stateFile),
   });
 }
 
