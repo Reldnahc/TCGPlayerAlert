@@ -87,6 +87,15 @@ describe("Windows printer adapters", () => {
     expect(WINDOWS_PRINT_SCRIPT).not.toContain(
       "$eventArgs.Graphics.TranslateTransform(-$hardMarginX, -$hardMarginY)",
     );
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$printableArea = $eventArgs.PageSettings.PrintableArea",
+    );
+    expect(WINDOWS_PRINT_SCRIPT).toContain(
+      "$qrX = [single]($printableWidth - $margin - $qrSize)",
+    );
+    expect(WINDOWS_PRINT_SCRIPT).not.toContain(
+      "$qrX = [single]($eventArgs.PageBounds.Width - $margin - $qrSize)",
+    );
   });
 
   it("passes a structured label to the native spooler and removes customer data", async () => {

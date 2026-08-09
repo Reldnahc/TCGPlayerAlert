@@ -599,8 +599,16 @@ try {
     $handler = [System.Drawing.Printing.PrintPageEventHandler]{
       param($sender, $eventArgs)
       $eventArgs.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Display
-      $textWidth = [single]($eventArgs.PageBounds.Width - 2 * $margin - $qrSize - $qrGap)
-      $bounds = New-Object System.Drawing.RectangleF($margin, $margin, $textWidth, [single]($eventArgs.PageBounds.Height - 2 * $margin))
+      $printableArea = $eventArgs.PageSettings.PrintableArea
+      $printableWidth = [single]$printableArea.Width
+      $printableHeight = [single]$printableArea.Height
+      $contentWidth = [single]($printableWidth - 2 * $margin)
+      $contentHeight = [single]($printableHeight - 2 * $margin)
+      if ($contentWidth -le 0 -or $contentHeight -le 0) { throw 'The configured label margins exceed the printer printable area.' }
+      if ($null -ne $qr -and ($qrSize -gt $contentWidth -or $qrSize -gt $contentHeight)) { throw 'The QR code does not fit inside the printer printable area.' }
+      $textWidth = [single]($contentWidth - $qrSize - $qrGap)
+      if ($textWidth -le 0) { throw 'The address and QR code do not fit inside the printer printable area.' }
+      $bounds = New-Object System.Drawing.RectangleF($margin, $margin, $textWidth, $contentHeight)
       $format = New-Object System.Drawing.StringFormat
       try {
         $format.Trimming = [System.Drawing.StringTrimming]::Word
@@ -611,7 +619,7 @@ try {
           $quiet = [int]$qr.quietZoneModules
           $totalModules = $rows.Count + 2 * $quiet
           $moduleSize = [single]($qrSize / $totalModules)
-          $qrX = [single]($eventArgs.PageBounds.Width - $margin - $qrSize)
+          $qrX = [single]($printableWidth - $margin - $qrSize)
           $qrY = $margin
           for ($row = 0; $row -lt $rows.Count; $row += 1) {
             $modules = [string]$rows[$row]
