@@ -10,6 +10,7 @@ import { InventoryPage } from "./pages/InventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
 import { OrderDetailPage } from "./pages/OrderDetailPage.js";
+import { OrderPullListPage } from "./pages/OrderPullListPage.js";
 import { PaymentsPage } from "./pages/PaymentsPage.js";
 import { FeedbackPage } from "./pages/FeedbackPage.js";
 import { MessagesPage } from "./pages/MessagesPage.js";
@@ -48,16 +49,29 @@ const ShipmentScannerPage = lazy(async () => {
 interface ApplicationRoute {
   readonly id: RouteId;
   readonly orderNumber?: string;
+  readonly orderView?: "detail" | "pull-list";
 }
 
 function routeFromHash(): ApplicationRoute {
   const candidate = window.location.hash.slice(1);
   if (candidate.startsWith("orders/")) {
-    const encodedOrderNumber = candidate.slice("orders/".length);
-    if (encodedOrderNumber !== "" && !encodedOrderNumber.includes("/")) {
+    const segments = candidate.slice("orders/".length).split("/");
+    const encodedOrderNumber = segments[0] ?? "";
+    const orderView = segments[1];
+    if (
+      encodedOrderNumber !== "" &&
+      (segments.length === 1 ||
+        (segments.length === 2 && orderView === "pull-list"))
+    ) {
       try {
         const orderNumber = decodeURIComponent(encodedOrderNumber).trim();
-        if (orderNumber !== "") return { id: "orders", orderNumber };
+        if (orderNumber !== "") {
+          return {
+            id: "orders",
+            orderNumber,
+            orderView: orderView === "pull-list" ? "pull-list" : "detail",
+          };
+        }
       } catch {
         return { id: "orders" };
       }
@@ -156,6 +170,8 @@ function Console() {
       orders: () =>
         applicationRoute.orderNumber === undefined ? (
           <OrdersPage />
+        ) : applicationRoute.orderView === "pull-list" ? (
+          <OrderPullListPage orderNumber={applicationRoute.orderNumber} />
         ) : (
           <OrderDetailPage orderNumber={applicationRoute.orderNumber} />
         ),

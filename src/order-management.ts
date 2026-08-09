@@ -1,6 +1,7 @@
 import {
   SellerOrderStatus,
   type OrderRefundMutationResult,
+  type PullSheetRow,
   type RefundOrderProductInput,
   type SellerOrderDetail,
   type SellerOrderRefundOptions,
@@ -58,11 +59,31 @@ export interface ManagedOrderDetail extends Omit<
   readonly fetchedAt: string;
 }
 
+export interface PullListMetadata {
+  readonly label: string;
+  readonly values: readonly string[];
+}
+
+export interface ManagedPullListRow extends PullSheetRow {
+  readonly productId?: number;
+  readonly metadata: readonly PullListMetadata[];
+}
+
+export interface ManagedOrderPullList {
+  readonly orderNumber: string;
+  readonly rows: readonly ManagedPullListRow[];
+  readonly totalQuantity: number;
+  readonly fetchedAt: string;
+  readonly metadataIssue?: string;
+}
+
 type OrderManagementClient = Pick<
   TcgplayerSellerClient,
   | "searchOrders"
   | "confirmOrder"
   | "getPackingSlip"
+  | "exportPullSheet"
+  | "searchMarketplaceProducts"
   | "detectCarrier"
   | "addOrderTracking"
   | "markOrdersShipped"
@@ -107,6 +128,11 @@ interface CachedRefundOptions {
   readonly value: SellerOrderRefundOptions;
 }
 
+interface CachedPullList {
+  readonly expiresAt: number;
+  readonly value: ManagedOrderPullList;
+}
+
 export class OrderManagementService {
   private readonly client: OrderManagementClient;
   private readonly sellerKey: SellerKeySource;
@@ -121,6 +147,7 @@ export class OrderManagementService {
     OrderManagementServiceOptions["onShipmentAccepted"] | undefined;
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly detailCache = new Map<string, CachedOrderDetail>();
+  private readonly pullListCache = new Map<string, CachedPullList>();
   private readonly refundingOrders = new Set<string>();
   private refundOptionsCache: CachedRefundOptions | undefined;
   private readonly pirateShipCache = new Map<
@@ -276,6 +303,130 @@ export class OrderManagementService {
     return value;
   }
 
+  async getPullList(
+    orderNumber: string,
+    options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
+  ): Promise<ManagedOrderPullList> {
+    const normalized = requiredText(orderNumber, "Order number", 128);
+    const detail = await this.getOrder(normalized, options);
+    if (!detail.canMarkShipped) {
+      throw new ApplicationError(
+        "REVIEW_REQUIRED",
+        "Pull lists are available only while an order is ready to ship.",
+      );
+    }
+    const now = this.now();
+    const cacheKey = normalized.toLocaleLowerCase();
+    const cached = this.pullListCache.get(cacheKey);
+    if (
+      options.force !== true &&
+      cached !== undefined &&
+      cached.expiresAt > now.getTime()
+    ) {
+      return cached.value;
+    }
+    const requestOptions =
+      options.signal === undefined ? undefined : { signal: options.signal };
+    const document = await this.client.exportPullSheet(
+      {
+        orderNumbers: [normalized],
+        timezoneOffsetMinutes: this.timezoneOffsetMinutes,
+      },
+      requestOptions,
+    );
+    if (
+      document.orderNumbers.length !== 1 ||
+      document.orderNumbers[0] !== normalized
+    ) {
+      throw new ApplicationError(
+        "PROVIDER_ERROR",
+        "The pull sheet did not identify the requested order.",
+      );
+    }
+    const productIdsBySku = new Map(
+      detail.products.flatMap((product) => {
+        const productId = parseProductId(product.productId);
+        return productId === undefined ? [] : [[product.skuId, productId]];
+      }),
+    );
+    const uniqueProductIds = [
+      ...new Set(
+        document.rows.flatMap((row) => {
+          const productId = productIdsBySku.get(row.skuId);
+          return productId === undefined ? [] : [productId];
+        }),
+      ),
+    ];
+    const metadata = await this.loadPullListMetadata(
+      uniqueProductIds,
+      options.signal,
+    );
+    const rows = document.rows.map<ManagedPullListRow>((row) => {
+      const productId = productIdsBySku.get(row.skuId);
+      const colors =
+        productId === undefined ? undefined : metadata.colors.get(productId);
+      return {
+        ...row,
+        ...(productId === undefined ? {} : { productId }),
+        metadata:
+          colors === undefined || colors.length === 0
+            ? []
+            : [{ label: "Color", values: colors }],
+      };
+    });
+    const value: ManagedOrderPullList = {
+      orderNumber: normalized,
+      rows,
+      totalQuantity: rows.reduce((total, row) => total + row.orderQuantity, 0),
+      fetchedAt: now.toISOString(),
+      ...(metadata.issue === undefined
+        ? {}
+        : { metadataIssue: metadata.issue }),
+    };
+    this.pullListCache.set(cacheKey, {
+      expiresAt: now.getTime() + this.cacheMilliseconds,
+      value,
+    });
+    return value;
+  }
+
+  private async loadPullListMetadata(
+    productIds: readonly number[],
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly colors: ReadonlyMap<number, readonly string[]>;
+    readonly issue?: string;
+  }> {
+    const colors = new Map<number, readonly string[]>();
+    try {
+      for (let offset = 0; offset < productIds.length; offset += 24) {
+        signal?.throwIfAborted();
+        const batch = productIds.slice(offset, offset + 24);
+        const result = await this.client.searchMarketplaceProducts(
+          { productIds: batch, channelId: 0, offset: 0, limit: batch.length },
+          signal === undefined ? undefined : { signal },
+        );
+        const requested = new Set(batch);
+        for (const product of result.products) {
+          if (
+            requested.has(product.productId) &&
+            product.colors !== undefined
+          ) {
+            colors.set(product.productId, product.colors);
+          }
+        }
+      }
+      return { colors };
+    } catch (cause) {
+      signal?.throwIfAborted();
+      void cause;
+      return {
+        colors,
+        issue: "Optional card metadata could not be loaded.",
+      };
+    }
+  }
+
   async preparePirateShip(
     orderNumber: string,
     signal?: AbortSignal,
@@ -369,9 +520,7 @@ export class OrderManagementService {
       "Tracking number",
       256,
     );
-    this.cache.clear();
-    this.detailCache.clear();
-    this.pirateShipCache.clear();
+    this.clearOrderCaches();
     const requestOptions = signal === undefined ? undefined : { signal };
     const { carrier } = await this.client.detectCarrier(
       normalizedTracking,
@@ -398,9 +547,7 @@ export class OrderManagementService {
   }> {
     const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
-    this.cache.clear();
-    this.detailCache.clear();
-    this.pirateShipCache.clear();
+    this.clearOrderCaches();
     const result = await this.client.markOrdersShipped(
       { sellerKey, orderNumbers: [normalized] },
       signal === undefined ? undefined : { signal },
@@ -496,8 +643,15 @@ export class OrderManagementService {
   private clearOrderCaches(): void {
     this.cache.clear();
     this.detailCache.clear();
+    this.pullListCache.clear();
     this.pirateShipCache.clear();
   }
+}
+
+function parseProductId(value: string): number | undefined {
+  if (!/^[1-9]\d{0,15}$/u.test(value)) return undefined;
+  const productId = Number(value);
+  return Number.isSafeInteger(productId) ? productId : undefined;
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

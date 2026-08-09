@@ -12,6 +12,7 @@ import type {
   MessageThread,
   OrderList,
   OrderDetail,
+  OrderPullList,
   PaymentDetail,
   PaymentsPage,
   PirateShipResult,
@@ -278,6 +279,15 @@ export const uiApi = {
       `/api/orders/${encodeURIComponent(orderNumber)}${force ? "?refresh=1" : ""}`,
       signal === undefined ? {} : { signal },
     ),
+  pullList: (
+    orderNumber: string,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<OrderPullList> =>
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}/pull-list${force ? "?refresh=1" : ""}`,
+      signal === undefined ? {} : { signal },
+    ),
   payments: (
     page: number,
     status: string,
@@ -487,6 +497,10 @@ export function sellerPortalOrderUrl(orderNumber: string): string {
 
 export function orderDetailUrl(orderNumber: string): string {
   return `#orders/${encodeURIComponent(orderNumber)}`;
+}
+
+export function orderPullListUrl(orderNumber: string): string {
+  return `#orders/${encodeURIComponent(orderNumber)}/pull-list`;
 }
 
 export function sellerPortalPaymentsUrl(

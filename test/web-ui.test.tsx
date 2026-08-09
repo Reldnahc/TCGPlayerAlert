@@ -701,6 +701,78 @@ describe("operator console", () => {
     });
   });
 
+  it("displays and prints a ready-order pull list with optional color metadata", async () => {
+    const orderNumber = "SYNTHETIC-PULL-LIST";
+    window.location.hash = `orders/${orderNumber}/pull-list`;
+    const pullList = {
+      orderNumber,
+      totalQuantity: 3,
+      fetchedAt: "2026-08-07T12:01:00.000Z",
+      rows: [
+        {
+          productLine: "Magic: The Gathering",
+          productName: "Synthetic Red Card",
+          condition: "Near Mint",
+          number: "42",
+          setName: "Synthetic Set",
+          rarity: "Rare",
+          quantity: 8,
+          mainPhotoUrl: "https://www.example.test/red.jpg",
+          setReleaseDate: "2026-01-01",
+          skuId: "456",
+          orderQuantity: 2,
+          productId: 123,
+          metadata: [{ label: "Color", values: ["Red"] }],
+        },
+        {
+          productLine: "Synthetic Game",
+          productName: "Product Without Color",
+          condition: "Near Mint",
+          number: "7",
+          setName: "Synthetic Set",
+          rarity: "Common",
+          quantity: 4,
+          mainPhotoUrl: "https://www.example.test/colorless.jpg",
+          setReleaseDate: "2026-01-01",
+          skuId: "789",
+          orderQuantity: 1,
+          productId: 124,
+          metadata: [],
+        },
+      ],
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === `/api/orders/${orderNumber}/pull-list`) {
+          return Promise.resolve(json(pullList));
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const print = vi.spyOn(window, "print").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Pull list" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("Synthetic Red Card")).toBeTruthy();
+    expect(screen.getByText("Red")).toBeTruthy();
+    expect(screen.getByText("Product Without Color")).toBeTruthy();
+    expect(screen.queryByText("Unknown")).toBeNull();
+    expect(
+      screen.getByText("Cards to pull").nextElementSibling?.textContent,
+    ).toBe("3");
+    expect(
+      screen.getByRole("link", { name: "Order details" }).getAttribute("href"),
+    ).toBe(`#orders/${orderNumber}`);
+
+    await user.click(screen.getByRole("button", { name: "Print" }));
+    expect(print).toHaveBeenCalledOnce();
+  });
+
   it("prints a pasted address from the dashboard", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {

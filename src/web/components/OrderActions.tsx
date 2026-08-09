@@ -1,5 +1,10 @@
 import { useState } from "preact/hooks";
-import { orderDetailUrl, packingSlipUrl, uiApi } from "../api.js";
+import {
+  orderDetailUrl,
+  orderPullListUrl,
+  packingSlipUrl,
+  uiApi,
+} from "../api.js";
 import type { Order } from "../contracts.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { useSettings } from "../state/SettingsContext.js";
@@ -226,6 +231,15 @@ export function OrderActions({
                     <Icon name="download" size={15} />
                     Download packing slip
                   </a>
+                  {order.canMarkShipped ? (
+                    <a
+                      href={orderPullListUrl(order.orderNumber)}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <Icon name="printer" size={15} />
+                      View pull list
+                    </a>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {

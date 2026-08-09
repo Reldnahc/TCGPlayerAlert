@@ -19,6 +19,7 @@ import type {
   ManagedOrderRefundInput,
   ManagedOrderDetail,
   ManagedOrderList,
+  ManagedOrderPullList,
   ManagedOrderSummary,
   PirateShipPreparation,
 } from "../order-management.js";
@@ -46,6 +47,7 @@ export type SettingsUpdate = ConfigurationUiUpdate;
 export type OrderList = ManagedOrderList;
 export type Order = ManagedOrderSummary;
 export type OrderDetail = ManagedOrderDetail;
+export type OrderPullList = ManagedOrderPullList;
 export type TrackingResult = AddTrackingResult;
 export type RefundOptions = SellerOrderRefundOptions;
 export type RefundRequest = ManagedOrderRefundInput;

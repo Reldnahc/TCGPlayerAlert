@@ -1657,6 +1657,24 @@ async function handleRequest(
       if (!response.destroyed) sendJson(response, 200, preparation);
     } else if (
       request.method === "GET" &&
+      /^\/api\/orders\/[^/]{1,384}\/pull-list$/u.test(url.pathname)
+    ) {
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname, "pull-list");
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.getPullList(orderNumber, {
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
       /^\/api\/orders\/[^/]{1,384}$/u.test(url.pathname)
     ) {
       if (orderService === undefined) {

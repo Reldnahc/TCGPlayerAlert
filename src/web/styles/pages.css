@@ -260,6 +260,107 @@
 .order-detail-tracking .empty-state {
   min-height: 105px;
 }
+.pull-list-layout {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.pull-list-loading {
+  display: grid;
+  min-height: 280px;
+  place-items: center;
+}
+.pull-list-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+.pull-list-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 12px 14px;
+}
+.pull-list-summary > div + div {
+  border-left: 1px solid var(--border);
+}
+.pull-list-summary span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pull-list-summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pull-list-sheet {
+  min-width: 0;
+}
+.pull-list-table {
+  min-width: 1050px;
+}
+.pull-list-col-check {
+  width: 38px;
+  text-align: center;
+}
+.pull-list-col-quantity {
+  width: 58px;
+}
+.pull-list-check {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.pull-list-quantity {
+  color: #075f8f;
+  font-size: 16px;
+  font-weight: 800;
+}
+.pull-list-product strong {
+  max-width: 360px;
+}
+.pull-list-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.pull-list-metadata > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  border: 1px solid #c9d8df;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #f2f7f9;
+  white-space: nowrap;
+}
+.pull-list-metadata small,
+.pull-list-metadata-empty {
+  color: var(--text-muted);
+}
+.pull-list-metadata small {
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+.pull-list-metadata strong {
+  font-size: 10px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .payments-layout {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
@@ -1710,6 +1811,16 @@
   .order-detail-grid > :last-child {
     grid-column: auto;
   }
+  .pull-list-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pull-list-summary > div:nth-child(3) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .pull-list-summary > div:nth-child(4) {
+    border-top: 1px solid var(--border);
+  }
   .automation-strip {
     grid-template-columns: 1fr;
   }
@@ -1754,5 +1865,99 @@
   .scanner-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@page {
+  margin: 10mm;
+}
+
+@media print {
+  body {
+    color: #111;
+    background: white;
+  }
+  .app-shell,
+  .workspace,
+  .route-panel,
+  .pull-list-page,
+  .pull-list-page .page-body {
+    display: block;
+    width: auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .sidebar,
+  .save-dock,
+  .toast-viewport,
+  .pull-list-page .page-header__actions,
+  .pull-list-page .notice {
+    display: none;
+  }
+  .pull-list-page .page-header {
+    min-height: 0;
+    border-bottom: 2px solid #111;
+    padding: 0 0 8px;
+    background: white;
+  }
+  .pull-list-page .page-header p {
+    color: #333;
+  }
+  .pull-list-page .page-body {
+    padding: 10px 0 0;
+  }
+  .pull-list-layout {
+    gap: 10px;
+  }
+  .pull-list-summary,
+  .pull-list-sheet,
+  .pull-list-region {
+    overflow: visible;
+    border-color: #777;
+    box-shadow: none;
+  }
+  .pull-list-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .pull-list-summary > div {
+    border-top: 0 !important;
+    border-left: 0;
+    padding: 7px 9px;
+  }
+  .pull-list-summary > div + div {
+    border-left: 1px solid #aaa;
+  }
+  .pull-list-sheet__header {
+    padding: 7px 9px;
+  }
+  .pull-list-table {
+    min-width: 0;
+    font-size: 9pt;
+  }
+  .pull-list-table thead {
+    position: static;
+  }
+  .pull-list-table th {
+    border-color: #777;
+    color: #222;
+    background: #eee;
+    font-size: 7.5pt;
+  }
+  .pull-list-table td {
+    height: auto;
+    border-color: #bbb;
+    padding: 6px 7px;
+  }
+  .pull-list-table tr {
+    break-inside: avoid;
+  }
+  .pull-list-product strong {
+    max-width: none;
+    white-space: normal;
+  }
+  .pull-list-metadata > span {
+    border-color: #999;
+    background: white;
   }
 }

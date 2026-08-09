@@ -415,6 +415,57 @@ describe("configuration UI", () => {
     });
   });
 
+  it("serves a ready-order pull list with explicit refresh control", async () => {
+    const current = await fixture();
+    const pullList = {
+      orderNumber: "SYNTHETIC-ORDER-1",
+      totalQuantity: 2,
+      fetchedAt: "2026-08-07T12:00:00.000Z",
+      rows: [
+        {
+          productLine: "Magic: The Gathering",
+          productName: "Synthetic Card",
+          condition: "Near Mint",
+          number: "42",
+          setName: "Synthetic Set",
+          rarity: "Rare",
+          quantity: 3,
+          mainPhotoUrl: "https://www.example.test/card.jpg",
+          setReleaseDate: "2026-01-01",
+          skuId: "456",
+          orderQuantity: 2,
+          productId: 123,
+          metadata: [{ label: "Color", values: ["Blue"] }],
+        },
+      ],
+    };
+    const getPullList = vi
+      .fn<
+        (
+          orderNumber: string,
+          options: { readonly force: boolean; readonly signal: AbortSignal },
+        ) => Promise<typeof pullList>
+      >()
+      .mockResolvedValue(pullList);
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      orderService: { getPullList } as unknown as OrderManagementService,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/orders/SYNTHETIC-ORDER-1/pull-list?refresh=1`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(pullList);
+    expect(getPullList).toHaveBeenCalledOnce();
+    expect(getPullList.mock.calls[0]?.[0]).toBe("SYNTHETIC-ORDER-1");
+    expect(getPullList.mock.calls[0]?.[1].force).toBe(true);
+    expect(getPullList.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("routes validated order refunds through the injected order service", async () => {
     const current = await fixture();
     const refundOptions = {

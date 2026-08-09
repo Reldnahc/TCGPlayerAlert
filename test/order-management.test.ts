@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ConfirmedSellerOrder } from "tcgplayer-private-api";
 import { OrderManagementService } from "../src/order-management.js";
 
 const firstOrder = {
@@ -27,7 +28,7 @@ const secondOrder = {
 function client() {
   return {
     searchOrders: vi.fn(),
-    confirmOrder: vi.fn(() =>
+    confirmOrder: vi.fn((): Promise<ConfirmedSellerOrder> =>
       Promise.resolve({
         summary: firstOrder,
         order: {
@@ -61,7 +62,17 @@ function client() {
             country: "US",
             postalCode: "00000",
           },
-          products: [],
+          products: [
+            {
+              name: "Synthetic Card",
+              unitPrice: 6,
+              extendedPrice: 12,
+              quantity: 2,
+              url: "https://www.example.test/product/123",
+              productId: "123",
+              skuId: "456",
+            },
+          ],
           refunds: [],
           refundStatus: "None",
           refundCapabilities: { full: true, partial: true },
@@ -81,6 +92,48 @@ function client() {
         contentType: "application/pdf" as const,
         fileName: "packing-slip.pdf",
         orderNumbers: [firstOrder.orderNumber],
+      }),
+    ),
+    exportPullSheet: vi.fn(() =>
+      Promise.resolve({
+        text: "synthetic pull sheet",
+        contentType: "text/csv" as const,
+        fileName: "pull-sheet.csv" as const,
+        orderNumbers: [firstOrder.orderNumber],
+        rows: [
+          {
+            productLine: "Magic: The Gathering",
+            productName: "Synthetic Card",
+            condition: "Near Mint",
+            number: "42",
+            setName: "Synthetic Set",
+            rarity: "Rare",
+            quantity: 10,
+            mainPhotoUrl:
+              "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
+            setReleaseDate: "2026-01-01",
+            skuId: "456",
+            orderQuantity: 2,
+          },
+        ],
+      }),
+    ),
+    searchMarketplaceProducts: vi.fn(() =>
+      Promise.resolve({
+        totalProducts: 1,
+        products: [
+          {
+            productId: 123,
+            productName: "Synthetic Card",
+            productLineName: "Magic: The Gathering",
+            setName: "Synthetic Set",
+            rarityName: "Rare",
+            colors: ["Blue"],
+            marketPrice: 6,
+            totalListings: 1,
+            listings: [],
+          },
+        ],
       }),
     ),
     detectCarrier: vi.fn(() => Promise.resolve({ carrier: "USPS" })),
@@ -225,6 +278,66 @@ describe("order management", () => {
     expect(cached).toBe(first);
     expect(refreshed).not.toBe(first);
     expect(fakeClient.confirmOrder).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds and caches a ready-order pull list with batched optional metadata", async () => {
+    const fakeClient = client();
+    const orders = service(fakeClient);
+
+    const first = await orders.getPullList(firstOrder.orderNumber);
+    const cached = await orders.getPullList(firstOrder.orderNumber);
+
+    expect(first).toEqual({
+      orderNumber: firstOrder.orderNumber,
+      totalQuantity: 2,
+      fetchedAt: "2026-08-04T12:00:00.000Z",
+      rows: [
+        expect.objectContaining({
+          productId: 123,
+          productName: "Synthetic Card",
+          orderQuantity: 2,
+          metadata: [{ label: "Color", values: ["Blue"] }],
+        }),
+      ],
+    });
+    expect(cached).toBe(first);
+    expect(fakeClient.confirmOrder).toHaveBeenCalledOnce();
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledWith(
+      {
+        orderNumbers: [firstOrder.orderNumber],
+        timezoneOffsetMinutes: 300,
+      },
+      undefined,
+    );
+    expect(fakeClient.searchMarketplaceProducts).toHaveBeenCalledWith(
+      { productIds: [123], channelId: 0, offset: 0, limit: 1 },
+      undefined,
+    );
+  });
+
+  it("does not export a pull list after the authoritative order leaves ready to ship", async () => {
+    const fakeClient = client();
+    const confirmed = await fakeClient.confirmOrder();
+    fakeClient.confirmOrder.mockResolvedValue({
+      ...confirmed,
+      summary: secondOrder,
+      order: {
+        ...confirmed.order,
+        orderNumber: secondOrder.orderNumber,
+        status: secondOrder.orderStatus,
+        statusCode: secondOrder.orderStatusCode,
+      },
+    });
+
+    await expect(
+      service(fakeClient).getPullList(secondOrder.orderNumber),
+    ).rejects.toMatchObject({
+      code: "REVIEW_REQUIRED",
+      message: "Pull lists are available only while an order is ready to ship.",
+    });
+    expect(fakeClient.exportPullSheet).not.toHaveBeenCalled();
+    expect(fakeClient.searchMarketplaceProducts).not.toHaveBeenCalled();
   });
 
   it("updates the shared ready-order source after shipment is accepted", async () => {
