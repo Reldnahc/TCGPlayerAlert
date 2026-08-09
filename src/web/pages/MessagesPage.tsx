@@ -1,5 +1,5 @@
-import { useEffect, useState } from "preact/hooks";
-import { uiApi } from "../api.js";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { UiApiError, uiApi } from "../api.js";
 import {
   Button,
   EmptyState,
@@ -29,6 +29,13 @@ export function MessagesPage() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [error, setError] = useState("");
   const [threadError, setThreadError] = useState("");
+  const [markingRead, setMarkingRead] = useState(false);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
+  const [replyError, setReplyError] = useState("");
+  const [replyNotice, setReplyNotice] = useState("");
+  const [replyUncertain, setReplyUncertain] = useState(false);
+  const selectedThreadIdRef = useRef<number | null>(null);
   const { setUnreadCount } = useMessages();
 
   async function load(force = false, signal?: AbortSignal) {
@@ -62,7 +69,7 @@ export function MessagesPage() {
   async function loadThread(force = false, signal?: AbortSignal) {
     if (selectedThreadId === null) {
       setThread(null);
-      return;
+      return false;
     }
     setThreadLoading(true);
     setThreadError("");
@@ -73,7 +80,10 @@ export function MessagesPage() {
         force,
         signal,
       );
-      if (signal?.aborted !== true) setThread(result);
+      if (signal?.aborted !== true) {
+        setThread(result);
+        return true;
+      }
     } catch (cause) {
       if (signal?.aborted !== true) {
         setThreadError(
@@ -83,6 +93,7 @@ export function MessagesPage() {
     } finally {
       if (signal?.aborted !== true) setThreadLoading(false);
     }
+    return false;
   }
 
   useEffect(() => {
@@ -97,16 +108,109 @@ export function MessagesPage() {
     return () => controller.abort();
   }, [selectedThreadId, threadPage]);
 
+  useEffect(() => {
+    selectedThreadIdRef.current = selectedThreadId;
+  }, [selectedThreadId]);
+
   function applyOrderSearch() {
     setPage(1);
     setOrderNumber(orderDraft.trim());
   }
 
   function selectThread(threadId: number) {
+    selectedThreadIdRef.current = threadId;
     setSelectedThreadId(threadId);
     setThreadPage(1);
     setThread(null);
+    setReplyDraft("");
+    setReplyError("");
+    setReplyNotice("");
+    setReplyUncertain(false);
   }
+
+  async function markThreadRead() {
+    if (thread === null || markingRead) return;
+    const threadId = thread.threadId;
+    setMarkingRead(true);
+    setThreadError("");
+    try {
+      await uiApi.markMessageThreadRead(threadId);
+      const previouslyUnread =
+        data?.threads.find((candidate) => candidate.threadId === threadId)
+          ?.unreadMessageCount ?? 0;
+      setData((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              unreadCount: Math.max(0, current.unreadCount - previouslyUnread),
+              threads: current.threads.map((candidate) =>
+                candidate.threadId === threadId
+                  ? { ...candidate, unreadMessageCount: 0 }
+                  : candidate,
+              ),
+            },
+      );
+      setThread((current) =>
+        current?.threadId !== threadId
+          ? current
+          : {
+              ...current,
+              messages: current.messages.map((message) => ({
+                ...message,
+                isRead: true,
+              })),
+            },
+      );
+      if (data !== null) {
+        setUnreadCount(Math.max(0, data.unreadCount - previouslyUnread));
+      }
+    } catch (cause) {
+      if (selectedThreadIdRef.current === threadId) {
+        setThreadError(
+          errorMessage(cause, "The conversation could not be marked read."),
+        );
+      }
+    } finally {
+      setMarkingRead(false);
+    }
+  }
+
+  async function sendReply() {
+    if (thread === null || sendingReply || replyUncertain) return;
+    const threadId = thread.threadId;
+    const body = replyDraft.trim();
+    if (body === "") {
+      setReplyError("Write a reply before sending.");
+      return;
+    }
+    setSendingReply(true);
+    setReplyError("");
+    setReplyNotice("");
+    try {
+      await uiApi.replyToMessageThread(threadId, body);
+      if (selectedThreadIdRef.current !== threadId) return;
+      setReplyDraft("");
+      setReplyNotice("Message sent.");
+      void loadThread(true);
+    } catch (cause) {
+      if (selectedThreadIdRef.current !== threadId) return;
+      if (cause instanceof UiApiError && cause.code === "AMBIGUOUS_RESULT") {
+        setReplyUncertain(true);
+        setReplyError(
+          "TCGplayer may have received this message. Refresh the conversation before deciding whether to send it again.",
+        );
+      } else {
+        setReplyError(errorMessage(cause, "The message could not be sent."));
+      }
+    } finally {
+      setSendingReply(false);
+    }
+  }
+
+  const selectedSummary = data?.threads.find(
+    (candidate) => candidate.threadId === selectedThreadId,
+  );
 
   return (
     <main class="page">
@@ -210,6 +314,7 @@ export function MessagesPage() {
                     type="button"
                     class={`message-thread-row${candidate.threadId === selectedThreadId ? " is-selected" : ""}${candidate.unreadMessageCount > 0 ? " is-unread" : ""}`}
                     aria-pressed={candidate.threadId === selectedThreadId}
+                    disabled={markingRead || sendingReply}
                     onClick={() => selectThread(candidate.threadId)}
                   >
                     <span class="message-thread-row__topline">
@@ -275,7 +380,7 @@ export function MessagesPage() {
             ) : (
               <>
                 <header class="message-detail__header">
-                  <div>
+                  <div class="message-detail__heading">
                     <h2>{thread.subject}</h2>
                     <span>
                       {thread.orderNumber === ""
@@ -283,17 +388,31 @@ export function MessagesPage() {
                         : `Order ${thread.orderNumber}`}
                     </span>
                   </div>
-                  <a
-                    class="button button--secondary"
-                    href={thread.portalUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open conversation
-                  </a>
+                  <div class="message-detail__actions">
+                    <Button
+                      busy={markingRead}
+                      disabled={
+                        markingRead ||
+                        (selectedSummary?.unreadMessageCount ?? 0) === 0
+                      }
+                      onClick={() => void markThreadRead()}
+                    >
+                      {(selectedSummary?.unreadMessageCount ?? 0) === 0
+                        ? "Read"
+                        : "Mark read"}
+                    </Button>
+                    <a
+                      class="button button--secondary"
+                      href={thread.portalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open conversation
+                    </a>
+                  </div>
                 </header>
                 <div class="message-detail__note">
-                  Read-only here · unread state stays in TCGplayer
+                  Read state and replies sync directly with TCGplayer
                 </div>
                 <ol class="message-stack">
                   {thread.messages.map((message) => (
@@ -311,6 +430,79 @@ export function MessagesPage() {
                     </li>
                   ))}
                 </ol>
+                <form
+                  class="message-reply"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void sendReply();
+                  }}
+                >
+                  {replyError === "" ? null : (
+                    <Notice tone={replyUncertain ? "warning" : "danger"}>
+                      <strong>
+                        {replyUncertain
+                          ? "Delivery needs verification"
+                          : "Message not sent"}
+                      </strong>
+                      <span>{replyError}</span>
+                      {replyUncertain ? (
+                        <Button
+                          type="button"
+                          busy={threadLoading}
+                          onClick={() => {
+                            void loadThread(true).then((refreshed) => {
+                              if (!refreshed) return;
+                              setReplyUncertain(false);
+                              setReplyError("");
+                            });
+                          }}
+                        >
+                          Refresh conversation
+                        </Button>
+                      ) : null}
+                    </Notice>
+                  )}
+                  {replyNotice === "" ? null : (
+                    <Notice tone="success">{replyNotice}</Notice>
+                  )}
+                  <Field label="Reply" hint="Sent directly to the buyer">
+                    <textarea
+                      aria-label="Reply"
+                      value={replyDraft}
+                      maxLength={10_000}
+                      rows={4}
+                      disabled={
+                        thread.deleted || sendingReply || replyUncertain
+                      }
+                      placeholder={
+                        thread.deleted
+                          ? "Deleted conversations cannot be replied to"
+                          : "Write a reply"
+                      }
+                      onInput={(event) => {
+                        setReplyDraft(event.currentTarget.value);
+                        setReplyError("");
+                        setReplyNotice("");
+                      }}
+                    />
+                  </Field>
+                  <div class="message-reply__actions">
+                    <span>{replyDraft.length.toLocaleString()} / 10,000</span>
+                    <Button
+                      type="submit"
+                      tone="primary"
+                      busy={sendingReply}
+                      disabled={
+                        thread.deleted ||
+                        sendingReply ||
+                        replyUncertain ||
+                        replyDraft.trim() === ""
+                      }
+                    >
+                      Send message
+                    </Button>
+                  </div>
+                </form>
                 <div class="message-detail__pagination">
                   <Button
                     icon="chevron-left"

@@ -19,6 +19,8 @@ await writeFile(
 );
 
 const now = "2026-08-07T17:15:00.000Z";
+let previewUnreadMessageCount = 2;
+const previewReplies = [];
 const orders = [
   {
     orderNumber: "123-4567890-001",
@@ -623,13 +625,28 @@ const server = await startConfigurationUi({
       }),
   },
   messageService: {
-    unreadCount: () => Promise.resolve(2),
+    unreadCount: () => Promise.resolve(previewUnreadMessageCount),
+    markRead: () => {
+      previewUnreadMessageCount = 0;
+      return Promise.resolve();
+    },
+    reply: (_threadId, body) => {
+      previewReplies.push({
+        messageId: 2000 + previewReplies.length,
+        body,
+        createdAt: now,
+        responseRequired: false,
+        isRead: true,
+        senderDisplayName: "You",
+      });
+      return Promise.resolve();
+    },
     list: ({ page = 1, orderNumber, includeDeleted = false }) => {
       const threads = [
         {
           threadId: 101,
-          unreadMessageCount: 2,
-          totalMessageCount: 3,
+          unreadMessageCount: previewUnreadMessageCount,
+          totalMessageCount: 3 + previewReplies.length,
           subject: "Question about shipping",
           orderType: "Marketplace",
           orderNumber: orders[0].orderNumber,
@@ -663,7 +680,7 @@ const server = await startConfigurationUi({
         pageSize: 25,
         totalPages: 1,
         totalThreads: threads.length,
-        unreadCount: 2,
+        unreadCount: previewUnreadMessageCount,
         threads,
         portalUrl: "https://sellerportal.tcgplayer.com/messages",
         fetchedAt: now,
@@ -673,14 +690,14 @@ const server = await startConfigurationUi({
       Promise.resolve({
         threadId,
         subject: "Question about shipping",
-        totalMessageCount: 3,
+        totalMessageCount: 3 + previewReplies.length,
         messages: [
           {
             messageId: 1001,
             body: "Will this order include tracking?",
             createdAt: "2026-08-07T15:05:00.000Z",
             responseRequired: true,
-            isRead: false,
+            isRead: previewUnreadMessageCount === 0,
             senderDisplayName: "Taylor M.",
           },
           {
@@ -696,9 +713,10 @@ const server = await startConfigurationUi({
             body: "Perfect, thank you!",
             createdAt: "2026-08-07T16:10:00.000Z",
             responseRequired: false,
-            isRead: false,
+            isRead: previewUnreadMessageCount === 0,
             senderDisplayName: "Taylor M.",
           },
+          ...previewReplies,
         ],
         orderType: "Marketplace",
         orderNumber: orders[0].orderNumber,

@@ -676,10 +676,14 @@ describe("configuration UI", () => {
         fetchedAt: "2026-08-07T12:00:00.000Z",
       }),
     );
+    const markRead = vi.fn(() => Promise.resolve());
+    const reply = vi.fn(() => Promise.resolve());
     const messageService = {
       unreadCount,
       list,
       get,
+      markRead,
+      reply,
     } as unknown as MessageManagementService;
     server = await startConfigurationUi({
       configPath: current.path,
@@ -695,6 +699,16 @@ describe("configuration UI", () => {
       `${server.url}/api/messages?page=2&orderNumber=SYNTHETIC-ORDER-1&deleted=1&refresh=1`,
     );
     const detail = await fetch(`${server.url}/api/messages/123?page=2`);
+    const markedRead = await fetch(`${server.url}/api/messages/123/mark-read`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const replied = await fetch(`${server.url}/api/messages/123/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Synthetic reply." }),
+    });
     const invalid = await fetch(`${server.url}/api/messages/not-a-thread`);
 
     expect(count.status).toBe(200);
@@ -719,6 +733,16 @@ describe("configuration UI", () => {
     expect(get).toHaveBeenCalledWith(
       123,
       expect.objectContaining({ page: 2, force: false }),
+    );
+    expect(markedRead.status).toBe(200);
+    expect(await markedRead.json()).toEqual({ threadId: 123 });
+    expect(markRead).toHaveBeenCalledWith(123, expect.any(AbortSignal));
+    expect(replied.status).toBe(200);
+    expect(await replied.json()).toEqual({ threadId: 123 });
+    expect(reply).toHaveBeenCalledWith(
+      123,
+      "Synthetic reply.",
+      expect.any(AbortSignal),
     );
     expect(invalid.status).toBe(404);
   });

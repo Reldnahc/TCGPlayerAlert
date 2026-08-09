@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; superseded for message mutations by ADR 0020.
 
 ## Context
 

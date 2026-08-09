@@ -63,6 +63,8 @@ type MessageManagementClient = Pick<
   | "listSellerMessageThreads"
   | "getSellerMessageThread"
   | "getSellerUnreadMessageCount"
+  | "markSellerMessageThreadRead"
+  | "replyToSellerMessageThread"
 >;
 
 export interface MessageManagementServiceOptions {
@@ -92,6 +94,7 @@ export class MessageManagementService {
   private readonly threadCache = new Map<string, Cached<SellerMessageThread>>();
   private countCache: Cached<number> | undefined;
   private countPending: Promise<number> | undefined;
+  private cacheRevision = 0;
 
   constructor(options: MessageManagementServiceOptions) {
     this.client = options.client;
@@ -179,6 +182,7 @@ export class MessageManagementService {
     ) {
       thread = cached.value;
     } else {
+      const revision = this.cacheRevision;
       thread = await this.client.getSellerMessageThread(
         {
           sellerKey,
@@ -188,10 +192,12 @@ export class MessageManagementService {
         },
         input.signal === undefined ? undefined : { signal: input.signal },
       );
-      this.threadCache.set(cacheKey, {
-        value: thread,
-        expiresAt: this.now().getTime() + this.cacheMilliseconds,
-      });
+      if (this.cacheRevision === revision) {
+        this.threadCache.set(cacheKey, {
+          value: thread,
+          expiresAt: this.now().getTime() + this.cacheMilliseconds,
+        });
+      }
     }
     return {
       ...thread,
@@ -218,15 +224,18 @@ export class MessageManagementService {
       return this.countCache.value;
     }
     if (this.countPending !== undefined) return this.countPending;
+    const revision = this.cacheRevision;
     const pending = this.client
       .getSellerUnreadMessageCount(
         input.signal === undefined ? undefined : { signal: input.signal },
       )
       .then((value) => {
-        this.countCache = {
-          value,
-          expiresAt: this.now().getTime() + this.cacheMilliseconds,
-        };
+        if (this.cacheRevision === revision) {
+          this.countCache = {
+            value,
+            expiresAt: this.now().getTime() + this.cacheMilliseconds,
+          };
+        }
         return value;
       })
       .finally(() => {
@@ -234,6 +243,47 @@ export class MessageManagementService {
       });
     this.countPending = pending;
     return pending;
+  }
+
+  async markRead(threadId: number, signal?: AbortSignal): Promise<void> {
+    const sellerKey = this.currentSellerKey();
+    const validatedThreadId = boundedInteger(
+      threadId,
+      1,
+      Number.MAX_SAFE_INTEGER,
+      "Message thread",
+    );
+    try {
+      await this.client.markSellerMessageThreadRead(
+        { sellerKey, threadId: validatedThreadId },
+        signal === undefined ? undefined : { signal },
+      );
+    } finally {
+      this.invalidateThread(validatedThreadId);
+    }
+  }
+
+  async reply(
+    threadId: number,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const sellerKey = this.currentSellerKey();
+    const validatedThreadId = boundedInteger(
+      threadId,
+      1,
+      Number.MAX_SAFE_INTEGER,
+      "Message thread",
+    );
+    const validatedBody = messageBody(body);
+    try {
+      await this.client.replyToSellerMessageThread(
+        { sellerKey, threadId: validatedThreadId, body: validatedBody },
+        signal === undefined ? undefined : { signal },
+      );
+    } finally {
+      this.invalidateThread(validatedThreadId);
+    }
   }
 
   private async loadPage(
@@ -256,6 +306,7 @@ export class MessageManagementService {
     ) {
       return cached.value;
     }
+    const revision = this.cacheRevision;
     const value = await this.client.listSellerMessageThreads(
       {
         sellerKey,
@@ -266,11 +317,23 @@ export class MessageManagementService {
       },
       input.signal === undefined ? undefined : { signal: input.signal },
     );
-    this.pageCache.set(key, {
-      value,
-      expiresAt: this.now().getTime() + this.cacheMilliseconds,
-    });
+    if (this.cacheRevision === revision) {
+      this.pageCache.set(key, {
+        value,
+        expiresAt: this.now().getTime() + this.cacheMilliseconds,
+      });
+    }
     return value;
+  }
+
+  private invalidateThread(threadId: number): void {
+    this.cacheRevision += 1;
+    this.pageCache.clear();
+    for (const key of this.threadCache.keys()) {
+      if (key.startsWith(`${String(threadId)}:`)) this.threadCache.delete(key);
+    }
+    this.countCache = undefined;
+    this.countPending = undefined;
   }
 
   private currentSellerKey(): string {
@@ -287,6 +350,7 @@ export class MessageManagementService {
       this.threadCache.clear();
       this.countCache = undefined;
       this.countPending = undefined;
+      this.cacheRevision += 1;
     }
     this.cachedSellerKey = sellerKey;
     return sellerKey;
@@ -321,6 +385,35 @@ function requiredText(value: string, label: string, maximum: number): string {
     containsControlCharacter(normalized)
   ) {
     throw new ApplicationError("CONFIGURATION_ERROR", `${label} is invalid.`);
+  }
+  return normalized;
+}
+
+function messageBody(value: string): string {
+  if (typeof value !== "string") {
+    throw new ApplicationError(
+      "CONFIGURATION_ERROR",
+      "Reply message is invalid.",
+    );
+  }
+  const normalized = value.replace(/\r\n?/gu, "\n").trim();
+  if (normalized.length < 1 || normalized.length > 10_000) {
+    throw new ApplicationError(
+      "CONFIGURATION_ERROR",
+      "Reply message must contain 1-10000 characters.",
+    );
+  }
+  for (const character of normalized) {
+    const code = character.charCodeAt(0);
+    if (
+      (code <= 0x1f && character !== "\n" && character !== "\t") ||
+      code === 0x7f
+    ) {
+      throw new ApplicationError(
+        "CONFIGURATION_ERROR",
+        "Reply message contains unsupported control characters.",
+      );
+    }
   }
   return normalized;
 }

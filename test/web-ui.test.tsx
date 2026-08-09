@@ -1357,14 +1357,32 @@ describe("operator console", () => {
     );
   });
 
-  it("shows unread messages in navigation and loads conversations read-only", async () => {
+  it("marks conversations read and sends explicit replies", async () => {
+    let replyDeliveryUncertain = false;
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
         if (path.startsWith("/api/messages/unread-count")) {
           return Promise.resolve(json({ unreadCount: 2 }));
         }
-        if (path === "/api/messages?page=1") {
+        if (path === "/api/messages/123/mark-read") {
+          return Promise.resolve(json({ threadId: 123 }));
+        }
+        if (path === "/api/messages/123/reply") {
+          if (replyDeliveryUncertain) {
+            return Promise.resolve(
+              json(
+                {
+                  message: "Synthetic delivery outcome is uncertain.",
+                  code: "AMBIGUOUS_RESULT",
+                },
+                502,
+              ),
+            );
+          }
+          return Promise.resolve(json({ threadId: 123 }));
+        }
+        if (path.startsWith("/api/messages?page=1")) {
           return Promise.resolve(
             json({
               page: 1,
@@ -1392,7 +1410,7 @@ describe("operator console", () => {
             }),
           );
         }
-        if (path === "/api/messages/123?page=1") {
+        if (path.startsWith("/api/messages/123?page=1")) {
           return Promise.resolve(
             json({
               threadId: 123,
@@ -1443,13 +1461,57 @@ describe("operator console", () => {
         .getByRole("link", { name: "Open conversation" })
         .getAttribute("href"),
     ).toBe("https://sellerportal.tcgplayer.com/messages/123");
+
+    await user.click(screen.getByRole("button", { name: "Mark read" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, request]) =>
+            requestPath(input) === "/api/messages/123/mark-read" &&
+            request?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    expect(screen.getByRole("button", { name: "Read" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(messagesLink.querySelector(".nav__unread")).toBeNull();
+
+    await user.type(screen.getByLabelText("Reply"), "Synthetic reply.");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, request]) =>
+            requestPath(input) === "/api/messages/123/reply" &&
+            request?.method === "POST" &&
+            request.body === JSON.stringify({ body: "Synthetic reply." }),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Message sent.")).toBeTruthy();
+
+    replyDeliveryUncertain = true;
+    const reply = screen.getByLabelText<HTMLTextAreaElement>("Reply");
+    await user.type(reply, "Potential duplicate.");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByText("Delivery needs verification")).toBeTruthy();
+    expect(reply.value).toBe("Potential duplicate.");
+    expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Refresh conversation" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Send message" }),
+      ).toHaveProperty("disabled", false),
+    );
     expect(
-      fetchMock.mock.calls.every(([, request]) => request?.method !== "POST"),
-    ).toBe(true);
-    expect(
-      fetchMock.mock.calls.some(([input]) =>
-        requestPath(input).includes("mark-as-read"),
-      ),
-    ).toBe(false);
+      fetchMock.mock.calls.filter(([, request]) => request?.method === "POST"),
+    ).toHaveLength(3);
   });
 });

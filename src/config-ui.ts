@@ -1497,6 +1497,58 @@ async function handleRequest(
       );
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (
+      request.method === "POST" &&
+      /^\/api\/messages\/\d{1,16}\/mark-read$/u.test(url.pathname)
+    ) {
+      if (messageService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller messages are unavailable.",
+        });
+        return;
+      }
+      const threadId = Number(
+        url.pathname.slice("/api/messages/".length, -"/mark-read".length),
+      );
+      if (!Number.isSafeInteger(threadId) || threadId < 1) {
+        sendJson(response, 400, {
+          message: "The message thread is invalid.",
+        });
+        return;
+      }
+      await readJsonBody(request);
+      await withRequestAbort(request, response, (signal) =>
+        messageService.markRead(threadId, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, { threadId });
+    } else if (
+      request.method === "POST" &&
+      /^\/api\/messages\/\d{1,16}\/reply$/u.test(url.pathname)
+    ) {
+      if (messageService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller messages are unavailable.",
+        });
+        return;
+      }
+      const threadId = Number(
+        url.pathname.slice("/api/messages/".length, -"/reply".length),
+      );
+      const body = objectValue(await readJsonBody(request));
+      if (
+        !Number.isSafeInteger(threadId) ||
+        threadId < 1 ||
+        typeof body?.body !== "string"
+      ) {
+        sendJson(response, 400, {
+          message: "The message reply is invalid.",
+        });
+        return;
+      }
+      await withRequestAbort(request, response, (signal) =>
+        messageService.reply(threadId, body.body as string, signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, { threadId });
+    } else if (
       request.method === "GET" &&
       /^\/api\/messages\/\d{1,16}$/u.test(url.pathname)
     ) {

@@ -47,20 +47,26 @@ function clientFixture() {
       pageSize: 25,
     }),
   );
+  const markSellerMessageThreadRead = vi.fn(() => Promise.resolve());
+  const replyToSellerMessageThread = vi.fn(() => Promise.resolve());
   return {
     client: {
       listSellerMessageThreads,
       getSellerUnreadMessageCount,
       getSellerMessageThread,
+      markSellerMessageThreadRead,
+      replyToSellerMessageThread,
     },
     listSellerMessageThreads,
     getSellerUnreadMessageCount,
     getSellerMessageThread,
+    markSellerMessageThreadRead,
+    replyToSellerMessageThread,
   };
 }
 
 describe("MessageManagementService", () => {
-  it("normalizes and caches the read-only inbox and conversation", async () => {
+  it("normalizes and caches the inbox and conversation", async () => {
     const current = clientFixture();
     const service = new MessageManagementService({
       client: current.client,
@@ -98,6 +104,37 @@ describe("MessageManagementService", () => {
     expect(current.listSellerMessageThreads).toHaveBeenCalledOnce();
     expect(current.getSellerUnreadMessageCount).toHaveBeenCalledOnce();
     expect(current.getSellerMessageThread).toHaveBeenCalledOnce();
+  });
+
+  it("applies explicit message mutations and invalidates affected reads", async () => {
+    const current = clientFixture();
+    const service = new MessageManagementService({
+      client: current.client,
+      sellerKey: "seller_test",
+    });
+    await service.list();
+    await service.get(123);
+
+    await service.markRead(123);
+    await service.list();
+    await service.get(123);
+    await service.reply(123, "  Synthetic reply.\r\nSecond line.  ");
+
+    expect(current.markSellerMessageThreadRead).toHaveBeenCalledWith(
+      { sellerKey: "seller_test", threadId: 123 },
+      undefined,
+    );
+    expect(current.replyToSellerMessageThread).toHaveBeenCalledWith(
+      {
+        sellerKey: "seller_test",
+        threadId: 123,
+        body: "Synthetic reply.\nSecond line.",
+      },
+      undefined,
+    );
+    expect(current.listSellerMessageThreads).toHaveBeenCalledTimes(2);
+    expect(current.getSellerUnreadMessageCount).toHaveBeenCalledTimes(2);
+    expect(current.getSellerMessageThread).toHaveBeenCalledTimes(2);
   });
 
   it("supports forced refreshes and deduplicates concurrent count reads", async () => {
@@ -138,6 +175,12 @@ describe("MessageManagementService", () => {
       code: "CONFIGURATION_ERROR",
     });
     await expect(service.get(0)).rejects.toMatchObject({
+      code: "CONFIGURATION_ERROR",
+    });
+    await expect(service.markRead(0)).rejects.toMatchObject({
+      code: "CONFIGURATION_ERROR",
+    });
+    await expect(service.reply(123, "\u0000")).rejects.toMatchObject({
       code: "CONFIGURATION_ERROR",
     });
   });

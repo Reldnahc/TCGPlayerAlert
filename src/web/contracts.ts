@@ -51,6 +51,9 @@ export type PaymentDetail = SellerPayoutDetail;
 export type FeedbackPage = ManagedSellerFeedbackPage;
 export type MessagesPage = ManagedSellerMessagesPage;
 export type MessageThread = ManagedSellerMessageThread;
+export interface MessageMutationResult {
+  readonly threadId: number;
+}
 export interface UnreadMessages {
   readonly unreadCount: number;
 }

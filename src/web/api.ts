@@ -7,6 +7,7 @@ import type {
   InventoryJob,
   InventoryQueueResponse,
   MessagesPage,
+  MessageMutationResult,
   MessageThread,
   OrderList,
   PaymentDetail,
@@ -332,6 +333,19 @@ export const uiApi = {
       signal === undefined ? {} : { signal },
     );
   },
+  markMessageThreadRead: (threadId: number): Promise<MessageMutationResult> =>
+    requestJson(`/api/messages/${String(threadId)}/mark-read`, {
+      method: "POST",
+      body: "{}",
+    }),
+  replyToMessageThread: (
+    threadId: number,
+    body: string,
+  ): Promise<MessageMutationResult> =>
+    requestJson(`/api/messages/${String(threadId)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
   printOrder: (orderNumber: string, actionType: string): Promise<void> =>
     requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/print`, {
       method: "POST",
