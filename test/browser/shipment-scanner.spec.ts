@@ -24,6 +24,11 @@ test("the built Scanner detects an AprilTag and resolves its ready order", async
       .filter({ hasText: "Ready orders" })
       .getByText("2", { exact: true }),
   ).toBeVisible();
+  const summaryBounds = await page
+    .getByLabel("Shipment scanner status")
+    .boundingBox();
+  expect(summaryBounds).not.toBeNull();
+  expect(summaryBounds?.height).toBeLessThan(100);
 
   await page.locator('input[type="file"]').setInputFiles({
     name: "synthetic-shipment-tag.png",
