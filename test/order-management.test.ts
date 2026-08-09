@@ -174,6 +174,30 @@ describe("order management", () => {
     );
   });
 
+  it("returns a seller-confirmed order detail and briefly caches it", async () => {
+    const fakeClient = client();
+    const orders = service(fakeClient);
+
+    const first = await orders.getOrder(firstOrder.orderNumber);
+    const cached = await orders.getOrder(firstOrder.orderNumber);
+    const refreshed = await orders.getOrder(firstOrder.orderNumber, {
+      force: true,
+    });
+
+    expect(first).toMatchObject({
+      orderNumber: firstOrder.orderNumber,
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      fetchedAt: "2026-08-04T12:00:00.000Z",
+      shippingAddress: { addressOne: "123 Example Street" },
+    });
+    expect(first).not.toHaveProperty("allowedActions");
+    expect(cached).toBe(first);
+    expect(refreshed).not.toBe(first);
+    expect(fakeClient.confirmOrder).toHaveBeenCalledTimes(2);
+  });
+
   it("updates the shared ready-order source after shipment is accepted", async () => {
     const fakeClient = client();
     const onShipmentAccepted = vi.fn();
@@ -258,13 +282,16 @@ describe("order management", () => {
     );
     const orders = service(fakeClient);
     await orders.listOrders("ready-to-ship");
+    await orders.getOrder(firstOrder.orderNumber);
 
     await expect(
       orders.addTracking(firstOrder.orderNumber, "synthetic-tracking"),
     ).rejects.toThrow("Synthetic ambiguous result");
     await orders.listOrders("ready-to-ship");
+    await orders.getOrder(firstOrder.orderNumber);
 
     expect(fakeClient.searchOrders).toHaveBeenCalledTimes(2);
+    expect(fakeClient.confirmOrder).toHaveBeenCalledTimes(2);
   });
 
   it("never substitutes a local status after a shipment mutation", async () => {

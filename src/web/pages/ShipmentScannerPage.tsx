@@ -4,6 +4,7 @@ import type {
   ShipmentScanResult,
 } from "../contracts.js";
 import { uiApi } from "../api.js";
+import { OrderNumberLink } from "../components/OrderNumberLink.js";
 import { useAprilTagImageScanner } from "../useAprilTagImageScanner.js";
 import {
   Button,
@@ -352,7 +353,8 @@ function ShipmentResolution({
       <Notice tone="warning">
         <strong>Exact ready-order match</strong>
         <span>
-          {result.order.buyerName} · order {result.order.orderNumber}
+          {result.order.buyerName} · order{" "}
+          <OrderNumberLink orderNumber={result.order.orderNumber} />
         </span>
         <span>{result.order.shippingType}</span>
         <Button tone="primary" busy={busy} onClick={onMarkShipped}>
@@ -366,7 +368,8 @@ function ShipmentResolution({
       <Notice tone="success">
         <strong>Order marked shipped</strong>
         <span>
-          {result.order.buyerName} · order {result.order.orderNumber}
+          {result.order.buyerName} · order{" "}
+          <OrderNumberLink orderNumber={result.order.orderNumber} />
         </span>
         <span>
           {automatic ? "Automatic exact-match workflow" : "Operator approved"}
@@ -378,7 +381,10 @@ function ShipmentResolution({
     return (
       <Notice tone="success">
         <strong>Already processed</strong>
-        <span>Order {result.orderNumber} was not submitted again.</span>
+        <span>
+          Order <OrderNumberLink orderNumber={result.orderNumber} /> was not
+          submitted again.
+        </span>
       </Notice>
     );
   }
@@ -398,8 +404,9 @@ function ShipmentResolution({
       <Notice tone="danger">
         <strong>Shipment requires review</strong>
         <span>
-          The result for order {result.orderNumber} was uncertain and will not
-          be retried automatically.
+          The result for order{" "}
+          <OrderNumberLink orderNumber={result.orderNumber} /> was uncertain and
+          will not be retried automatically.
         </span>
       </Notice>
     );

@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { packingSlipUrl, sellerPortalOrderUrl, uiApi } from "../api.js";
+import { orderDetailUrl, packingSlipUrl, uiApi } from "../api.js";
 import type { Order } from "../contracts.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { useSettings } from "../state/SettingsContext.js";
@@ -12,10 +12,12 @@ export function OrderActions({
   order,
   scope,
   compact = false,
+  onChanged,
 }: {
   readonly order: Order;
   readonly scope: "all" | "ready-to-ship";
   readonly compact?: boolean;
+  readonly onChanged?: () => void;
 }) {
   const { acknowledgeShipment, load, shipmentsPendingReconciliation } =
     useOrders();
@@ -31,7 +33,7 @@ export function OrderActions({
     action: () => Promise<void>,
     success: string,
     refresh = false,
-  ) {
+  ): Promise<void> {
     if (busy !== "") return;
     setBusy(name);
     try {
@@ -82,6 +84,7 @@ export function OrderActions({
         await uiApi.addTracking(order.orderNumber, normalized);
         setTrackingOpen(false);
         setTrackingNumber("");
+        onChanged?.();
       },
       "Tracking added.",
       true,
@@ -99,6 +102,7 @@ export function OrderActions({
       async () => {
         await uiApi.markShipped(order.orderNumber);
         acknowledgeShipment(order.orderNumber);
+        onChanged?.();
       },
       "Order marked shipped.",
       true,
@@ -233,13 +237,11 @@ export function OrderActions({
                     Open in Pirate Ship
                   </button>
                   <a
-                    href={sellerPortalOrderUrl(order.orderNumber)}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={orderDetailUrl(order.orderNumber)}
                     onClick={() => setMenuOpen(false)}
                   >
                     <Icon name="external" size={15} />
-                    Manage order
+                    Order details
                   </a>
                 </div>
               ) : null}

@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import {
-  sellerPortalOrderUrl,
-  sellerPortalPaymentsUrl,
-  uiApi,
-} from "../api.js";
+import { sellerPortalPaymentsUrl, uiApi } from "../api.js";
+import { OrderNumberLink } from "../components/OrderNumberLink.js";
 import {
   Button,
   EmptyState,
@@ -825,13 +822,7 @@ function PaymentTransactionsTable({
               {transaction.orderNumber === undefined ? (
                 "—"
               ) : (
-                <a
-                  href={sellerPortalOrderUrl(transaction.orderNumber)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {transaction.orderNumber}
-                </a>
+                <OrderNumberLink orderNumber={transaction.orderNumber} />
               )}
             </td>
             <td class="align-right numeric">

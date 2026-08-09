@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { uiApi } from "../api.js";
 import { OrderActions } from "../components/OrderActions.js";
+import { OrderNumberLink } from "../components/OrderNumberLink.js";
 import {
   Button,
   EmptyState,
@@ -236,7 +237,11 @@ export function DashboardPage() {
                         <td>
                           <span class="cell-stack">
                             <strong>{order.buyerName}</strong>
-                            <small>{order.orderNumber}</small>
+                            <small>
+                              <OrderNumberLink
+                                orderNumber={order.orderNumber}
+                              />
+                            </small>
                           </span>
                         </td>
                         <td>{compactDate(order.orderDate)}</td>

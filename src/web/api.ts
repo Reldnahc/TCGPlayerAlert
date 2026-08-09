@@ -11,6 +11,7 @@ import type {
   MarkAllMessagesReadResult,
   MessageThread,
   OrderList,
+  OrderDetail,
   PaymentDetail,
   PaymentsPage,
   PirateShipResult,
@@ -265,6 +266,15 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(`/api/orders?${query.toString()}`);
   },
+  order: (
+    orderNumber: string,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<OrderDetail> =>
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}${force ? "?refresh=1" : ""}`,
+      signal === undefined ? {} : { signal },
+    ),
   payments: (
     page: number,
     status: string,
@@ -460,6 +470,10 @@ export function packingSlipUrl(orderNumber: string): string {
 
 export function sellerPortalOrderUrl(orderNumber: string): string {
   return `https://sellerportal.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}`;
+}
+
+export function orderDetailUrl(orderNumber: string): string {
+  return `#orders/${encodeURIComponent(orderNumber)}`;
 }
 
 export function sellerPortalPaymentsUrl(

@@ -1639,6 +1639,24 @@ async function handleRequest(
       if (!response.destroyed) sendJson(response, 200, preparation);
     } else if (
       request.method === "GET" &&
+      /^\/api\/orders\/[^/]{1,384}$/u.test(url.pathname)
+    ) {
+      if (orderService === undefined) {
+        sendJson(response, 503, {
+          message: "Order management is unavailable.",
+        });
+        return;
+      }
+      const orderNumber = decodeOrderNumber(url.pathname);
+      const result = await withRequestAbort(request, response, (signal) =>
+        orderService.getOrder(orderNumber, {
+          force: url.searchParams.get("refresh") === "1",
+          signal,
+        }),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "GET" &&
       /^\/api\/orders\/[^/]{1,384}\/packing-slip$/u.test(url.pathname)
     ) {
       if (orderService === undefined) {
@@ -2057,9 +2075,11 @@ async function handleRequest(
           ? 401
           : error.code === "FORBIDDEN"
             ? 403
-            : error.code === "INVALID_ARGUMENT"
-              ? 400
-              : 502;
+            : error.code === "NOT_FOUND"
+              ? 404
+              : error.code === "INVALID_ARGUMENT"
+                ? 400
+                : 502;
       sendJson(response, status, {
         message: error.message,
         code: error.code,
@@ -2348,10 +2368,21 @@ function sendBytes(
   response.end(Buffer.from(body));
 }
 
-function decodeOrderNumber(pathname: string, action: string): string {
-  const suffix = `/${action}`;
-  const encoded = pathname.slice("/api/orders/".length, -suffix.length);
-  return decodeURIComponent(encoded);
+function decodeOrderNumber(pathname: string, action?: string): string {
+  const suffix = action === undefined ? "" : `/${action}`;
+  const encoded = pathname.slice(
+    "/api/orders/".length,
+    suffix === "" ? undefined : -suffix.length,
+  );
+  try {
+    const orderNumber = decodeURIComponent(encoded);
+    if (!safeText(orderNumber) || orderNumber.length > 128) {
+      throw new Error("invalid");
+    }
+    return orderNumber;
+  } catch {
+    throw new ConfigurationError(["The order number is invalid."]);
+  }
 }
 
 function parseManualPrintAction(value: unknown): ManualPrintActionType {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { OrderActions } from "../components/OrderActions.js";
+import { OrderNumberLink } from "../components/OrderNumberLink.js";
 import {
   Button,
   EmptyState,
@@ -108,7 +109,9 @@ export function OrdersPage() {
                 {orders.map((order) => (
                   <tr key={order.orderNumber}>
                     <td>
-                      <strong class="numeric">{order.orderNumber}</strong>
+                      <strong>
+                        <OrderNumberLink orderNumber={order.orderNumber} />
+                      </strong>
                     </td>
                     <td>{order.buyerName}</td>
                     <td>{compactDate(order.orderDate)}</td>

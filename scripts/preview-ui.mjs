@@ -68,6 +68,79 @@ const orders = [
   },
 ];
 
+function orderDetail(orderNumber) {
+  const order = orders.find(
+    (candidate) => candidate.orderNumber === orderNumber,
+  );
+  if (order === undefined) throw new Error("Synthetic order not found.");
+  return {
+    createdAt: order.orderDate,
+    status: order.status,
+    statusCode: order.statusCode,
+    orderChannel: "Marketplace",
+    orderFulfillment: "Seller",
+    orderNumber: order.orderNumber,
+    sellerName: "Example Card Shop",
+    buyerName: order.buyerName,
+    paymentType: "Credit card",
+    pickupStatus: "Not requested",
+    shippingType: order.shippingType,
+    estimatedDeliveryDate: "2026-08-12T17:00:00.000Z",
+    transaction: {
+      productAmount: order.productAmount,
+      shippingAmount: order.shippingAmount,
+      grossAmount: order.totalAmount,
+      feeAmount: 3.18,
+      netAmount: order.totalAmount - 3.18,
+      directFeeAmount: 0,
+      taxes: [],
+    },
+    shippingAddress: {
+      recipientName: order.buyerName,
+      addressOne: "125 Example Avenue",
+      addressTwo: "Unit 4",
+      city: "Test City",
+      territory: "IL",
+      country: "US",
+      postalCode: "60000",
+    },
+    products: [
+      {
+        name: "Lightning Bolt · Masters 25 · Lightly Played",
+        unitPrice: 1.75,
+        extendedPrice: 3.5,
+        quantity: 2,
+        url: "https://www.tcgplayer.com/",
+        productId: "123456",
+        skuId: "654321",
+      },
+      {
+        name: "Counterspell · Dominaria Remastered · Near Mint",
+        unitPrice: order.productAmount - 3.5,
+        extendedPrice: order.productAmount - 3.5,
+        quantity: 1,
+        url: "https://www.tcgplayer.com/",
+        productId: "234567",
+        skuId: "765432",
+      },
+    ],
+    refundStatus: "None",
+    trackingNumbers:
+      order.statusCode === "Shipped"
+        ? [
+            {
+              createdAt: "2026-08-06T15:00:00.000Z",
+              carrier: "USPS",
+              trackingNumber: "SYNTHETIC-TRACKING-001",
+              status: "In transit",
+            },
+          ]
+        : [],
+    canMarkShipped: order.canMarkShipped,
+    fetchedAt: now,
+  };
+}
+
 const payouts = [
   {
     payoutId: "synthetic-payout-1",
@@ -511,6 +584,7 @@ const server = await startConfigurationUi({
             : orders,
         fetchedAt: now,
       }),
+    getOrder: (orderNumber) => Promise.resolve(orderDetail(orderNumber)),
     getPackingSlip: () =>
       Promise.resolve({ bytes: new Uint8Array([37, 80, 68, 70]) }),
     preparePirateShip: () =>

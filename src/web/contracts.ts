@@ -12,6 +12,7 @@ import type {
 } from "../inventory-additions.js";
 import type {
   AddTrackingResult,
+  ManagedOrderDetail,
   ManagedOrderList,
   ManagedOrderSummary,
   PirateShipPreparation,
@@ -39,6 +40,7 @@ export type Settings = ConfigurationUiSettings;
 export type SettingsUpdate = ConfigurationUiUpdate;
 export type OrderList = ManagedOrderList;
 export type Order = ManagedOrderSummary;
+export type OrderDetail = ManagedOrderDetail;
 export type TrackingResult = AddTrackingResult;
 export interface ShipmentResult {
   readonly orderNumber: string;

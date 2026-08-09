@@ -18,6 +18,10 @@ The product must remain useful beyond one seller, scheduling cadence, operating 
 Application implementation is authorized and active. Build the local-first polling service, durable reconciliation, versioned declarative rules, and modular print actions defined by ADRs 0001 and 0002. Tracking and shipment mutations remain opt-in and out of the automatic workflow until a newly received order is available for supervised compatibility testing. Price-only listing updates are authorized through the profile-driven preview and durable, paced queue in ADRs 0005 and 0006. Exact-SKU inventory additions with an initial price are authorized through the profile-driven, internally previewed queue in ADR 0007. Operator-confirmed removal of an entire eligible exact-SKU listing is authorized through the searchable Inventory preview and the same durable inventory queue in ADR 0008. Both listing workflows must re-read live state immediately before mutation and stop ambiguous jobs for review. Read-only Payments and Feedback workspaces may present data from the private client. Messages may automatically mark a successfully opened unread thread read, sequentially mark all unread inbox threads read on explicit request, and send explicit replies under ADR 0020. The persistent user-driven Firefox and Chromium session connector, Windows DPAPI credential persistence, renewal, disconnect, and expiry handling in ADR 0015 are authorized; login interaction remains entirely browser-controlled. Payment setup, payment instruments, bank details, feedback mutations, message deletion, mark-unread, resolution, escalation, and every payment mutation remain out of scope.
 
 The accepted order-discovery design is recorded in `docs/adr/0001-polling-first-order-discovery.md`.
+The seller-confirmed internal order workspace is authorized under ADR 0021.
+It may present addresses and products in the loopback browser boundary, must
+keep them in memory only, and must preserve TCGplayer as the sole order-status
+source.
 
 ## Product Principles
 
@@ -37,6 +41,7 @@ Keep these concerns separated even if the first version runs as one process:
 - **Order discovery:** complete pagination of the authoritative ready-to-ship queue, first-run baseline behavior, and reconciliation against durable state.
 - **Optional event acceleration:** future provider adapters may interpret notifications and request an immediate sync, but may not directly create authoritative orders or dispatch actions.
 - **TCGplayer access:** an application-facing adapter around the separately versioned `tcgplayer-private-api` client. Private endpoint details do not belong in this repository.
+- **Order presentation:** seller-confirmed, in-memory order details behind the loopback UI boundary, with explicit fulfillment controls and an official-portal escape hatch; do not persist or log addresses, products, or raw provider actions.
 - **Payments:** cached, read-only legacy or Money Movement payment presentation normalized behind an application service; never expose payment instruments or add payout mutation controls.
 - **Feedback:** cached, read-only seller ratings and buyer comments normalized behind an application service; omit provider user/order keys, mask buyer nicknames before the browser boundary, and do not add feedback mutations.
 - **Messages:** cached seller inbox, unread count, and thread content normalized behind an application service; mark a successfully opened unread thread read, pace explicit mark-all work sequentially, keep the per-thread retry control, keep content and drafts in memory, never log them, and stop uncertain replies until the operator refreshes the thread.

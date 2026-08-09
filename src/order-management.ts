@@ -1,5 +1,6 @@
 import {
   SellerOrderStatus,
+  type SellerOrderDetail,
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
@@ -28,6 +29,14 @@ export interface AddTrackingResult {
 export interface PirateShipPreparation {
   readonly url: "https://ship.pirateship.com/ship/single";
   readonly pasteAddress: string;
+}
+
+export interface ManagedOrderDetail extends Omit<
+  SellerOrderDetail,
+  "allowedActions"
+> {
+  readonly canMarkShipped: boolean;
+  readonly fetchedAt: string;
 }
 
 type OrderManagementClient = Pick<
@@ -66,6 +75,11 @@ interface CachedPirateShipPreparation {
   readonly value: PirateShipPreparation;
 }
 
+interface CachedOrderDetail {
+  readonly expiresAt: number;
+  readonly value: ManagedOrderDetail;
+}
+
 export class OrderManagementService {
   private readonly client: OrderManagementClient;
   private readonly sellerKey: SellerKeySource;
@@ -79,6 +93,7 @@ export class OrderManagementService {
   private readonly onShipmentAccepted:
     OrderManagementServiceOptions["onShipmentAccepted"] | undefined;
   private readonly cache = new Map<OrderListScope, CachedOrders>();
+  private readonly detailCache = new Map<string, CachedOrderDetail>();
   private readonly pirateShipCache = new Map<
     string,
     CachedPirateShipPreparation
@@ -198,20 +213,25 @@ export class OrderManagementService {
     return { fileName: document.fileName, bytes: document.bytes };
   }
 
-  async preparePirateShip(
+  async getOrder(
     orderNumber: string,
-    signal?: AbortSignal,
-  ): Promise<PirateShipPreparation> {
+    options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
+  ): Promise<ManagedOrderDetail> {
     const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
     const now = this.now();
-    const cached = this.pirateShipCache.get(normalized);
-    if (cached !== undefined && cached.expiresAt > now.getTime()) {
+    const cacheKey = normalized.toLocaleLowerCase();
+    const cached = this.detailCache.get(cacheKey);
+    if (
+      options.force !== true &&
+      cached !== undefined &&
+      cached.expiresAt > now.getTime()
+    ) {
       return cached.value;
     }
     const confirmed = await this.client.confirmOrder(
       { sellerKey, orderNumber: normalized },
-      signal === undefined ? undefined : { signal },
+      options.signal === undefined ? undefined : { signal: options.signal },
     );
     if (confirmed.order.orderNumber !== normalized) {
       throw new ApplicationError(
@@ -219,7 +239,27 @@ export class OrderManagementService {
         "The confirmed order did not match the requested order.",
       );
     }
-    const address = confirmed.order.shippingAddress;
+    const value = toManagedOrderDetail(confirmed.order, now.toISOString());
+    this.detailCache.set(cacheKey, {
+      expiresAt: now.getTime() + this.cacheMilliseconds,
+      value,
+    });
+    return value;
+  }
+
+  async preparePirateShip(
+    orderNumber: string,
+    signal?: AbortSignal,
+  ): Promise<PirateShipPreparation> {
+    const normalized = requiredText(orderNumber, "Order number", 128);
+    const now = this.now();
+    const cached = this.pirateShipCache.get(normalized);
+    if (cached !== undefined && cached.expiresAt > now.getTime()) {
+      return cached.value;
+    }
+    const address = (
+      await this.getOrder(normalized, signal === undefined ? {} : { signal })
+    ).shippingAddress;
     const regionAndPostal = [address.territory, address.postalCode]
       .filter((part) => part.trim())
       .join(" ");
@@ -279,6 +319,7 @@ export class OrderManagementService {
       256,
     );
     this.cache.clear();
+    this.detailCache.clear();
     this.pirateShipCache.clear();
     const requestOptions = signal === undefined ? undefined : { signal };
     const { carrier } = await this.client.detectCarrier(
@@ -307,6 +348,7 @@ export class OrderManagementService {
     const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
     this.cache.clear();
+    this.detailCache.clear();
     this.pirateShipCache.clear();
     const result = await this.client.markOrdersShipped(
       { sellerKey, orderNumbers: [normalized] },
@@ -347,6 +389,7 @@ export class OrderManagementService {
       this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
     ) {
       this.cache.clear();
+      this.detailCache.clear();
       this.pirateShipCache.clear();
     }
     this.cachedSellerKey = sellerKey;
@@ -364,6 +407,33 @@ function requiredText(value: string, label: string, maximum: number): string {
     throw new ApplicationError("CONFIGURATION_ERROR", `${label} is invalid.`);
   }
   return normalized;
+}
+
+function toManagedOrderDetail(
+  order: SellerOrderDetail,
+  fetchedAt: string,
+): ManagedOrderDetail {
+  return {
+    createdAt: order.createdAt,
+    status: order.status,
+    statusCode: order.statusCode,
+    orderChannel: order.orderChannel,
+    orderFulfillment: order.orderFulfillment,
+    orderNumber: order.orderNumber,
+    sellerName: order.sellerName,
+    buyerName: order.buyerName,
+    paymentType: order.paymentType,
+    pickupStatus: order.pickupStatus,
+    shippingType: order.shippingType,
+    estimatedDeliveryDate: order.estimatedDeliveryDate,
+    transaction: order.transaction,
+    shippingAddress: order.shippingAddress,
+    products: order.products,
+    refundStatus: order.refundStatus,
+    trackingNumbers: order.trackingNumbers,
+    canMarkShipped: order.statusCode === SellerOrderStatus.ReadyToShip,
+    fetchedAt,
+  };
 }
 
 function containsControlCharacter(value: string): boolean {

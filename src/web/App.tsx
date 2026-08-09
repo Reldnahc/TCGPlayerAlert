@@ -9,6 +9,7 @@ import { DashboardPage } from "./pages/DashboardPage.js";
 import { InventoryPage } from "./pages/InventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
+import { OrderDetailPage } from "./pages/OrderDetailPage.js";
 import { PaymentsPage } from "./pages/PaymentsPage.js";
 import { FeedbackPage } from "./pages/FeedbackPage.js";
 import { MessagesPage } from "./pages/MessagesPage.js";
@@ -44,18 +45,38 @@ const ShipmentScannerPage = lazy(async () => {
   return { default: module.ShipmentScannerPage };
 });
 
-function routeFromHash(): RouteId {
+interface ApplicationRoute {
+  readonly id: RouteId;
+  readonly orderNumber?: string;
+}
+
+function routeFromHash(): ApplicationRoute {
   const candidate = window.location.hash.slice(1);
+  if (candidate.startsWith("orders/")) {
+    const encodedOrderNumber = candidate.slice("orders/".length);
+    if (encodedOrderNumber !== "" && !encodedOrderNumber.includes("/")) {
+      try {
+        const orderNumber = decodeURIComponent(encodedOrderNumber).trim();
+        if (orderNumber !== "") return { id: "orders", orderNumber };
+      } catch {
+        return { id: "orders" };
+      }
+    }
+  }
   const aliased = ALIASES[candidate] ?? candidate;
-  return routes.some((route) => route.id === aliased)
-    ? (aliased as RouteId)
-    : "dashboard";
+  return {
+    id: routes.some((route) => route.id === aliased)
+      ? (aliased as RouteId)
+      : "dashboard",
+  };
 }
 
 function Console() {
-  const [route, setRoute] = useState<RouteId>(routeFromHash);
+  const [applicationRoute, setApplicationRoute] =
+    useState<ApplicationRoute>(routeFromHash);
+  const route = applicationRoute.id;
   const [visited, setVisited] = useState<ReadonlySet<RouteId>>(
-    () => new Set<RouteId>([routeFromHash()]),
+    () => new Set<RouteId>([routeFromHash().id]),
   );
   const { settings, loading, saving, dirty, error, save, reload } =
     useSettings();
@@ -73,8 +94,8 @@ function Console() {
   useEffect(() => {
     const sync = () => {
       const next = routeFromHash();
-      setRoute(next);
-      setVisited((current) => new Set(current).add(next));
+      setApplicationRoute(next);
+      setVisited((current) => new Set(current).add(next.id));
     };
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
@@ -82,7 +103,7 @@ function Console() {
 
   function navigate(next: RouteId) {
     window.location.hash = next;
-    setRoute(next);
+    setApplicationRoute({ id: next });
     setVisited((current) => new Set(current).add(next));
   }
 
@@ -132,7 +153,12 @@ function Console() {
   else {
     const pages: Readonly<Record<RouteId, () => JSX.Element | null>> = {
       dashboard: DashboardPage,
-      orders: OrdersPage,
+      orders: () =>
+        applicationRoute.orderNumber === undefined ? (
+          <OrdersPage />
+        ) : (
+          <OrderDetailPage orderNumber={applicationRoute.orderNumber} />
+        ),
       payments: PaymentsPage,
       feedback: FeedbackPage,
       messages: MessagesPage,

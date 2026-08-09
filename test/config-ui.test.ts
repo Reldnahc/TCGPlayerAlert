@@ -375,6 +375,46 @@ describe("configuration UI", () => {
     expect(listOrders).not.toHaveBeenCalled();
   });
 
+  it("serves an exact internal order detail with explicit refresh control", async () => {
+    const current = await fixture();
+    const detail = {
+      orderNumber: "SYNTHETIC-ORDER-1",
+      buyerName: "Synthetic Buyer",
+      status: "Ready to Ship",
+      fetchedAt: "2026-08-07T12:00:00.000Z",
+    };
+    const getOrder = vi
+      .fn<
+        (
+          orderNumber: string,
+          options: { readonly force: boolean; readonly signal: AbortSignal },
+        ) => Promise<typeof detail>
+      >()
+      .mockResolvedValue(detail);
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      orderService: { getOrder } as unknown as OrderManagementService,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/orders/SYNTHETIC-ORDER-1?refresh=1`,
+    );
+    const invalid = await fetch(`${server.url}/api/orders/${"A".repeat(129)}`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(detail);
+    expect(getOrder).toHaveBeenCalledOnce();
+    expect(getOrder.mock.calls[0]?.[0]).toBe("SYNTHETIC-ORDER-1");
+    expect(getOrder.mock.calls[0]?.[1].force).toBe(true);
+    expect(getOrder.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal);
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({
+      issues: ["The order number is invalid."],
+    });
+  });
+
   it("routes confirmed shipment tags through the injected scanner service", async () => {
     const current = await fixture();
     const status = vi.fn(() =>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { UiApiError, uiApi } from "../api.js";
+import { OrderNumberLink } from "../components/OrderNumberLink.js";
 import {
   Button,
   EmptyState,
@@ -487,9 +488,14 @@ export function MessagesPage() {
                   <div class="message-detail__heading">
                     <h2>{thread.subject}</h2>
                     <span>
-                      {thread.orderNumber === ""
-                        ? "No linked order"
-                        : `Order ${thread.orderNumber}`}
+                      {thread.orderNumber === "" ? (
+                        "No linked order"
+                      ) : (
+                        <>
+                          Order{" "}
+                          <OrderNumberLink orderNumber={thread.orderNumber} />
+                        </>
+                      )}
                     </span>
                   </div>
                   <div class="message-detail__actions">

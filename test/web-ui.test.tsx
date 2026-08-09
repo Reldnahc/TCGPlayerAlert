@@ -517,6 +517,115 @@ describe("operator console", () => {
     ).toBe(true);
   });
 
+  it("opens a seller-confirmed internal order workspace from the order number", async () => {
+    window.location.hash = "orders";
+    const order = {
+      orderNumber: "SYNTHETIC-ORDER-DETAIL",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 12,
+      shippingAmount: 1.49,
+      totalAmount: 13.49,
+    };
+    const detail = {
+      createdAt: order.orderDate,
+      status: order.status,
+      statusCode: order.statusCode,
+      orderChannel: "Marketplace",
+      orderFulfillment: "Seller",
+      orderNumber: order.orderNumber,
+      sellerName: "Synthetic Seller",
+      buyerName: order.buyerName,
+      paymentType: "Credit card",
+      pickupStatus: "Not requested",
+      shippingType: order.shippingType,
+      estimatedDeliveryDate: "2026-08-12T12:00:00.000Z",
+      transaction: {
+        productAmount: 12,
+        shippingAmount: 1.49,
+        grossAmount: 13.49,
+        feeAmount: 1.5,
+        netAmount: 11.99,
+        directFeeAmount: 0,
+        taxes: [],
+      },
+      shippingAddress: {
+        recipientName: "Synthetic Buyer",
+        addressOne: "125 Example Avenue",
+        addressTwo: "Unit 4",
+        city: "Test City",
+        territory: "IL",
+        country: "US",
+        postalCode: "60000",
+      },
+      products: [
+        {
+          name: "Synthetic Card · Test Set · Near Mint",
+          unitPrice: 6,
+          extendedPrice: 12,
+          quantity: 2,
+          url: "https://www.tcgplayer.com/",
+          productId: "123",
+          skuId: "456",
+        },
+      ],
+      refundStatus: "None",
+      trackingNumbers: [],
+      canMarkShipped: true,
+      fetchedAt: "2026-08-07T12:01:00.000Z",
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === `/api/orders/${order.orderNumber}`) {
+          return Promise.resolve(json(detail));
+        }
+        if (path === "/api/orders?") {
+          return Promise.resolve(
+            json({
+              orders: [order],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("link", { name: order.orderNumber }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: `Order ${order.orderNumber}`,
+      }),
+    ).toBeTruthy();
+    expect(await screen.findByText("125 Example Avenue")).toBeTruthy();
+    expect(
+      screen.getByText("Synthetic Card · Test Set · Near Mint"),
+    ).toBeTruthy();
+    expect(screen.getByText("No tracking has been added")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Open in TCGplayer" })
+        .getAttribute("href"),
+    ).toBe("https://sellerportal.tcgplayer.com/orders/SYNTHETIC-ORDER-DETAIL");
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) =>
+          requestPath(input) === "/api/orders/SYNTHETIC-ORDER-DETAIL",
+      ),
+    ).toBe(true);
+  });
+
   it("prints a pasted address from the dashboard", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
