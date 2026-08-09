@@ -508,6 +508,11 @@ describe("operator console", () => {
     render(<App />);
 
     expect(await screen.findByText("SYNTHETIC-ALL-ONLY")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Master pull list" })
+        .getAttribute("href"),
+    ).toBe("#orders/pull-list");
     await user.click(screen.getByRole("link", { name: "Dashboard" }));
 
     expect(await screen.findByText("No orders are ready to ship")).toBeTruthy();
@@ -701,11 +706,10 @@ describe("operator console", () => {
     });
   });
 
-  it("displays and prints a ready-order pull list with optional color metadata", async () => {
-    const orderNumber = "SYNTHETIC-PULL-LIST";
-    window.location.hash = `orders/${orderNumber}/pull-list`;
+  it("displays and prints a master pull list with optional color metadata", async () => {
+    window.location.hash = "orders/pull-list";
     const pullList = {
-      orderNumber,
+      orderCount: 2,
       totalQuantity: 3,
       fetchedAt: "2026-08-07T12:01:00.000Z",
       rows: [
@@ -744,7 +748,7 @@ describe("operator console", () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
-        if (path === `/api/orders/${orderNumber}/pull-list`) {
+        if (path === "/api/orders/pull-list") {
           return Promise.resolve(json(pullList));
         }
         return baseFetch(input, options);
@@ -756,7 +760,7 @@ describe("operator console", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "Pull list" }),
+      await screen.findByRole("heading", { name: "Master pull list" }),
     ).toBeTruthy();
     expect(await screen.findByText("Synthetic Red Card")).toBeTruthy();
     expect(screen.getByText("Red")).toBeTruthy();
@@ -766,8 +770,8 @@ describe("operator console", () => {
       screen.getByText("Cards to pull").nextElementSibling?.textContent,
     ).toBe("3");
     expect(
-      screen.getByRole("link", { name: "Order details" }).getAttribute("href"),
-    ).toBe(`#orders/${orderNumber}`);
+      screen.getByRole("link", { name: "All orders" }).getAttribute("href"),
+    ).toBe("#orders");
 
     await user.click(screen.getByRole("button", { name: "Print" }));
     expect(print).toHaveBeenCalledOnce();

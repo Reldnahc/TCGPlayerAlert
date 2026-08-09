@@ -25,6 +25,20 @@ const secondOrder = {
   buyerName: "Example Customer",
 };
 
+const pullSheetRow = {
+  productLine: "Magic: The Gathering",
+  productName: "Synthetic Card",
+  condition: "Near Mint",
+  number: "42",
+  setName: "Synthetic Set",
+  rarity: "Rare",
+  quantity: 10,
+  mainPhotoUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
+  setReleaseDate: "2026-01-01",
+  skuId: "456",
+  orderQuantity: 2,
+};
+
 function client() {
   return {
     searchOrders: vi.fn(),
@@ -94,29 +108,15 @@ function client() {
         orderNumbers: [firstOrder.orderNumber],
       }),
     ),
-    exportPullSheet: vi.fn(() =>
-      Promise.resolve({
-        text: "synthetic pull sheet",
-        contentType: "text/csv" as const,
-        fileName: "pull-sheet.csv" as const,
-        orderNumbers: [firstOrder.orderNumber],
-        rows: [
-          {
-            productLine: "Magic: The Gathering",
-            productName: "Synthetic Card",
-            condition: "Near Mint",
-            number: "42",
-            setName: "Synthetic Set",
-            rarity: "Rare",
-            quantity: 10,
-            mainPhotoUrl:
-              "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
-            setReleaseDate: "2026-01-01",
-            skuId: "456",
-            orderQuantity: 2,
-          },
-        ],
-      }),
+    exportPullSheet: vi.fn(
+      (input: { readonly orderNumbers: readonly string[] }) =>
+        Promise.resolve({
+          text: "synthetic pull sheet",
+          contentType: "text/csv" as const,
+          fileName: "pull-sheet.csv" as const,
+          orderNumbers: input.orderNumbers,
+          rows: [pullSheetRow],
+        }),
     ),
     searchMarketplaceProducts: vi.fn(() =>
       Promise.resolve({
@@ -179,6 +179,8 @@ function service(
   fakeClient: ReturnType<typeof client>,
   options: {
     readonly liveMode?: () => Promise<boolean>;
+    readonly pageSize?: number;
+    readonly maximumPages?: number;
     readonly executePrint?: (
       orderNumber: string,
       actionType: "print-address-label" | "print-packing-slip",
@@ -280,32 +282,49 @@ describe("order management", () => {
     expect(fakeClient.confirmOrder).toHaveBeenCalledTimes(2);
   });
 
-  it("builds and caches a ready-order pull list with batched optional metadata", async () => {
+  it("builds and caches a master pull list that combines ready-order SKUs", async () => {
     const fakeClient = client();
+    const anotherReadyOrder = {
+      ...firstOrder,
+      orderNumber: "synthetic-order-2",
+      buyerName: "Example Customer",
+    };
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 2,
+      orders: [firstOrder, anotherReadyOrder],
+    });
+    fakeClient.exportPullSheet.mockResolvedValue({
+      text: "synthetic pull sheet",
+      contentType: "text/csv",
+      fileName: "pull-sheet.csv",
+      orderNumbers: [firstOrder.orderNumber, anotherReadyOrder.orderNumber],
+      rows: [pullSheetRow, { ...pullSheetRow, orderQuantity: 1 }],
+    });
     const orders = service(fakeClient);
 
-    const first = await orders.getPullList(firstOrder.orderNumber);
-    const cached = await orders.getPullList(firstOrder.orderNumber);
+    const first = await orders.getMasterPullList();
+    const cached = await orders.getMasterPullList();
 
     expect(first).toEqual({
-      orderNumber: firstOrder.orderNumber,
-      totalQuantity: 2,
+      orderCount: 2,
+      totalQuantity: 3,
       fetchedAt: "2026-08-04T12:00:00.000Z",
       rows: [
         expect.objectContaining({
           productId: 123,
           productName: "Synthetic Card",
-          orderQuantity: 2,
+          orderQuantity: 3,
           metadata: [{ label: "Color", values: ["Blue"] }],
         }),
       ],
     });
     expect(cached).toBe(first);
-    expect(fakeClient.confirmOrder).toHaveBeenCalledOnce();
+    expect(fakeClient.searchOrders).toHaveBeenCalledOnce();
+    expect(fakeClient.confirmOrder).not.toHaveBeenCalled();
     expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
     expect(fakeClient.exportPullSheet).toHaveBeenCalledWith(
       {
-        orderNumbers: [firstOrder.orderNumber],
+        orderNumbers: [firstOrder.orderNumber, anotherReadyOrder.orderNumber],
         timezoneOffsetMinutes: 300,
       },
       undefined,
@@ -316,25 +335,49 @@ describe("order management", () => {
     );
   });
 
-  it("does not export a pull list after the authoritative order leaves ready to ship", async () => {
+  it("keeps master pull-sheet exports within the 500-order request limit", async () => {
     const fakeClient = client();
-    const confirmed = await fakeClient.confirmOrder();
-    fakeClient.confirmOrder.mockResolvedValue({
-      ...confirmed,
-      summary: secondOrder,
-      order: {
-        ...confirmed.order,
-        orderNumber: secondOrder.orderNumber,
-        status: secondOrder.orderStatus,
-        statusCode: secondOrder.orderStatusCode,
-      },
+    const readyOrders = Array.from({ length: 501 }, (_, index) => ({
+      ...firstOrder,
+      orderNumber: `synthetic-order-${String(index + 1)}`,
+    }));
+    fakeClient.searchOrders
+      .mockResolvedValueOnce({
+        totalOrders: readyOrders.length,
+        orders: readyOrders.slice(0, 500),
+      })
+      .mockResolvedValueOnce({
+        totalOrders: readyOrders.length,
+        orders: readyOrders.slice(500),
+      });
+
+    const result = await service(fakeClient, {
+      pageSize: 500,
+      maximumPages: 2,
+    }).getMasterPullList();
+
+    expect(result.orderCount).toBe(501);
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledTimes(2);
+    expect(
+      fakeClient.exportPullSheet.mock.calls[0]?.[0].orderNumbers,
+    ).toHaveLength(500);
+    expect(
+      fakeClient.exportPullSheet.mock.calls[1]?.[0].orderNumbers,
+    ).toHaveLength(1);
+  });
+
+  it("does not export unexpected non-ready orders returned by the ready search", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [secondOrder],
     });
 
-    await expect(
-      service(fakeClient).getPullList(secondOrder.orderNumber),
-    ).rejects.toMatchObject({
-      code: "REVIEW_REQUIRED",
-      message: "Pull lists are available only while an order is ready to ship.",
+    await expect(service(fakeClient).getMasterPullList()).resolves.toEqual({
+      orderCount: 0,
+      rows: [],
+      totalQuantity: 0,
+      fetchedAt: "2026-08-04T12:00:00.000Z",
     });
     expect(fakeClient.exportPullSheet).not.toHaveBeenCalled();
     expect(fakeClient.searchMarketplaceProducts).not.toHaveBeenCalled();

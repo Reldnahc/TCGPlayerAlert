@@ -69,8 +69,8 @@ export interface ManagedPullListRow extends PullSheetRow {
   readonly metadata: readonly PullListMetadata[];
 }
 
-export interface ManagedOrderPullList {
-  readonly orderNumber: string;
+export interface ManagedMasterPullList {
+  readonly orderCount: number;
   readonly rows: readonly ManagedPullListRow[];
   readonly totalQuantity: number;
   readonly fetchedAt: string;
@@ -130,7 +130,7 @@ interface CachedRefundOptions {
 
 interface CachedPullList {
   readonly expiresAt: number;
-  readonly value: ManagedOrderPullList;
+  readonly value: ManagedMasterPullList;
 }
 
 export class OrderManagementService {
@@ -147,7 +147,7 @@ export class OrderManagementService {
     OrderManagementServiceOptions["onShipmentAccepted"] | undefined;
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly detailCache = new Map<string, CachedOrderDetail>();
-  private readonly pullListCache = new Map<string, CachedPullList>();
+  private pullListCache: CachedPullList | undefined;
   private readonly refundingOrders = new Set<string>();
   private refundOptionsCache: CachedRefundOptions | undefined;
   private readonly pirateShipCache = new Map<
@@ -303,56 +303,77 @@ export class OrderManagementService {
     return value;
   }
 
-  async getPullList(
-    orderNumber: string,
+  async getMasterPullList(
     options: { readonly force?: boolean; readonly signal?: AbortSignal } = {},
-  ): Promise<ManagedOrderPullList> {
-    const normalized = requiredText(orderNumber, "Order number", 128);
-    const detail = await this.getOrder(normalized, options);
-    if (!detail.canMarkShipped) {
-      throw new ApplicationError(
-        "REVIEW_REQUIRED",
-        "Pull lists are available only while an order is ready to ship.",
-      );
-    }
+  ): Promise<ManagedMasterPullList> {
+    this.currentSellerKey();
     const now = this.now();
-    const cacheKey = normalized.toLocaleLowerCase();
-    const cached = this.pullListCache.get(cacheKey);
     if (
       options.force !== true &&
-      cached !== undefined &&
-      cached.expiresAt > now.getTime()
+      this.pullListCache !== undefined &&
+      this.pullListCache.expiresAt > now.getTime()
     ) {
-      return cached.value;
+      return this.pullListCache.value;
+    }
+    const readyOrders = await this.listOrders("ready-to-ship", options);
+    const orderNumbers = readyOrders.orders
+      .filter((order) => order.statusCode === SellerOrderStatus.ReadyToShip)
+      .map((order) => order.orderNumber);
+    if (orderNumbers.length === 0) {
+      const value: ManagedMasterPullList = {
+        orderCount: 0,
+        rows: [],
+        totalQuantity: 0,
+        fetchedAt: now.toISOString(),
+      };
+      this.pullListCache = {
+        expiresAt: now.getTime() + this.cacheMilliseconds,
+        value,
+      };
+      return value;
     }
     const requestOptions =
       options.signal === undefined ? undefined : { signal: options.signal };
-    const document = await this.client.exportPullSheet(
-      {
-        orderNumbers: [normalized],
-        timezoneOffsetMinutes: this.timezoneOffsetMinutes,
-      },
-      requestOptions,
-    );
-    if (
-      document.orderNumbers.length !== 1 ||
-      document.orderNumbers[0] !== normalized
-    ) {
-      throw new ApplicationError(
-        "PROVIDER_ERROR",
-        "The pull sheet did not identify the requested order.",
+    const rowsBySku = new Map<string, PullSheetRow>();
+    for (let offset = 0; offset < orderNumbers.length; offset += 500) {
+      options.signal?.throwIfAborted();
+      const batch = orderNumbers.slice(offset, offset + 500);
+      const document = await this.client.exportPullSheet(
+        {
+          orderNumbers: batch,
+          timezoneOffsetMinutes: this.timezoneOffsetMinutes,
+        },
+        requestOptions,
       );
+      if (!sameStringSet(document.orderNumbers, batch)) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "The pull sheet did not identify every requested order.",
+        );
+      }
+      for (const row of document.rows) {
+        const existing = rowsBySku.get(row.skuId);
+        if (existing === undefined) {
+          rowsBySku.set(row.skuId, row);
+          continue;
+        }
+        if (!samePullSheetProduct(existing, row)) {
+          throw new ApplicationError(
+            "PROVIDER_ERROR",
+            "The pull sheet returned conflicting details for one SKU.",
+          );
+        }
+        rowsBySku.set(row.skuId, {
+          ...existing,
+          orderQuantity: existing.orderQuantity + row.orderQuantity,
+        });
+      }
     }
-    const productIdsBySku = new Map(
-      detail.products.flatMap((product) => {
-        const productId = parseProductId(product.productId);
-        return productId === undefined ? [] : [[product.skuId, productId]];
-      }),
-    );
+    const pullSheetRows = [...rowsBySku.values()];
     const uniqueProductIds = [
       ...new Set(
-        document.rows.flatMap((row) => {
-          const productId = productIdsBySku.get(row.skuId);
+        pullSheetRows.flatMap((row) => {
+          const productId = parseProductIdFromPhotoUrl(row.mainPhotoUrl);
           return productId === undefined ? [] : [productId];
         }),
       ),
@@ -361,8 +382,8 @@ export class OrderManagementService {
       uniqueProductIds,
       options.signal,
     );
-    const rows = document.rows.map<ManagedPullListRow>((row) => {
-      const productId = productIdsBySku.get(row.skuId);
+    const rows = pullSheetRows.map<ManagedPullListRow>((row) => {
+      const productId = parseProductIdFromPhotoUrl(row.mainPhotoUrl);
       const colors =
         productId === undefined ? undefined : metadata.colors.get(productId);
       return {
@@ -374,8 +395,8 @@ export class OrderManagementService {
             : [{ label: "Color", values: colors }],
       };
     });
-    const value: ManagedOrderPullList = {
-      orderNumber: normalized,
+    const value: ManagedMasterPullList = {
+      orderCount: orderNumbers.length,
       rows,
       totalQuantity: rows.reduce((total, row) => total + row.orderQuantity, 0),
       fetchedAt: now.toISOString(),
@@ -383,10 +404,10 @@ export class OrderManagementService {
         ? {}
         : { metadataIssue: metadata.issue }),
     };
-    this.pullListCache.set(cacheKey, {
+    this.pullListCache = {
       expiresAt: now.getTime() + this.cacheMilliseconds,
       value,
-    });
+    };
     return value;
   }
 
@@ -643,15 +664,52 @@ export class OrderManagementService {
   private clearOrderCaches(): void {
     this.cache.clear();
     this.detailCache.clear();
-    this.pullListCache.clear();
+    this.pullListCache = undefined;
     this.pirateShipCache.clear();
   }
 }
 
-function parseProductId(value: string): number | undefined {
-  if (!/^[1-9]\d{0,15}$/u.test(value)) return undefined;
-  const productId = Number(value);
-  return Number.isSafeInteger(productId) ? productId : undefined;
+function parseProductIdFromPhotoUrl(value: string): number | undefined {
+  try {
+    const url = new URL(value);
+    if (url.hostname.toLocaleLowerCase() !== "product-images.tcgplayer.com") {
+      return undefined;
+    }
+    const match = /\/([1-9]\d{0,15})\.(?:jpe?g|png|webp)$/iu.exec(url.pathname);
+    if (match?.[1] === undefined) return undefined;
+    const productId = Number(match[1]);
+    return Number.isSafeInteger(productId) ? productId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameStringSet(
+  actual: readonly string[],
+  expected: readonly string[],
+): boolean {
+  if (actual.length !== expected.length) return false;
+  const actualValues = new Set(actual);
+  return (
+    actualValues.size === actual.length &&
+    expected.every((value) => actualValues.has(value))
+  );
+}
+
+function samePullSheetProduct(
+  left: PullSheetRow,
+  right: PullSheetRow,
+): boolean {
+  return (
+    left.productLine === right.productLine &&
+    left.productName === right.productName &&
+    left.condition === right.condition &&
+    left.number === right.number &&
+    left.setName === right.setName &&
+    left.rarity === right.rarity &&
+    left.mainPhotoUrl === right.mainPhotoUrl &&
+    left.setReleaseDate === right.setReleaseDate
+  );
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

@@ -1,11 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-test("shows a printable ready-order pull list with card metadata", async ({
+test("shows a printable master pull list with card metadata", async ({
   page,
 }, testInfo) => {
-  await page.goto("/#orders/123-4567890-001/pull-list");
+  await page.goto("/#orders/pull-list");
 
-  await expect(page.getByRole("heading", { name: "Pull list" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Master pull list" }),
+  ).toBeVisible();
+  await expect(page.getByText("Ready orders")).toBeVisible();
   await expect(page.getByText("Lightning Bolt", { exact: true })).toBeVisible();
   await expect(page.getByText("Counterspell", { exact: true })).toBeVisible();
   await expect(page.getByText("Red", { exact: true })).toBeVisible();

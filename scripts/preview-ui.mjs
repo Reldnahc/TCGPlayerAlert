@@ -146,13 +146,10 @@ function orderDetail(orderNumber) {
   };
 }
 
-function orderPullList(orderNumber) {
-  const detail = orderDetail(orderNumber);
-  if (!detail.canMarkShipped)
-    throw new Error("Pull lists are available only for ready orders.");
+function masterPullList() {
   return {
-    orderNumber,
-    totalQuantity: 3,
+    orderCount: orders.filter((order) => order.canMarkShipped).length,
+    totalQuantity: 5,
     fetchedAt: now,
     rows: [
       {
@@ -167,7 +164,7 @@ function orderPullList(orderNumber) {
           "https://product-images.tcgplayer.com/fit-in/200x279/123456.jpg",
         setReleaseDate: "2018-03-16",
         skuId: "654321",
-        orderQuantity: 2,
+        orderQuantity: 3,
         productId: 123456,
         metadata: [{ label: "Color", values: ["Red"] }],
       },
@@ -183,7 +180,7 @@ function orderPullList(orderNumber) {
           "https://product-images.tcgplayer.com/fit-in/200x279/234567.jpg",
         setReleaseDate: "2023-01-13",
         skuId: "765432",
-        orderQuantity: 1,
+        orderQuantity: 2,
         productId: 234567,
         metadata: [{ label: "Color", values: ["Blue"] }],
       },
@@ -635,7 +632,7 @@ const server = await startConfigurationUi({
         fetchedAt: now,
       }),
     getOrder: (orderNumber) => Promise.resolve(orderDetail(orderNumber)),
-    getPullList: (orderNumber) => Promise.resolve(orderPullList(orderNumber)),
+    getMasterPullList: () => Promise.resolve(masterPullList()),
     getPackingSlip: () =>
       Promise.resolve({ bytes: new Uint8Array([37, 80, 68, 70]) }),
     preparePirateShip: () =>

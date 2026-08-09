@@ -1657,7 +1657,7 @@ async function handleRequest(
       if (!response.destroyed) sendJson(response, 200, preparation);
     } else if (
       request.method === "GET" &&
-      /^\/api\/orders\/[^/]{1,384}\/pull-list$/u.test(url.pathname)
+      url.pathname === "/api/orders/pull-list"
     ) {
       if (orderService === undefined) {
         sendJson(response, 503, {
@@ -1665,9 +1665,8 @@ async function handleRequest(
         });
         return;
       }
-      const orderNumber = decodeOrderNumber(url.pathname, "pull-list");
       const result = await withRequestAbort(request, response, (signal) =>
-        orderService.getPullList(orderNumber, {
+        orderService.getMasterPullList({
           force: url.searchParams.get("refresh") === "1",
           signal,
         }),

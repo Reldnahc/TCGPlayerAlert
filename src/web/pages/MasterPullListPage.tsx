@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { orderDetailUrl, uiApi } from "../api.js";
+import { uiApi } from "../api.js";
 import { Icon } from "../components/Icon.js";
 import {
   Button,
@@ -8,34 +8,28 @@ import {
   PageHeader,
   Spinner,
 } from "../components/ui.js";
-import type { OrderPullList } from "../contracts.js";
+import type { MasterPullList } from "../contracts.js";
 import { dateTime, errorMessage } from "../utils.js";
 
-export function OrderPullListPage({
-  orderNumber,
-}: {
-  readonly orderNumber: string;
-}) {
-  const [pullList, setPullList] = useState<OrderPullList | null>(null);
+export function MasterPullListPage() {
+  const [pullList, setPullList] = useState<MasterPullList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = useCallback(
-    async (force = false, signal?: AbortSignal) => {
-      setLoading(true);
-      setError("");
-      try {
-        setPullList(await uiApi.pullList(orderNumber, force, signal));
-      } catch (cause) {
-        if (cause instanceof DOMException && cause.name === "AbortError")
-          return;
-        setError(errorMessage(cause, "The pull list could not be loaded."));
-      } finally {
-        if (signal?.aborted !== true) setLoading(false);
-      }
-    },
-    [orderNumber],
-  );
+  const load = useCallback(async (force = false, signal?: AbortSignal) => {
+    setLoading(true);
+    setError("");
+    try {
+      setPullList(await uiApi.masterPullList(force, signal));
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(
+        errorMessage(cause, "The master pull list could not be loaded."),
+      );
+    } finally {
+      if (signal?.aborted !== true) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -47,13 +41,13 @@ export function OrderPullListPage({
   return (
     <main class="page pull-list-page">
       <PageHeader
-        title="Pull list"
-        description={`Order ${orderNumber}`}
+        title="Master pull list"
+        description="All orders ready to ship"
         actions={
           <>
-            <a class="button button--quiet" href={orderDetailUrl(orderNumber)}>
+            <a class="button button--quiet" href="#orders">
               <Icon name="chevron-left" size={16} />
-              <span>Order details</span>
+              <span>All orders</span>
             </a>
             <Button
               icon="refresh"
@@ -76,7 +70,7 @@ export function OrderPullListPage({
       <div class="page-body pull-list-layout">
         {error === "" ? null : (
           <Notice tone="danger">
-            <strong>Pull list could not be loaded</strong>
+            <strong>Master pull list could not be loaded</strong>
             <span>{error}</span>
             <Button tone="secondary" onClick={() => void load(true)}>
               Try again
@@ -85,7 +79,7 @@ export function OrderPullListPage({
         )}
         {loading && pullList === null ? (
           <div class="pull-list-loading">
-            <Spinner label="Loading pull list" />
+            <Spinner label="Loading master pull list" />
           </div>
         ) : pullList === null ? null : (
           <>
@@ -94,15 +88,15 @@ export function OrderPullListPage({
             )}
             <section class="surface pull-list-summary">
               <div>
-                <span>Order</span>
-                <strong>{pullList.orderNumber}</strong>
+                <span>Ready orders</span>
+                <strong>{String(pullList.orderCount)}</strong>
               </div>
               <div>
                 <span>Cards to pull</span>
                 <strong>{String(pullList.totalQuantity)}</strong>
               </div>
               <div>
-                <span>Product lines</span>
+                <span>Unique SKUs</span>
                 <strong>{String(pullList.rows.length)}</strong>
               </div>
               <div>
@@ -113,12 +107,14 @@ export function OrderPullListPage({
             <section class="surface pull-list-sheet">
               <header class="surface__header pull-list-sheet__header">
                 <div>
-                  <strong>Items</strong>
-                  <p>Pull the order quantity shown for each exact printing.</p>
+                  <strong>Combined items</strong>
+                  <p>
+                    Pull the combined quantity shown for each exact printing.
+                  </p>
                 </div>
               </header>
               {pullList.rows.length === 0 ? (
-                <EmptyState title="No products were returned for this order" />
+                <EmptyState title="There are no cards to pull" />
               ) : (
                 <div class="data-region data-region--embedded pull-list-region">
                   <table class="data-table pull-list-table">
@@ -136,8 +132,8 @@ export function OrderPullListPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {pullList.rows.map((row, index) => (
-                        <tr key={`${row.skuId}:${String(index)}`}>
+                      {pullList.rows.map((row) => (
+                        <tr key={row.skuId}>
                           <td class="pull-list-col-check">
                             <span class="pull-list-check" aria-hidden="true" />
                           </td>

@@ -10,7 +10,7 @@ import { InventoryPage } from "./pages/InventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
 import { OrderDetailPage } from "./pages/OrderDetailPage.js";
-import { OrderPullListPage } from "./pages/OrderPullListPage.js";
+import { MasterPullListPage } from "./pages/MasterPullListPage.js";
 import { PaymentsPage } from "./pages/PaymentsPage.js";
 import { FeedbackPage } from "./pages/FeedbackPage.js";
 import { MessagesPage } from "./pages/MessagesPage.js";
@@ -49,28 +49,21 @@ const ShipmentScannerPage = lazy(async () => {
 interface ApplicationRoute {
   readonly id: RouteId;
   readonly orderNumber?: string;
-  readonly orderView?: "detail" | "pull-list";
+  readonly orderView?: "detail" | "master-pull-list";
 }
 
 function routeFromHash(): ApplicationRoute {
   const candidate = window.location.hash.slice(1);
+  if (candidate === "orders/pull-list") {
+    return { id: "orders", orderView: "master-pull-list" };
+  }
   if (candidate.startsWith("orders/")) {
-    const segments = candidate.slice("orders/".length).split("/");
-    const encodedOrderNumber = segments[0] ?? "";
-    const orderView = segments[1];
-    if (
-      encodedOrderNumber !== "" &&
-      (segments.length === 1 ||
-        (segments.length === 2 && orderView === "pull-list"))
-    ) {
+    const encodedOrderNumber = candidate.slice("orders/".length);
+    if (encodedOrderNumber !== "" && !encodedOrderNumber.includes("/")) {
       try {
         const orderNumber = decodeURIComponent(encodedOrderNumber).trim();
         if (orderNumber !== "") {
-          return {
-            id: "orders",
-            orderNumber,
-            orderView: orderView === "pull-list" ? "pull-list" : "detail",
-          };
+          return { id: "orders", orderNumber, orderView: "detail" };
         }
       } catch {
         return { id: "orders" };
@@ -168,10 +161,10 @@ function Console() {
     const pages: Readonly<Record<RouteId, () => JSX.Element | null>> = {
       dashboard: DashboardPage,
       orders: () =>
-        applicationRoute.orderNumber === undefined ? (
+        applicationRoute.orderView === "master-pull-list" ? (
+          <MasterPullListPage />
+        ) : applicationRoute.orderNumber === undefined ? (
           <OrdersPage />
-        ) : applicationRoute.orderView === "pull-list" ? (
-          <OrderPullListPage orderNumber={applicationRoute.orderNumber} />
         ) : (
           <OrderDetailPage orderNumber={applicationRoute.orderNumber} />
         ),

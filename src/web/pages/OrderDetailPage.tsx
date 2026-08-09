@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
-import { orderPullListUrl, sellerPortalOrderUrl, uiApi } from "../api.js";
+import { sellerPortalOrderUrl, uiApi } from "../api.js";
 import { Icon } from "../components/Icon.js";
 import { OrderActions } from "../components/OrderActions.js";
 import { OrderRefundPanel } from "../components/OrderRefundPanel.js";
@@ -157,15 +157,6 @@ export function OrderDetailPage({
                 </div>
               </div>
               <div class="order-detail-command-bar__actions">
-                {detail.canMarkShipped ? (
-                  <a
-                    class="button button--secondary"
-                    href={orderPullListUrl(detail.orderNumber)}
-                  >
-                    <Icon name="printer" size={15} />
-                    <span>Pull list</span>
-                  </a>
-                ) : null}
                 <OrderActions
                   order={actionOrder}
                   scope="all"

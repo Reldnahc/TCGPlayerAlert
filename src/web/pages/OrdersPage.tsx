@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { OrderActions } from "../components/OrderActions.js";
 import { OrderNumberLink } from "../components/OrderNumberLink.js";
+import { masterPullListUrl } from "../api.js";
+import { Icon } from "../components/Icon.js";
 import {
   Button,
   EmptyState,
@@ -43,13 +45,19 @@ export function OrdersPage() {
         title="Orders"
         description="Review and fulfill seller orders"
         actions={
-          <Button
-            icon="refresh"
-            busy={loading.all}
-            onClick={() => void load("all", true)}
-          >
-            Refresh
-          </Button>
+          <>
+            <a class="button button--secondary" href={masterPullListUrl()}>
+              <Icon name="printer" size={16} />
+              <span>Master pull list</span>
+            </a>
+            <Button
+              icon="refresh"
+              busy={loading.all}
+              onClick={() => void load("all", true)}
+            >
+              Refresh
+            </Button>
+          </>
         }
       />
       <div class="page-body orders-layout">
