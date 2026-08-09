@@ -677,12 +677,14 @@ describe("configuration UI", () => {
       }),
     );
     const markRead = vi.fn(() => Promise.resolve());
+    const markAllRead = vi.fn(() => Promise.resolve({ markedThreadCount: 2 }));
     const reply = vi.fn(() => Promise.resolve());
     const messageService = {
       unreadCount,
       list,
       get,
       markRead,
+      markAllRead,
       reply,
     } as unknown as MessageManagementService;
     server = await startConfigurationUi({
@@ -704,6 +706,14 @@ describe("configuration UI", () => {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
+    const markedAllRead = await fetch(
+      `${server.url}/api/messages/mark-all-read`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
     const replied = await fetch(`${server.url}/api/messages/123/reply`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -737,6 +747,9 @@ describe("configuration UI", () => {
     expect(markedRead.status).toBe(200);
     expect(await markedRead.json()).toEqual({ threadId: 123 });
     expect(markRead).toHaveBeenCalledWith(123, expect.any(AbortSignal));
+    expect(markedAllRead.status).toBe(200);
+    expect(await markedAllRead.json()).toEqual({ markedThreadCount: 2 });
+    expect(markAllRead).toHaveBeenCalledWith(expect.any(AbortSignal));
     expect(replied.status).toBe(200);
     expect(await replied.json()).toEqual({ threadId: 123 });
     expect(reply).toHaveBeenCalledWith(

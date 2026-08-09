@@ -1363,10 +1363,13 @@ describe("operator console", () => {
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
         if (path.startsWith("/api/messages/unread-count")) {
-          return Promise.resolve(json({ unreadCount: 2 }));
+          return Promise.resolve(json({ unreadCount: 3 }));
         }
         if (path === "/api/messages/123/mark-read") {
           return Promise.resolve(json({ threadId: 123 }));
+        }
+        if (path === "/api/messages/mark-all-read") {
+          return Promise.resolve(json({ markedThreadCount: 1 }));
         }
         if (path === "/api/messages/123/reply") {
           if (replyDeliveryUncertain) {
@@ -1388,8 +1391,8 @@ describe("operator console", () => {
               page: 1,
               pageSize: 25,
               totalPages: 1,
-              totalThreads: 1,
-              unreadCount: 2,
+              totalThreads: 2,
+              unreadCount: 3,
               threads: [
                 {
                   threadId: 123,
@@ -1402,6 +1405,19 @@ describe("operator console", () => {
                   orderNumber: "SYNTHETIC-ORDER-1",
                   orderStatus: "Shipped",
                   createdAt: "2026-08-07T12:00:00.000Z",
+                  deleted: false,
+                },
+                {
+                  threadId: 124,
+                  unreadMessageCount: 1,
+                  totalMessageCount: 1,
+                  senderDisplayName: "Another Synthetic Buyer",
+                  receiverDisplayName: "You",
+                  subject: "Another synthetic question",
+                  orderType: "SellerOrder",
+                  orderNumber: "SYNTHETIC-ORDER-2",
+                  orderStatus: "Ready to Ship",
+                  createdAt: "2026-08-07T11:00:00.000Z",
                   deleted: false,
                 },
               ],
@@ -1446,9 +1462,9 @@ describe("operator console", () => {
     await screen.findByRole("heading", { name: "Dashboard" });
 
     const messagesLink = await screen.findByRole("link", {
-      name: "Messages, 2 unread messages",
+      name: "Messages, 3 unread messages",
     });
-    expect(messagesLink.querySelector(".nav__unread")?.textContent).toBe("2");
+    expect(messagesLink.querySelector(".nav__unread")?.textContent).toBe("3");
     await user.click(messagesLink);
 
     expect(
@@ -1462,7 +1478,6 @@ describe("operator console", () => {
         .getAttribute("href"),
     ).toBe("https://sellerportal.tcgplayer.com/messages/123");
 
-    await user.click(screen.getByRole("button", { name: "Mark read" }));
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
@@ -1472,10 +1487,30 @@ describe("operator console", () => {
         ),
       ).toBe(true),
     );
-    expect(screen.getByRole("button", { name: "Read" })).toHaveProperty(
-      "disabled",
-      true,
+    expect(
+      await screen.findByText("Opening an unread conversation marks it read"),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Read" })).toHaveProperty(
+        "disabled",
+        true,
+      ),
     );
+    expect(messagesLink.querySelector(".nav__unread")?.textContent).toBe("1");
+
+    const markAllRead = screen.getByRole("button", { name: "Mark all read" });
+    await waitFor(() => expect(markAllRead).toHaveProperty("disabled", false));
+    await user.click(markAllRead);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, request]) =>
+            requestPath(input) === "/api/messages/mark-all-read" &&
+            request?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Marked 1 conversation read.")).toBeTruthy();
     expect(messagesLink.querySelector(".nav__unread")).toBeNull();
 
     await user.type(screen.getByLabelText("Reply"), "Synthetic reply.");
@@ -1512,6 +1547,6 @@ describe("operator console", () => {
     );
     expect(
       fetchMock.mock.calls.filter(([, request]) => request?.method === "POST"),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   });
 });

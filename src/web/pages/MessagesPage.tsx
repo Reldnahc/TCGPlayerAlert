@@ -29,14 +29,22 @@ export function MessagesPage() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [error, setError] = useState("");
   const [threadError, setThreadError] = useState("");
+  const [readError, setReadError] = useState("");
   const [markingRead, setMarkingRead] = useState(false);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkNotice, setBulkNotice] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
   const [replyError, setReplyError] = useState("");
   const [replyNotice, setReplyNotice] = useState("");
   const [replyUncertain, setReplyUncertain] = useState(false);
   const selectedThreadIdRef = useRef<number | null>(null);
+  const automaticReadAttemptsRef = useRef(new Set<string>());
   const { setUnreadCount } = useMessages();
+  const selectedSummary = data?.threads.find(
+    (candidate) => candidate.threadId === selectedThreadId,
+  );
 
   async function load(force = false, signal?: AbortSignal) {
     setLoading(true);
@@ -73,6 +81,7 @@ export function MessagesPage() {
     }
     setThreadLoading(true);
     setThreadError("");
+    setReadError("");
     try {
       const result = await uiApi.message(
         selectedThreadId,
@@ -112,6 +121,26 @@ export function MessagesPage() {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
 
+  useEffect(() => {
+    const unreadMessageCount = selectedSummary?.unreadMessageCount ?? 0;
+    if (thread?.threadId !== selectedThreadId || unreadMessageCount < 1) {
+      return;
+    }
+    const attemptKey = [
+      thread.threadId,
+      thread.totalMessageCount,
+      unreadMessageCount,
+    ].join(":");
+    if (automaticReadAttemptsRef.current.has(attemptKey)) return;
+    automaticReadAttemptsRef.current.add(attemptKey);
+    void markThreadRead(thread.threadId);
+  }, [
+    selectedSummary?.unreadMessageCount,
+    selectedThreadId,
+    thread?.threadId,
+    thread?.totalMessageCount,
+  ]);
+
   function applyOrderSearch() {
     setPage(1);
     setOrderNumber(orderDraft.trim());
@@ -122,17 +151,24 @@ export function MessagesPage() {
     setSelectedThreadId(threadId);
     setThreadPage(1);
     setThread(null);
+    setReadError("");
     setReplyDraft("");
     setReplyError("");
     setReplyNotice("");
     setReplyUncertain(false);
   }
 
-  async function markThreadRead() {
-    if (thread === null || markingRead) return;
-    const threadId = thread.threadId;
+  async function markThreadRead(threadId = thread?.threadId) {
+    if (
+      threadId === undefined ||
+      markingRead ||
+      markingAllRead ||
+      sendingReply
+    ) {
+      return;
+    }
     setMarkingRead(true);
-    setThreadError("");
+    setReadError("");
     try {
       await uiApi.markMessageThreadRead(threadId);
       const previouslyUnread =
@@ -167,12 +203,67 @@ export function MessagesPage() {
       }
     } catch (cause) {
       if (selectedThreadIdRef.current === threadId) {
-        setThreadError(
+        setReadError(
           errorMessage(cause, "The conversation could not be marked read."),
         );
       }
     } finally {
       setMarkingRead(false);
+    }
+  }
+
+  async function markAllRead() {
+    if (
+      markingAllRead ||
+      markingRead ||
+      sendingReply ||
+      data === null ||
+      data.unreadCount < 1
+    ) {
+      return;
+    }
+    setMarkingAllRead(true);
+    setBulkError("");
+    setBulkNotice("");
+    try {
+      const result = await uiApi.markAllMessageThreadsRead();
+      setData((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              unreadCount: 0,
+              threads: current.threads.map((candidate) => ({
+                ...candidate,
+                unreadMessageCount: 0,
+              })),
+            },
+      );
+      setThread((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              messages: current.messages.map((message) => ({
+                ...message,
+                isRead: true,
+              })),
+            },
+      );
+      setUnreadCount(0);
+      setReadError("");
+      setBulkNotice(
+        result.markedThreadCount === 0
+          ? "All inbox conversations are already read."
+          : `Marked ${String(result.markedThreadCount)} conversation${result.markedThreadCount === 1 ? "" : "s"} read.`,
+      );
+    } catch (cause) {
+      setBulkError(
+        errorMessage(cause, "All conversations could not be marked read."),
+      );
+      void load(true);
+    } finally {
+      setMarkingAllRead(false);
     }
   }
 
@@ -208,10 +299,6 @@ export function MessagesPage() {
     }
   }
 
-  const selectedSummary = data?.threads.find(
-    (candidate) => candidate.threadId === selectedThreadId,
-  );
-
   return (
     <main class="page">
       <PageHeader
@@ -230,8 +317,21 @@ export function MessagesPage() {
               Open TCGplayer
             </a>
             <Button
+              busy={markingAllRead}
+              disabled={
+                markingAllRead ||
+                markingRead ||
+                sendingReply ||
+                data === null ||
+                data.unreadCount < 1
+              }
+              onClick={() => void markAllRead()}
+            >
+              Mark all read
+            </Button>
+            <Button
               icon="refresh"
-              busy={loading || threadLoading}
+              busy={loading || threadLoading || markingAllRead}
               onClick={() => {
                 void load(true);
                 void loadThread(true);
@@ -290,6 +390,10 @@ export function MessagesPage() {
         </Toolbar>
 
         {error === "" ? null : <Notice tone="danger">{error}</Notice>}
+        {bulkError === "" ? null : <Notice tone="danger">{bulkError}</Notice>}
+        {bulkNotice === "" ? null : (
+          <Notice tone="success">{bulkNotice}</Notice>
+        )}
 
         <div class="messages-workspace">
           <section class="message-list" aria-label="Conversations">
@@ -314,7 +418,7 @@ export function MessagesPage() {
                     type="button"
                     class={`message-thread-row${candidate.threadId === selectedThreadId ? " is-selected" : ""}${candidate.unreadMessageCount > 0 ? " is-unread" : ""}`}
                     aria-pressed={candidate.threadId === selectedThreadId}
-                    disabled={markingRead || sendingReply}
+                    disabled={markingRead || markingAllRead || sendingReply}
                     onClick={() => selectThread(candidate.threadId)}
                   >
                     <span class="message-thread-row__topline">
@@ -393,6 +497,7 @@ export function MessagesPage() {
                       busy={markingRead}
                       disabled={
                         markingRead ||
+                        markingAllRead ||
                         (selectedSummary?.unreadMessageCount ?? 0) === 0
                       }
                       onClick={() => void markThreadRead()}
@@ -412,7 +517,12 @@ export function MessagesPage() {
                   </div>
                 </header>
                 <div class="message-detail__note">
-                  Read state and replies sync directly with TCGplayer
+                  <span>Opening an unread conversation marks it read</span>
+                  {readError === "" ? null : (
+                    <span class="message-detail__read-error" role="alert">
+                      {readError}
+                    </span>
+                  )}
                 </div>
                 <ol class="message-stack">
                   {thread.messages.map((message) => (
@@ -472,7 +582,10 @@ export function MessagesPage() {
                       maxLength={10_000}
                       rows={4}
                       disabled={
-                        thread.deleted || sendingReply || replyUncertain
+                        thread.deleted ||
+                        markingAllRead ||
+                        sendingReply ||
+                        replyUncertain
                       }
                       placeholder={
                         thread.deleted
@@ -494,6 +607,7 @@ export function MessagesPage() {
                       busy={sendingReply}
                       disabled={
                         thread.deleted ||
+                        markingAllRead ||
                         sendingReply ||
                         replyUncertain ||
                         replyDraft.trim() === ""

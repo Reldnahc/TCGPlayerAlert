@@ -8,6 +8,7 @@ import type {
   InventoryQueueResponse,
   MessagesPage,
   MessageMutationResult,
+  MarkAllMessagesReadResult,
   MessageThread,
   OrderList,
   PaymentDetail,
@@ -335,6 +336,11 @@ export const uiApi = {
   },
   markMessageThreadRead: (threadId: number): Promise<MessageMutationResult> =>
     requestJson(`/api/messages/${String(threadId)}/mark-read`, {
+      method: "POST",
+      body: "{}",
+    }),
+  markAllMessageThreadsRead: (): Promise<MarkAllMessagesReadResult> =>
+    requestJson("/api/messages/mark-all-read", {
       method: "POST",
       body: "{}",
     }),

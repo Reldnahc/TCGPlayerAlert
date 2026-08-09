@@ -1,28 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ListSellerMessageThreadsInput } from "tcgplayer-private-api";
 import { MessageManagementService } from "../src/message-management.js";
 
 function clientFixture() {
-  const listSellerMessageThreads = vi.fn(() =>
-    Promise.resolve({
-      totalThreads: 26,
-      page: 1,
-      pageSize: 25,
-      threads: [
-        {
-          threadId: 123,
-          unreadMessageCount: 2,
-          totalMessageCount: 3,
-          sender: "Synthetic Buyer",
-          receiver: "me",
-          subject: "Synthetic order question",
-          orderType: "SellerOrder",
-          orderNumber: "SYNTHETIC-ORDER-1",
-          orderStatus: "Shipped",
-          createdAt: "2026-08-07T12:00:00.000Z",
-          deleted: false,
-        },
-      ],
-    }),
+  const listSellerMessageThreads = vi.fn(
+    (_input?: ListSellerMessageThreadsInput) =>
+      Promise.resolve({
+        totalThreads: 26,
+        page: _input?.page ?? 1,
+        pageSize: _input?.pageSize ?? 25,
+        threads: [
+          {
+            threadId: 123,
+            unreadMessageCount: 2,
+            totalMessageCount: 3,
+            sender: "Synthetic Buyer",
+            receiver: "me",
+            subject: "Synthetic order question",
+            orderType: "SellerOrder",
+            orderNumber: "SYNTHETIC-ORDER-1",
+            orderStatus: "Shipped",
+            createdAt: "2026-08-07T12:00:00.000Z",
+            deleted: false,
+          },
+        ],
+      }),
   );
   const getSellerUnreadMessageCount = vi.fn(() => Promise.resolve(2));
   const getSellerMessageThread = vi.fn(() =>
@@ -135,6 +137,105 @@ describe("MessageManagementService", () => {
     expect(current.listSellerMessageThreads).toHaveBeenCalledTimes(2);
     expect(current.getSellerUnreadMessageCount).toHaveBeenCalledTimes(2);
     expect(current.getSellerMessageThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks every unread inbox thread sequentially across maximum-size pages", async () => {
+    const current = clientFixture();
+    const unreadThread = {
+      threadId: 123,
+      unreadMessageCount: 2,
+      totalMessageCount: 3,
+      sender: "Synthetic Buyer",
+      receiver: "me",
+      subject: "Synthetic order question",
+      orderType: "SellerOrder",
+      orderNumber: "SYNTHETIC-ORDER-1",
+      orderStatus: "Shipped",
+      createdAt: "2026-08-07T12:00:00.000Z",
+      deleted: false,
+    } as const;
+    current.listSellerMessageThreads.mockImplementation((input) =>
+      Promise.resolve({
+        totalThreads: 101,
+        page: input?.page ?? 1,
+        pageSize: input?.pageSize ?? 25,
+        threads:
+          input?.page === 2
+            ? [{ ...unreadThread, threadId: 125, unreadMessageCount: 1 }]
+            : [
+                unreadThread,
+                { ...unreadThread, threadId: 124, unreadMessageCount: 0 },
+              ],
+      }),
+    );
+    const service = new MessageManagementService({
+      client: current.client,
+      sellerKey: "seller_test",
+    });
+    await service.list();
+    await service.get(123);
+
+    await expect(service.markAllRead()).resolves.toEqual({
+      markedThreadCount: 2,
+    });
+
+    expect(current.listSellerMessageThreads).toHaveBeenNthCalledWith(
+      2,
+      { sellerKey: "seller_test", page: 1, pageSize: 100 },
+      undefined,
+    );
+    expect(current.listSellerMessageThreads).toHaveBeenNthCalledWith(
+      3,
+      { sellerKey: "seller_test", page: 2, pageSize: 100 },
+      undefined,
+    );
+    expect(current.markSellerMessageThreadRead.mock.calls).toEqual([
+      [{ sellerKey: "seller_test", threadId: 123 }, undefined],
+      [{ sellerKey: "seller_test", threadId: 125 }, undefined],
+    ]);
+
+    await service.list();
+    await service.get(123);
+    expect(current.listSellerMessageThreads).toHaveBeenCalledTimes(4);
+    expect(current.getSellerUnreadMessageCount).toHaveBeenCalledTimes(2);
+    expect(current.getSellerMessageThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops bulk mark-read work on the first failed thread", async () => {
+    const current = clientFixture();
+    current.listSellerMessageThreads.mockResolvedValue({
+      totalThreads: 3,
+      page: 1,
+      pageSize: 100,
+      threads: [123, 124, 125].map((threadId) => ({
+        threadId,
+        unreadMessageCount: 1,
+        totalMessageCount: 1,
+        sender: "Synthetic Buyer",
+        receiver: "me",
+        subject: "Synthetic order question",
+        orderType: "SellerOrder",
+        orderNumber: `SYNTHETIC-ORDER-${String(threadId)}`,
+        orderStatus: "Shipped",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        deleted: false,
+      })),
+    });
+    current.markSellerMessageThreadRead
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error("Synthetic remote failure."));
+    const service = new MessageManagementService({
+      client: current.client,
+      sellerKey: "seller_test",
+    });
+
+    await expect(service.markAllRead()).rejects.toThrow(
+      "Synthetic remote failure.",
+    );
+    expect(current.markSellerMessageThreadRead.mock.calls).toEqual([
+      [{ sellerKey: "seller_test", threadId: 123 }, undefined],
+      [{ sellerKey: "seller_test", threadId: 124 }, undefined],
+    ]);
   });
 
   it("supports forced refreshes and deduplicates concurrent count reads", async () => {

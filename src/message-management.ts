@@ -58,6 +58,10 @@ export interface ManagedSellerMessageThreadInput {
   readonly signal?: AbortSignal;
 }
 
+export interface MarkAllSellerMessagesReadResult {
+  readonly markedThreadCount: number;
+}
+
 type MessageManagementClient = Pick<
   TcgplayerSellerClient,
   | "listSellerMessageThreads"
@@ -263,6 +267,46 @@ export class MessageManagementService {
     }
   }
 
+  async markAllRead(
+    signal?: AbortSignal,
+  ): Promise<MarkAllSellerMessagesReadResult> {
+    const sellerKey = this.currentSellerKey();
+    const pageSize = 100;
+    const markedThreadIds = new Set<number>();
+    let page = 1;
+    let hasMorePages = true;
+    try {
+      while (hasMorePages) {
+        const result = await this.client.listSellerMessageThreads(
+          { sellerKey, page, pageSize },
+          signal === undefined ? undefined : { signal },
+        );
+        const totalPages = Math.max(
+          1,
+          Math.ceil(result.totalThreads / pageSize),
+        );
+        for (const thread of result.threads) {
+          if (
+            thread.unreadMessageCount < 1 ||
+            markedThreadIds.has(thread.threadId)
+          ) {
+            continue;
+          }
+          await this.client.markSellerMessageThreadRead(
+            { sellerKey, threadId: thread.threadId },
+            signal === undefined ? undefined : { signal },
+          );
+          markedThreadIds.add(thread.threadId);
+        }
+        hasMorePages = page < totalPages;
+        if (hasMorePages) page += 1;
+      }
+      return { markedThreadCount: markedThreadIds.size };
+    } finally {
+      this.invalidateAll();
+    }
+  }
+
   async reply(
     threadId: number,
     body: string,
@@ -332,6 +376,14 @@ export class MessageManagementService {
     for (const key of this.threadCache.keys()) {
       if (key.startsWith(`${String(threadId)}:`)) this.threadCache.delete(key);
     }
+    this.countCache = undefined;
+    this.countPending = undefined;
+  }
+
+  private invalidateAll(): void {
+    this.cacheRevision += 1;
+    this.pageCache.clear();
+    this.threadCache.clear();
     this.countCache = undefined;
     this.countPending = undefined;
   }

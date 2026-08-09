@@ -19,6 +19,7 @@ import type {
 import type { ManagedPaymentsPage } from "../payment-management.js";
 import type { ManagedSellerFeedbackPage } from "../feedback-management.js";
 import type {
+  MarkAllSellerMessagesReadResult,
   ManagedSellerMessagesPage,
   ManagedSellerMessageThread,
 } from "../message-management.js";
@@ -54,6 +55,7 @@ export type MessageThread = ManagedSellerMessageThread;
 export interface MessageMutationResult {
   readonly threadId: number;
 }
+export type MarkAllMessagesReadResult = MarkAllSellerMessagesReadResult;
 export interface UnreadMessages {
   readonly unreadCount: number;
 }

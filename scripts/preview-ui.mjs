@@ -19,8 +19,16 @@ await writeFile(
 );
 
 const now = "2026-08-07T17:15:00.000Z";
-let previewUnreadMessageCount = 2;
+const previewUnreadMessageCounts = new Map([
+  [101, 2],
+  [102, 1],
+]);
 const previewReplies = [];
+const previewUnreadCount = () =>
+  [...previewUnreadMessageCounts.values()].reduce(
+    (total, count) => total + count,
+    0,
+  );
 const orders = [
   {
     orderNumber: "123-4567890-001",
@@ -625,10 +633,19 @@ const server = await startConfigurationUi({
       }),
   },
   messageService: {
-    unreadCount: () => Promise.resolve(previewUnreadMessageCount),
-    markRead: () => {
-      previewUnreadMessageCount = 0;
+    unreadCount: () => Promise.resolve(previewUnreadCount()),
+    markRead: (threadId) => {
+      previewUnreadMessageCounts.set(threadId, 0);
       return Promise.resolve();
+    },
+    markAllRead: () => {
+      const markedThreadCount = [...previewUnreadMessageCounts.values()].filter(
+        (count) => count > 0,
+      ).length;
+      for (const threadId of previewUnreadMessageCounts.keys()) {
+        previewUnreadMessageCounts.set(threadId, 0);
+      }
+      return Promise.resolve({ markedThreadCount });
     },
     reply: (_threadId, body) => {
       previewReplies.push({
@@ -645,7 +662,7 @@ const server = await startConfigurationUi({
       const threads = [
         {
           threadId: 101,
-          unreadMessageCount: previewUnreadMessageCount,
+          unreadMessageCount: previewUnreadMessageCounts.get(101) ?? 0,
           totalMessageCount: 3 + previewReplies.length,
           subject: "Question about shipping",
           orderType: "Marketplace",
@@ -659,7 +676,7 @@ const server = await startConfigurationUi({
         },
         {
           threadId: 102,
-          unreadMessageCount: 0,
+          unreadMessageCount: previewUnreadMessageCounts.get(102) ?? 0,
           totalMessageCount: 1,
           subject: "Thanks for the careful packaging",
           orderType: "Marketplace",
@@ -680,7 +697,7 @@ const server = await startConfigurationUi({
         pageSize: 25,
         totalPages: 1,
         totalThreads: threads.length,
-        unreadCount: previewUnreadMessageCount,
+        unreadCount: previewUnreadCount(),
         threads,
         portalUrl: "https://sellerportal.tcgplayer.com/messages",
         fetchedAt: now,
@@ -697,7 +714,7 @@ const server = await startConfigurationUi({
             body: "Will this order include tracking?",
             createdAt: "2026-08-07T15:05:00.000Z",
             responseRequired: true,
-            isRead: previewUnreadMessageCount === 0,
+            isRead: (previewUnreadMessageCounts.get(threadId) ?? 0) === 0,
             senderDisplayName: "Taylor M.",
           },
           {
@@ -713,7 +730,7 @@ const server = await startConfigurationUi({
             body: "Perfect, thank you!",
             createdAt: "2026-08-07T16:10:00.000Z",
             responseRequired: false,
-            isRead: previewUnreadMessageCount === 0,
+            isRead: (previewUnreadMessageCounts.get(threadId) ?? 0) === 0,
             senderDisplayName: "Taylor M.",
           },
           ...previewReplies,

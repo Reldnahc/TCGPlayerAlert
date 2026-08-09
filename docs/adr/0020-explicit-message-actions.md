@@ -15,11 +15,20 @@ message to the buyer.
 ## Decision
 
 Consume the explicit mark-read and reply contract in
-`tcgplayer-private-api` 0.11.0. Opening a thread remains read-only. The operator
-must choose **Mark read** or submit a non-empty reply of at most 10,000
-characters. The server keeps request text only in memory, never logs it, and
-invalidates its inbox, count, and affected-thread caches after every mutation
-attempt.
+`tcgplayer-private-api` 0.11.0. After an unread thread's content loads
+successfully, the browser requests the idempotent thread-level mark-read
+operation and immediately updates its indicator and shared badge on success.
+The per-thread control remains available as an operator retry when that update
+fails. A reply must contain at most 10,000 characters. The server keeps request
+text only in memory, never logs it, and invalidates its inbox, count, and
+affected-thread caches after every mutation attempt.
+
+TCGplayer exposes no bulk mark-read operation or unread-only inbox filter. The
+explicit **Mark all read** action therefore loads active inbox summaries in
+100-thread pages and applies the existing idempotent thread operation only to
+unread conversations. Requests run sequentially and stop on the first failure.
+The service then invalidates all message caches so a partial result can be
+reconciled from TCGplayer.
 
 Mark-read is an idempotent state assignment. After a successful response, the
 browser immediately clears that thread's unread indicator and adjusts the
@@ -36,7 +45,9 @@ the application.
 ## Consequences
 
 - Buyer replies and read state can be handled from the local Messages workspace.
-- Page navigation never changes remote message state by itself.
+- Successfully viewing an unread conversation changes its remote read state.
+- Bulk work minimizes page reads, avoids request bursts, and may finish
+  partially if TCGplayer rejects a later thread.
 - A lost reply response cannot trigger an automatic duplicate.
 - Tests use synthetic services and transport fixtures; ordinary development
   never sends or changes a real seller message.

@@ -1498,6 +1498,21 @@ async function handleRequest(
       if (!response.destroyed) sendJson(response, 200, result);
     } else if (
       request.method === "POST" &&
+      url.pathname === "/api/messages/mark-all-read"
+    ) {
+      if (messageService === undefined) {
+        sendJson(response, 503, {
+          message: "Seller messages are unavailable.",
+        });
+        return;
+      }
+      await readJsonBody(request);
+      const result = await withRequestAbort(request, response, (signal) =>
+        messageService.markAllRead(signal),
+      );
+      if (!response.destroyed) sendJson(response, 200, result);
+    } else if (
+      request.method === "POST" &&
       /^\/api\/messages\/\d{1,16}\/mark-read$/u.test(url.pathname)
     ) {
       if (messageService === undefined) {
