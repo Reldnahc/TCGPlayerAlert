@@ -33,4 +33,10 @@ jobs:
           npm pack --pack-destination ../.packages
       - run: npm ci
       - run: npm run check
+      - name: Install browser test runtime
+        if: matrix.node-version == 22
+        run: npx playwright install --with-deps chromium
+      - name: Verify built Scan lab in Chromium
+        if: matrix.node-version == 22
+        run: npm run test:browser
       - run: npm run audit

@@ -19,6 +19,8 @@
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build:web",
     "test": "vitest run",
+    "pretest:browser": "npm run build",
+    "test:browser": "playwright test",
     "test:watch": "vitest",
     "audit": "npm audit --audit-level=high",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
@@ -30,7 +32,6 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.88",
-    "js-aruco2": "2.0.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "preact": "10.29.8",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
     "@preact/preset-vite": "2.10.6",
     "@testing-library/preact": "3.2.4",
     "@testing-library/user-event": "14.6.1",

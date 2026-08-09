@@ -12,7 +12,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import {
   isTcgplayerApiError,
   SellerPayoutStatus,
@@ -953,32 +953,50 @@ async function loadConfigurationUiAssets(
 ): Promise<ConfigurationUiAssets> {
   const absoluteDirectory = resolve(directory);
   const index = await readFile(resolve(absoluteDirectory, "index.html"));
-  const assetsDirectory = resolve(absoluteDirectory, "assets");
   const files = new Map<
     string,
     { readonly bytes: Uint8Array; readonly contentType: string }
   >();
-  for (const entry of await readdir(assetsDirectory, { withFileTypes: true })) {
-    if (!entry.isFile() || !/^[a-zA-Z0-9._-]+$/u.test(entry.name)) continue;
-    const extension = entry.name
-      .slice(entry.name.lastIndexOf("."))
-      .toLowerCase();
-    const contentType =
-      extension === ".css"
-        ? "text/css; charset=utf-8"
-        : extension === ".js"
-          ? "text/javascript; charset=utf-8"
-          : extension === ".svg"
-            ? "image/svg+xml"
-            : extension === ".png"
-              ? "image/png"
-              : extension === ".woff2"
-                ? "font/woff2"
-                : "application/octet-stream";
-    files.set(`/assets/${entry.name}`, {
-      bytes: await readFile(resolve(assetsDirectory, entry.name)),
-      contentType,
-    });
+  const pending = [absoluteDirectory];
+  while (pending.length > 0) {
+    const currentDirectory = pending.pop();
+    if (currentDirectory === undefined) break;
+    for (const entry of await readdir(currentDirectory, {
+      withFileTypes: true,
+    })) {
+      if (!/^[a-zA-Z0-9._-]+$/u.test(entry.name)) continue;
+      const path = resolve(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(path);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const relativePath = relative(absoluteDirectory, path)
+        .split(sep)
+        .join("/");
+      if (relativePath === "index.html") continue;
+      const extension = entry.name
+        .slice(entry.name.lastIndexOf("."))
+        .toLowerCase();
+      const contentType =
+        extension === ".css"
+          ? "text/css; charset=utf-8"
+          : extension === ".js"
+            ? "text/javascript; charset=utf-8"
+            : extension === ".svg"
+              ? "image/svg+xml"
+              : extension === ".png"
+                ? "image/png"
+                : extension === ".woff2"
+                  ? "font/woff2"
+                  : extension === ".wasm"
+                    ? "application/wasm"
+                    : "application/octet-stream";
+      files.set(`/${relativePath}`, {
+        bytes: await readFile(path),
+        contentType,
+      });
+    }
   }
   return { index, files };
 }
@@ -2001,7 +2019,7 @@ function setExtensionCorsHeaders(
 function setSecurityHeaders(response: ServerResponse): void {
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' https://product-images.tcgplayer.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' https://product-images.tcgplayer.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
   );
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader("Permissions-Policy", "clipboard-write=(self)");

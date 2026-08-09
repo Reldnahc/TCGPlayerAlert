@@ -1,0 +1,3 @@
+src/web/public/vendor/**
+test-results/**
+playwright-report/**

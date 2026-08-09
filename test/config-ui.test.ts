@@ -160,16 +160,27 @@ describe("configuration UI", () => {
     if (assetPath === undefined)
       throw new Error("The compiled JavaScript asset is missing.");
     const asset = await fetch(`${server.url}${assetPath}`);
+    const wasm = await fetch(
+      `${server.url}/vendor/apriltag-js/apriltag_wasm.wasm`,
+    );
 
     expect(page.status).toBe(200);
     expect(page.headers.get("Content-Security-Policy")).toContain(
       "default-src 'self'",
+    );
+    expect(page.headers.get("Content-Security-Policy")).toContain(
+      "script-src 'self' 'wasm-unsafe-eval'",
     );
     expect(html).toContain('<div id="app"></div>');
     expect(html).not.toContain("Seller workspace");
     expect(asset.status).toBe(200);
     expect(asset.headers.get("Content-Type")).toContain("text/javascript");
     expect((await asset.text()).length).toBeGreaterThan(1_000);
+    expect(wasm.status).toBe(200);
+    expect(wasm.headers.get("Content-Type")).toBe("application/wasm");
+    expect(new Uint8Array(await wasm.arrayBuffer()).subarray(0, 4)).toEqual(
+      new Uint8Array([0, 97, 115, 109]),
+    );
   });
 
   it("accepts same-origin settings updates and rejects cross-origin mutations", async () => {

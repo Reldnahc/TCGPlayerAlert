@@ -1,82 +1,26 @@
-import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
-import {
-  createShipmentAprilTag,
-  detectShipmentAprilTags,
-} from "../src/april-tag.js";
+import { createShipmentAprilTag } from "../src/april-tag.js";
 import { resolveVisionLabScan, visionLabCase } from "../src/vision-lab.js";
 
-function renderAprilTag(tagId: number, markerPixels = 70, rotation = 0) {
-  const canvas = createCanvas(640, 480);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  drawAprilTag(
-    context,
-    tagId,
-    canvas.width / 2,
-    canvas.height / 2,
-    markerPixels,
-    rotation,
-  );
-  return context.getImageData(0, 0, canvas.width, canvas.height);
-}
-
-function drawAprilTag(
-  context: SKRSContext2D,
-  tagId: number,
-  centerX: number,
-  centerY: number,
-  markerPixels: number,
-  rotation = 0,
-): void {
-  const marker = createShipmentAprilTag(tagId);
-  const totalModules = marker.rows.length + marker.quietZoneModules * 2;
-  const moduleSize = markerPixels / totalModules;
-  context.save();
-  context.translate(centerX, centerY);
-  context.rotate(rotation);
-  context.fillStyle = "black";
-  for (const [row, modules] of marker.rows.entries()) {
-    for (let column = 0; column < modules.length; column += 1) {
-      if (modules[column] !== "1") continue;
-      context.fillRect(
-        -markerPixels / 2 + (column + marker.quietZoneModules) * moduleSize,
-        -markerPixels / 2 + (row + marker.quietZoneModules) * moduleSize,
-        moduleSize,
-        moduleSize,
-      );
-    }
-  }
-  context.restore();
-}
-
 describe("vision lab AprilTag flow", () => {
-  it("detects the synthetic tag in a low-resolution rotated frame", () => {
-    const labCase = visionLabCase("unique");
-    const image = renderAprilTag(labCase.printedOrder.tagId, 40, Math.PI / 2);
-
-    expect(
-      detectShipmentAprilTags(image.data, image.width, image.height),
-    ).toMatchObject([
-      { tagId: labCase.printedOrder.tagId, hammingDistance: 0 },
-    ]);
-  });
-
-  it("reports each distinct tag when two parcels are visible", () => {
-    const canvas = createCanvas(640, 480);
-    const context = canvas.getContext("2d");
-    context.fillStyle = "white";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    drawAprilTag(context, 7, 200, 240, 70);
-    drawAprilTag(context, 18, 440, 240, 70, Math.PI / 2);
-    const image = context.getImageData(0, 0, canvas.width, canvas.height);
-
-    expect(
-      detectShipmentAprilTags(image.data, image.width, image.height).map(
-        (detection) => detection.tagId,
-      ),
-    ).toEqual(expect.arrayContaining([7, 18]));
+  it("renders the official tag36h11 matrix for synthetic order 7", () => {
+    expect(createShipmentAprilTag(7)).toMatchObject({
+      tagId: 7,
+      quietZoneModules: 1,
+      rows: [
+        "11111111",
+        "11110111",
+        "11110011",
+        "11010111",
+        "10100011",
+        "11110001",
+        "11010111",
+        "11111111",
+      ],
+    });
+    expect(() => createShipmentAprilTag(587)).toThrow(
+      "An AprilTag id between 0 and 586 is required.",
+    );
   });
 
   it("resolves one fake order and keeps its repeated scan idempotent", () => {

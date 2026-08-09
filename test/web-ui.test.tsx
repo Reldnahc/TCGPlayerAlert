@@ -14,6 +14,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/web/App.js";
 import type { Settings } from "../src/web/contracts.js";
 
+const detectorMocks = vi.hoisted(() => ({
+  detectShipmentAprilTags: vi.fn(),
+}));
+
+vi.mock("../src/web/april-tag-detector.js", () => detectorMocks);
+
 const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
@@ -211,6 +217,7 @@ function baseFetch(
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  detectorMocks.detectShipmentAprilTags.mockReset();
   window.localStorage.clear();
   window.location.hash = "";
 });
@@ -604,6 +611,11 @@ describe("operator console", () => {
   });
 
   it("exercises every fake AprilTag resolution without a seller request", async () => {
+    detectorMocks.detectShipmentAprilTags
+      .mockResolvedValueOnce([{ tagId: 7, hammingDistance: 0, corners: [] }])
+      .mockResolvedValueOnce([{ tagId: 7, hammingDistance: 0, corners: [] }])
+      .mockResolvedValueOnce([{ tagId: 18, hammingDistance: 0, corners: [] }])
+      .mockResolvedValueOnce([{ tagId: 29, hammingDistance: 0, corners: [] }]);
     const canvasBackings = new WeakMap<HTMLCanvasElement, Canvas>();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
       function (this: HTMLCanvasElement) {

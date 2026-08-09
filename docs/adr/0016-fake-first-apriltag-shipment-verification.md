@@ -37,8 +37,11 @@ The browser scanner is local and operator initiated. The camera is off by
 default, starts only after the operator selects **Start camera**, examines
 downscaled frames in memory, and stops when a marker is detected. Image uploads
 are bounded to 10 MB. Neither frames nor uploads are persisted, logged, or sent
-to TCGplayer. A frame containing multiple visual tags requires review rather
-than choosing one.
+to TCGplayer. The official AprilTag 3 detector runs as WebAssembly in a
+dedicated browser worker. Only one frame may be in flight; later camera frames
+are dropped while detection is busy so scanning cannot build an unbounded queue
+or block the operator interface. A frame containing multiple visual tags
+requires review rather than choosing one.
 
 Three synthetic cases exercise exactly one order match, no match, and two order
 matches for one tag. Only one match produces a **Would mark shipped** result. A
@@ -66,8 +69,9 @@ stock.
   without taking more address space.
 - The DYMO LabelWriter 450 path needs no vendor SDK because the application
   submits vector output through the installed Windows driver.
-- `js-aruco2` provides generation data and raw-pixel detection in one lazily
-  loaded browser dependency.
+- A pinned, BSD-licensed WebAssembly build of the official AprilTag 3 detector
+  performs browser detection, while a generated table from the same pinned
+  source provides deterministic server-side vector labels.
 - The operator can test a real printer and webcam without accessing customer
   data or changing a seller order.
 - Passing the lab does not authorize unattended or real shipment mutations.

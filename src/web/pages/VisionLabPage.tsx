@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   createShipmentAprilTag,
-  detectShipmentAprilTags,
   type ShipmentTagDetection,
 } from "../../april-tag.js";
+import { detectShipmentAprilTags } from "../april-tag-detector.js";
 import {
   resolveVisionLabScan,
   visionLabCase,
@@ -51,9 +51,9 @@ function drawAprilTag(canvas: HTMLCanvasElement, tagId: number): void {
   }
 }
 
-function detectCanvas(
+async function detectCanvas(
   canvas: HTMLCanvasElement,
-): readonly ShipmentTagDetection[] {
+): Promise<readonly ShipmentTagDetection[]> {
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (context === null) return [];
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -82,12 +82,14 @@ export function VisionLabPage() {
   );
   const [scanError, setScanError] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
+  const [scanningPreview, setScanningPreview] = useState(false);
   const [printing, setPrinting] = useState(false);
   const completedRef = useRef(new Set<string>());
   const markerCanvasRef = useRef<HTMLCanvasElement>(null);
   const workCanvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraTimerRef = useRef<number | undefined>(undefined);
+  const cameraScanBusyRef = useRef(false);
   const selectedCase = useMemo(() => visionLabCase(caseId), [caseId]);
 
   function resolveTag(tagId: number) {
@@ -153,15 +155,25 @@ export function VisionLabPage() {
 
   useEffect(() => () => stopCamera(), []);
 
-  function scanPreview() {
+  async function scanPreview() {
     const canvas = markerCanvasRef.current;
-    const detections = canvas === null ? [] : detectCanvas(canvas);
-    if (detections.length === 0) {
-      setScanError("The generated AprilTag could not be detected.");
+    setScanningPreview(true);
+    try {
+      const detections = canvas === null ? [] : await detectCanvas(canvas);
+      if (detections.length === 0) {
+        setScanError("The generated AprilTag could not be detected.");
+        setResolution(null);
+        return;
+      }
+      resolveDetections(detections);
+    } catch (cause) {
+      setScanError(
+        errorMessage(cause, "The AprilTag scanner could not start."),
+      );
       setResolution(null);
-      return;
+    } finally {
+      setScanningPreview(false);
     }
-    resolveDetections(detections);
   }
 
   async function scanFile(file: File) {
@@ -176,7 +188,7 @@ export function VisionLabPage() {
         const canvas = workCanvasRef.current;
         if (canvas === null) throw new Error("Scanner canvas is unavailable.");
         drawSourceToCanvas(image, image.width, image.height, canvas);
-        resolveDetections(detectCanvas(canvas));
+        resolveDetections(await detectCanvas(canvas));
       } finally {
         image.close();
       }
@@ -214,12 +226,33 @@ export function VisionLabPage() {
       await video.play();
       setCameraActive(true);
       cameraTimerRef.current = window.setInterval(() => {
-        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
-        drawSourceToCanvas(video, video.videoWidth, video.videoHeight, canvas);
-        const detections = detectCanvas(canvas);
-        if (detections.length === 0) return;
-        resolveDetections(detections);
-        stopCamera();
+        if (
+          cameraScanBusyRef.current ||
+          video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+        )
+          return;
+        cameraScanBusyRef.current = true;
+        void (async () => {
+          try {
+            drawSourceToCanvas(
+              video,
+              video.videoWidth,
+              video.videoHeight,
+              canvas,
+            );
+            const detections = await detectCanvas(canvas);
+            if (detections.length === 0) return;
+            resolveDetections(detections);
+            stopCamera();
+          } catch (cause) {
+            setScanError(
+              errorMessage(cause, "The camera frame could not be scanned."),
+            );
+            stopCamera();
+          } finally {
+            cameraScanBusyRef.current = false;
+          }
+        })();
       }, CAMERA_SCAN_INTERVAL_MILLISECONDS);
     } catch (cause) {
       stopCamera();
@@ -289,7 +322,11 @@ export function VisionLabPage() {
                 />
               </div>
               <div class="scan-lab-actions">
-                <Button tone="primary" onClick={scanPreview}>
+                <Button
+                  tone="primary"
+                  busy={scanningPreview}
+                  onClick={() => void scanPreview()}
+                >
                   Scan preview
                 </Button>
                 <Button

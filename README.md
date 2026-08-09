@@ -310,9 +310,14 @@ No arbitrary code is evaluated. See [docs/RULES.md](docs/RULES.md) for examples.
 ```powershell
 npm run check
 npm run audit
+npx playwright install chromium
+npm run test:browser
 ```
 
 Tests use synthetic orders, documents, providers, stores, and printers. Ordinary tests never contact TCGplayer or a real printer.
+The browser regression starts a separate synthetic preview server, initializes
+the production AprilTag WebAssembly worker, and scans its generated label. It
+does not request camera permission or use the normal application process.
 
 ## Current boundaries
 
