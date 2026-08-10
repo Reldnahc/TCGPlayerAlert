@@ -66,10 +66,23 @@ describe("catalog and inventory", () => {
                   printing: "Normal",
                   language: "English",
                 },
+                {
+                  productConditionId: 457,
+                  conditionId: 2,
+                  condition: "Lightly Played",
+                  printing: "Normal",
+                  language: "English",
+                },
               ],
             }),
           );
-        if (path === "/api/inventory-additions/preview")
+        if (path === "/api/inventory-additions/preview") {
+          if (typeof options?.body !== "string")
+            throw new Error("Expected an addition preview body.");
+          const request = JSON.parse(options.body) as {
+            productConditionId: number;
+          };
+          const lightlyPlayed = request.productConditionId === 457;
           return Promise.resolve(
             json({
               id: "00000000-0000-4000-8000-000000000001",
@@ -88,18 +101,18 @@ describe("catalog and inventory", () => {
                 sellerListable: true,
               },
               sku: {
-                productConditionId: 456,
-                conditionId: 1,
-                condition: "Near Mint",
+                productConditionId: lightlyPlayed ? 457 : 456,
+                conditionId: lightlyPlayed ? 2 : 1,
+                condition: lightlyPlayed ? "Lightly Played" : "Near Mint",
                 printing: "Normal",
                 language: "English",
               },
               currentQuantity: 0,
               addQuantity: 1,
-              proposedPrice: 3.49,
+              proposedPrice: lightlyPlayed ? 2.99 : 3.49,
               effectiveShippingPrice: 1.49,
-              proposedDeliveredPrice: 4.98,
-              competitorPrice: 3.49,
+              proposedDeliveredPrice: lightlyPlayed ? 4.48 : 4.98,
+              competitorPrice: lightlyPlayed ? 2.99 : 3.49,
               competitorShipping: 1.49,
               competitorCondition: "Near Mint",
               minimumApplied: false,
@@ -111,6 +124,7 @@ describe("catalog and inventory", () => {
               },
             }),
           );
+        }
         if (path.includes("/api/inventory-additions/previews/"))
           return Promise.resolve(
             json(
@@ -156,8 +170,37 @@ describe("catalog and inventory", () => {
     );
     await user.click(screen.getByRole("button", { name: "Search" }));
     expect(await screen.findByText("Synthetic Card")).toBeTruthy();
+
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/inventory-additions/preview",
+      ),
+    ).toHaveLength(0);
+    await user.click(
+      screen.getByRole("button", {
+        name: "Show listing price for Synthetic Card",
+      }),
+    );
+    expect(await screen.findByText("$3.49")).toBeTruthy();
+
+    await user.selectOptions(
+      screen.getByLabelText("Condition for Synthetic Card"),
+      "Damaged",
+    );
+    expect(await screen.findByText("Unavailable")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/inventory-additions/preview",
+      ),
+    ).toHaveLength(1);
+
+    await user.selectOptions(
+      screen.getByLabelText("Condition for Synthetic Card"),
+      "Lightly Played",
+    );
+    expect(await screen.findByText("$2.99")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "+1" }));
-    expect((await screen.findAllByText("Queued +1 at $3.49.")).length).toBe(2);
+    expect((await screen.findAllByText("Queued +1 at $2.99.")).length).toBe(2);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/inventory-additions/preview",
       expect.objectContaining({ method: "POST" }),

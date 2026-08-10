@@ -54,6 +54,13 @@ interface RowMessage {
   readonly quantity?: number;
 }
 
+interface RowPrice {
+  readonly status: "loading" | "ready" | "unavailable" | "error";
+  readonly proposedPrice?: number;
+  readonly language?: string;
+  readonly reason?: string;
+}
+
 function rank(left: readonly number[], right: readonly number[]): number {
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
@@ -110,6 +117,9 @@ export function AddCardsPage() {
   const [rowMessages, setRowMessages] = useState<
     Readonly<Record<number, RowMessage>>
   >({});
+  const [rowPrices, setRowPrices] = useState<
+    Readonly<Record<number, RowPrice>>
+  >({});
   const [adding, setAdding] = useState<ReadonlySet<number>>(new Set());
   const [details, setDetails] = useState<
     Readonly<Record<number, CatalogProduct>>
@@ -122,6 +132,8 @@ export function AddCardsPage() {
   const detailQueued = useRef(new Set<number>());
   const detailFailed = useRef(new Set<number>());
   const detailActive = useRef(0);
+  const priceRequestSerial = useRef(0);
+  const activePriceRequests = useRef(new Map<number, number>());
 
   const profiles = settings?.merchandiseProfiles ?? [];
   const activeProfile =
@@ -200,6 +212,8 @@ export function AddCardsPage() {
     window.localStorage.setItem(PROFILE_KEY, next);
     setSelections({});
     setRowMessages({});
+    activePriceRequests.current.clear();
+    setRowPrices({});
   }
 
   async function runSearch(append = false) {
@@ -285,15 +299,99 @@ export function AddCardsPage() {
   }
 
   function updateSelection(productId: number, patch: Partial<RowSelection>) {
+    const nextSelection = {
+      ...selectionFor(productId, details[productId]),
+      ...patch,
+    };
     setSelections((current) => ({
       ...current,
-      [productId]: { ...selectionFor(productId, details[productId]), ...patch },
+      [productId]: nextSelection,
     }));
     setRowMessages((current) =>
       Object.fromEntries(
         Object.entries(current).filter(([key]) => Number(key) !== productId),
       ),
     );
+    if (rowPrices[productId] !== undefined) {
+      void previewPrice(productId, nextSelection);
+    }
+  }
+
+  async function previewPrice(
+    productId: number,
+    requestedSelection?: RowSelection,
+  ) {
+    if (activeProfile === undefined || activePricingProfile === undefined)
+      return;
+    const requestId = (priceRequestSerial.current += 1);
+    activePriceRequests.current.set(productId, requestId);
+    setRowPrices((current) => ({
+      ...current,
+      [productId]: { status: "loading" },
+    }));
+    try {
+      const productDetails = await getDetails(productId);
+      if (activePriceRequests.current.get(productId) !== requestId) return;
+      const selection =
+        requestedSelection ?? selectionFor(productId, productDetails);
+      const matching = productDetails.skus.filter(
+        (sku) =>
+          sku.condition === selection.condition &&
+          sku.printing === selection.printing,
+      );
+      const preferred = matching.find(
+        (candidate) => candidate.language === activeProfile.language,
+      );
+      const languages = [
+        ...new Set(matching.map((candidate) => candidate.language)),
+      ].sort();
+      const sku =
+        preferred ??
+        (languages.length === 1
+          ? matching.find((candidate) => candidate.language === languages[0])
+          : undefined);
+      if (sku === undefined) {
+        const reason =
+          languages.length === 0
+            ? `No ${selection.condition} ${selection.printing.toLocaleLowerCase()} SKU exists.`
+            : `No ${activeProfile.language} SKU exists. Available languages: ${languages.join(", ")}.`;
+        setRowPrices((current) => ({
+          ...current,
+          [productId]: { status: "unavailable", reason },
+        }));
+        return;
+      }
+      const preview = await uiApi.previewAddition({
+        productId,
+        productConditionId: sku.productConditionId,
+        addQuantity: 1,
+        rules: {
+          ...activePricingProfile,
+          estimatedShippingPrice: activeProfile.estimatedShippingPrice,
+        },
+      });
+      if (activePriceRequests.current.get(productId) !== requestId) return;
+      setRowPrices((current) => ({
+        ...current,
+        [productId]:
+          preview.queueable && preview.proposedPrice !== undefined
+            ? {
+                status: "ready",
+                proposedPrice: preview.proposedPrice,
+                language: preview.sku.language,
+              }
+            : { status: "unavailable", reason: preview.reason },
+      }));
+    } catch (cause) {
+      if (activePriceRequests.current.get(productId) !== requestId) return;
+      setRowPrices((current) => ({
+        ...current,
+        [productId]: {
+          status: "error",
+          reason: errorMessage(cause, "Listing price could not be loaded."),
+        },
+      }));
+    }
   }
 
   async function addProduct(
@@ -571,10 +669,19 @@ export function AddCardsPage() {
                         details[product.productId],
                       )}
                       message={rowMessages[product.productId]}
+                      price={rowPrices[product.productId]}
+                      priceLabel={
+                        listingMode === "scheduled"
+                          ? "Current estimate"
+                          : "Listing price"
+                      }
                       busy={adding.has(product.productId)}
                       onVisible={queueDetails}
                       onSelection={(patch) =>
                         updateSelection(product.productId, patch)
+                      }
+                      onPreviewPrice={() =>
+                        void previewPrice(product.productId)
                       }
                       onAdd={(quantity, language) =>
                         void addProduct(product.productId, quantity, language)
@@ -673,9 +780,12 @@ function CatalogRow({
   details,
   selection,
   message,
+  price,
+  priceLabel,
   busy,
   onVisible,
   onSelection,
+  onPreviewPrice,
   onAdd,
   onCustom,
 }: {
@@ -683,9 +793,12 @@ function CatalogRow({
   readonly details: CatalogProduct | undefined;
   readonly selection: RowSelection;
   readonly message: RowMessage | undefined;
+  readonly price: RowPrice | undefined;
+  readonly priceLabel: "Listing price" | "Current estimate";
   readonly busy: boolean;
   readonly onVisible: (productId: number) => void;
   readonly onSelection: (patch: Partial<RowSelection>) => void;
+  readonly onPreviewPrice: () => void;
   readonly onAdd: (quantity: number, language?: string) => void;
   readonly onCustom: () => void;
 }) {
@@ -744,6 +857,30 @@ function CatalogRow({
         </small>
       </div>
       <div class="catalog-controls">
+        <button
+          type="button"
+          class={`catalog-price${price?.status === "ready" ? " is-ready" : ""}`}
+          disabled={busy || price?.status === "loading"}
+          aria-label={`${price === undefined ? "Show" : "Refresh"} listing price for ${product.productName}`}
+          title={price?.reason ?? "Price the currently selected SKU"}
+          onClick={onPreviewPrice}
+        >
+          <span>{priceLabel}</span>
+          {price === undefined ? (
+            <strong>Show price</strong>
+          ) : price.status === "loading" ? (
+            <strong>Pricing...</strong>
+          ) : price.status === "ready" && price.proposedPrice !== undefined ? (
+            <>
+              <strong>{money(price.proposedPrice)}</strong>
+              <small>{price.language}</small>
+            </>
+          ) : price.status === "unavailable" ? (
+            <strong>Unavailable</strong>
+          ) : (
+            <strong>Retry</strong>
+          )}
+        </button>
         <select
           aria-label={`Condition for ${product.productName}`}
           value={selection.condition}

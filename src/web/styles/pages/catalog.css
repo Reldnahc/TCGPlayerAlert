@@ -115,6 +115,40 @@
   align-items: center;
   gap: 6px;
 }
+.catalog-price {
+  display: grid;
+  min-width: 88px;
+  min-height: 42px;
+  align-content: center;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  color: var(--text-muted);
+  background: #f7f9fa;
+  text-align: right;
+}
+.catalog-price:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: #eef3f4;
+}
+.catalog-price.is-ready {
+  border-color: #a8cdbd;
+  color: var(--success);
+  background: #f2faf6;
+}
+.catalog-price span,
+.catalog-price small {
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.catalog-price strong {
+  color: currentColor;
+  font-size: 12px;
+  line-height: 1.15;
+}
 .catalog-controls select {
   width: 150px;
   min-height: 30px;
