@@ -1144,6 +1144,17 @@ async function handleRequest(
   if (extensionOrigin !== undefined && url.pathname === "/api/auth/session") {
     setExtensionCorsHeaders(request, response, extensionOrigin);
   }
+  const browserSessionMutation =
+    request.method === "POST" &&
+    url.pathname === "/api/auth/session" &&
+    extensionOrigin !== undefined;
+  if (
+    isMutationMethod(request.method) &&
+    !browserSessionMutation &&
+    !isAllowedMutationRequest(request, response)
+  ) {
+    return;
+  }
   try {
     if (
       request.method === "OPTIONS" &&
@@ -2230,6 +2241,15 @@ function isAllowedMutationRequest(
     return false;
   }
   return true;
+}
+
+function isMutationMethod(method: string | undefined): boolean {
+  return (
+    method === "POST" ||
+    method === "PUT" ||
+    method === "PATCH" ||
+    method === "DELETE"
+  );
 }
 
 type BrowserSessionSubmission =

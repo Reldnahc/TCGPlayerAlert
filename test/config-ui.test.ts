@@ -871,24 +871,61 @@ describe("configuration UI", () => {
       `${server.url}/api/messages?page=2&orderNumber=SYNTHETIC-ORDER-1&deleted=1&refresh=1`,
     );
     const detail = await fetch(`${server.url}/api/messages/123?page=2`);
+    const mutationHeaders = {
+      "content-type": "application/json",
+      origin: server.url,
+    };
     const markedRead = await fetch(`${server.url}/api/messages/123/mark-read`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: mutationHeaders,
       body: "{}",
     });
     const markedAllRead = await fetch(
       `${server.url}/api/messages/mark-all-read`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: mutationHeaders,
         body: "{}",
       },
     );
     const replied = await fetch(`${server.url}/api/messages/123/reply`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: mutationHeaders,
       body: JSON.stringify({ body: "Synthetic reply." }),
     });
+    const crossOriginHeaders = {
+      "content-type": "text/plain",
+      origin: "https://malicious.example",
+    };
+    const rejectedMarkRead = await fetch(
+      `${server.url}/api/messages/123/mark-read`,
+      {
+        method: "POST",
+        headers: crossOriginHeaders,
+        body: "{}",
+      },
+    );
+    const rejectedMarkAllRead = await fetch(
+      `${server.url}/api/messages/mark-all-read`,
+      {
+        method: "POST",
+        headers: crossOriginHeaders,
+        body: "{}",
+      },
+    );
+    const rejectedReply = await fetch(`${server.url}/api/messages/123/reply`, {
+      method: "POST",
+      headers: crossOriginHeaders,
+      body: JSON.stringify({ body: "Cross-origin reply." }),
+    });
+    const rejectedContentType = await fetch(
+      `${server.url}/api/messages/123/reply`,
+      {
+        method: "POST",
+        headers: { "content-type": "text/plain", origin: server.url },
+        body: JSON.stringify({ body: "Wrong content type." }),
+      },
+    );
     const invalid = await fetch(`${server.url}/api/messages/not-a-thread`);
 
     expect(count.status).toBe(200);
@@ -927,6 +964,13 @@ describe("configuration UI", () => {
       "Synthetic reply.",
       expect.any(AbortSignal),
     );
+    expect(rejectedMarkRead.status).toBe(403);
+    expect(rejectedMarkAllRead.status).toBe(403);
+    expect(rejectedReply.status).toBe(403);
+    expect(rejectedContentType.status).toBe(415);
+    expect(markRead).toHaveBeenCalledOnce();
+    expect(markAllRead).toHaveBeenCalledOnce();
+    expect(reply).toHaveBeenCalledOnce();
     expect(invalid.status).toBe(404);
   });
 
