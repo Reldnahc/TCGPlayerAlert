@@ -1,7 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
-import { uiApi } from "../api.js";
+import { masterPullListUrl, uiApi } from "../api.js";
 import { OrderActions } from "../components/OrderActions.js";
 import { OrderNumberLink } from "../components/OrderNumberLink.js";
+import { Icon } from "../components/Icon.js";
 import {
   Button,
   EmptyState,
@@ -86,14 +87,20 @@ export function DashboardPage() {
             : `Orders updated ${dateTime(list.fetchedAt)}`
         }
         actions={
-          <Button
-            icon="refresh"
-            busy={loading["ready-to-ship"]}
-            disabled={!connected}
-            onClick={() => void load("ready-to-ship", true)}
-          >
-            Sync now
-          </Button>
+          <>
+            <a class="button button--secondary" href={masterPullListUrl()}>
+              <Icon name="printer" size={16} />
+              <span>Master pull list</span>
+            </a>
+            <Button
+              icon="refresh"
+              busy={loading["ready-to-ship"]}
+              disabled={!connected}
+              onClick={() => void load("ready-to-ship", true)}
+            >
+              Sync now
+            </Button>
+          </>
         }
       />
       <div class="page-body">

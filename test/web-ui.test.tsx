@@ -517,6 +517,11 @@ describe("operator console", () => {
 
     expect(await screen.findByText("No orders are ready to ship")).toBeTruthy();
     expect(
+      screen
+        .getByRole("link", { name: "Master pull list" })
+        .getAttribute("href"),
+    ).toBe("#orders/pull-list");
+    expect(
       fetchMock.mock.calls.some(
         ([input]) => requestPath(input) === "/api/orders?status=ready-to-ship",
       ),
