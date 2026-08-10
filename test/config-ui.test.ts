@@ -375,18 +375,16 @@ describe("configuration UI", () => {
     expect(body).toMatchObject({ connectorToken: "a".repeat(64) });
   });
 
-  it("routes ready-order refreshes through shared synchronization", async () => {
+  it("keeps ready-order reads pure and synchronizes only through an explicit mutation", async () => {
     const current = await fixture();
     const ready = {
       orders: [],
       fetchedAt: "2026-08-07T12:00:00.000Z",
     };
-    const listReadyOrders = vi
+    const listReadyOrders = vi.fn(() => ready);
+    const synchronizeReadyOrders = vi
       .fn<
-        (options: {
-          readonly force: boolean;
-          readonly signal: AbortSignal;
-        }) => Promise<typeof ready>
+        (options: { readonly signal: AbortSignal }) => Promise<typeof ready>
       >()
       .mockResolvedValue(ready);
     const listOrders = vi.fn(() => Promise.resolve(ready));
@@ -397,21 +395,68 @@ describe("configuration UI", () => {
       orderService: { listOrders } as unknown as OrderManagementService,
       orderSync: {
         listReadyOrders,
+        synchronizeReadyOrders,
       } as unknown as OrderSyncCoordinator,
     });
 
     const response = await fetch(
+      `${server.url}/api/orders?status=ready-to-ship`,
+    );
+    const rejectedImplicitSync = await fetch(
       `${server.url}/api/orders?status=ready-to-ship&refresh=1`,
     );
+    const synchronized = await fetch(`${server.url}/api/orders/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: server.url,
+      },
+      body: JSON.stringify({}),
+    });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(ready);
+    expect(await response.json()).toEqual({ snapshot: ready });
+    expect(rejectedImplicitSync.status).toBe(400);
+    expect(await rejectedImplicitSync.json()).toEqual({
+      message: "Ready-order synchronization requires the explicit sync action.",
+    });
+    expect(synchronized.status).toBe(200);
+    expect(await synchronized.json()).toEqual(ready);
     expect(listReadyOrders).toHaveBeenCalledOnce();
-    expect(listReadyOrders.mock.calls[0]?.[0].force).toBe(true);
-    expect(listReadyOrders.mock.calls[0]?.[0].signal).toBeInstanceOf(
+    expect(synchronizeReadyOrders).toHaveBeenCalledOnce();
+    expect(synchronizeReadyOrders.mock.calls[0]?.[0].signal).toBeInstanceOf(
       AbortSignal,
     );
     expect(listOrders).not.toHaveBeenCalled();
+  });
+
+  it("reports an unavailable ready-order snapshot without starting work", async () => {
+    const current = await fixture();
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      orderService: {} as OrderManagementService,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/orders?status=ready-to-ship`,
+    );
+    const synchronization = await fetch(`${server.url}/api/orders/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: server.url,
+      },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ snapshot: null });
+    expect(synchronization.status).toBe(503);
+    expect(await synchronization.json()).toEqual({
+      message: "Order synchronization is unavailable.",
+    });
   });
 
   it("serves an exact internal order detail with explicit refresh control", async () => {

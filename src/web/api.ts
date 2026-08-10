@@ -24,6 +24,7 @@ import type {
   RefundOptions,
   RefundRequest,
   RefundResult,
+  ReadyOrderSnapshot,
   QueuedJob,
   QueuedJobs,
   Settings,
@@ -261,15 +262,18 @@ export const uiApi = {
       method: "POST",
       body: JSON.stringify({ tagId, orderNumber }),
     }),
-  orders: (
-    scope: "all" | "ready-to-ship",
-    force = false,
-  ): Promise<OrderList> => {
+  orders: (force = false): Promise<OrderList> => {
     const query = new URLSearchParams();
-    if (scope === "ready-to-ship") query.set("status", "ready-to-ship");
     if (force) query.set("refresh", "1");
     return requestJson(`/api/orders?${query.toString()}`);
   },
+  readyOrders: (): Promise<ReadyOrderSnapshot> =>
+    requestJson("/api/orders?status=ready-to-ship"),
+  synchronizeReadyOrders: (): Promise<OrderList> =>
+    requestJson("/api/orders/sync", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   order: (
     orderNumber: string,
     force = false,

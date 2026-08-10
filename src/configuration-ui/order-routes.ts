@@ -20,7 +20,6 @@ import {
 export const handleOrderRoute: ConfigurationRouteHandler = async (context) => {
   const { request, response, url } = context;
   if (request.method === "GET" && url.pathname === "/api/orders") {
-    if (!requireOrderService(context)) return true;
     const status = url.searchParams.get("status");
     if (status !== null && status !== "ready-to-ship") {
       sendJson(response, 400, {
@@ -30,10 +29,30 @@ export const handleOrderRoute: ConfigurationRouteHandler = async (context) => {
     }
     const scope = status === "ready-to-ship" ? "ready-to-ship" : "all";
     const force = url.searchParams.get("refresh") === "1";
+    if (scope === "ready-to-ship") {
+      if (force) {
+        sendJson(response, 400, {
+          message:
+            "Ready-order synchronization requires the explicit sync action.",
+        });
+        return true;
+      }
+      sendJson(response, 200, {
+        snapshot: context.orderSync?.listReadyOrders() ?? null,
+      });
+      return true;
+    }
+    if (!requireOrderService(context)) return true;
     const result = await withRequestAbort(request, response, (signal) =>
-      scope === "ready-to-ship" && context.orderSync !== undefined
-        ? context.orderSync.listReadyOrders({ force, signal })
-        : context.orderService.listOrders(scope, { force, signal }),
+      context.orderService.listOrders(scope, { force, signal }),
+    );
+    if (!response.destroyed) sendJson(response, 200, result);
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/orders/sync") {
+    if (!requireOrderSync(context)) return true;
+    const result = await withRequestAbort(request, response, (signal) =>
+      context.orderSync.synchronizeReadyOrders({ signal }),
     );
     if (!response.destroyed) sendJson(response, 200, result);
     return true;
@@ -162,6 +181,18 @@ function requireOrderService(
   if (context.orderService !== undefined) return true;
   sendJson(context.response, 503, {
     message: "Order management is unavailable.",
+  });
+  return false;
+}
+
+function requireOrderSync(
+  context: ConfigurationRouteContext,
+): context is ConfigurationRouteContext & {
+  readonly orderSync: NonNullable<ConfigurationRouteContext["orderSync"]>;
+} {
+  if (context.orderSync !== undefined) return true;
+  sendJson(context.response, 503, {
+    message: "Order synchronization is unavailable.",
   });
   return false;
 }

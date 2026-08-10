@@ -69,7 +69,7 @@ describe("shared order synchronization", () => {
     });
 
     await coordinator.synchronize("scheduled");
-    const dashboard = await coordinator.listReadyOrders();
+    const dashboard = coordinator.listReadyOrders();
 
     expect(dashboard).toBe(firstSnapshot);
     expect(run).toHaveBeenCalledOnce();
@@ -77,7 +77,20 @@ describe("shared order synchronization", () => {
     expect(current.refresh).toHaveBeenCalledOnce();
   });
 
-  it("uses the same workflow for a forced dashboard synchronization", async () => {
+  it("returns no dashboard snapshot before synchronization without running the workflow", () => {
+    const current = source();
+    const run = vi.fn(() => Promise.resolve(result()));
+    const coordinator = new OrderSyncCoordinator({
+      readyOrders: current.readyOrders,
+      createWorkflow: () => ({ run }),
+    });
+
+    expect(coordinator.listReadyOrders()).toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+    expect(current.refresh).not.toHaveBeenCalled();
+  });
+
+  it("uses the same workflow for an explicit dashboard synchronization", async () => {
     const current = source(firstSnapshot);
     const run = vi.fn(async () => {
       await current.readyOrders.refresh();
@@ -88,7 +101,7 @@ describe("shared order synchronization", () => {
       createWorkflow: () => ({ run }),
     });
 
-    await expect(coordinator.listReadyOrders({ force: true })).resolves.toBe(
+    await expect(coordinator.synchronizeReadyOrders()).resolves.toBe(
       firstSnapshot,
     );
 
@@ -113,7 +126,7 @@ describe("shared order synchronization", () => {
     });
 
     const scheduled = coordinator.synchronize("scheduled");
-    const dashboard = coordinator.listReadyOrders({ force: true });
+    const dashboard = coordinator.synchronizeReadyOrders();
     release?.();
 
     await scheduled;

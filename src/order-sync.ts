@@ -16,8 +16,7 @@ export interface OrderSyncCoordinatorOptions {
     (() => SynchronizationWorkflow) | (() => Promise<SynchronizationWorkflow>);
 }
 
-export interface ReadyOrderListOptions {
-  readonly force?: boolean;
+export interface ReadyOrderSynchronizationOptions {
   readonly signal?: AbortSignal;
 }
 
@@ -45,14 +44,16 @@ export class OrderSyncCoordinator {
     return sync;
   }
 
-  async listReadyOrders(
-    options: ReadyOrderListOptions = {},
+  listReadyOrders(): ManagedOrderList | undefined {
+    return this.readyOrders.snapshot();
+  }
+
+  async synchronizeReadyOrders(
+    options: ReadyOrderSynchronizationOptions = {},
   ): Promise<ManagedOrderList> {
-    if (options.force === true || this.readyOrders.snapshot() === undefined) {
-      await this.synchronize("manual", {
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-      });
-    }
+    await this.synchronize("manual", {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
     const snapshot = this.readyOrders.snapshot();
     if (snapshot === undefined) {
       throw new ApplicationError(

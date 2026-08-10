@@ -26,7 +26,7 @@ export function DashboardPage() {
   const checkingConnection = sellerConnection === null;
   const connected = sellerConnection?.state === "connected";
   const { settings, update } = useSettings();
-  const { lists, loading, errors, load } = useOrders();
+  const { lists, loading, errors, load, synchronizeReadyOrders } = useOrders();
   const toast = useToast();
   const [address, setAddress] = useState("");
   const [printingAddress, setPrintingAddress] = useState(false);
@@ -96,7 +96,7 @@ export function DashboardPage() {
               icon="refresh"
               busy={loading["ready-to-ship"]}
               disabled={!connected}
-              onClick={() => void load("ready-to-ship", true)}
+              onClick={() => void synchronizeReadyOrders()}
             >
               Sync now
             </Button>
@@ -204,7 +204,7 @@ export function DashboardPage() {
               </div>
             </div>
             <div class="data-region data-region--embedded">
-              {connected && list === null ? (
+              {connected && list === null && loading["ready-to-ship"] ? (
                 <div class="empty-state">
                   <Spinner label="Loading orders" />
                 </div>
@@ -212,14 +212,18 @@ export function DashboardPage() {
                 <EmptyState
                   title={
                     connected
-                      ? "No orders are ready to ship"
+                      ? list === null
+                        ? "No synchronized order snapshot yet"
+                        : "No orders are ready to ship"
                       : checkingConnection
                         ? "Checking TCGplayer connection"
                         : "Connect TCGplayer to load orders"
                   }
                   detail={
                     connected
-                      ? "Sync now to check TCGplayer again."
+                      ? list === null
+                        ? "Wait for scheduled polling or select Sync now to run fulfillment explicitly."
+                        : "Sync now to check TCGplayer again."
                       : checkingConnection
                         ? "Seller requests remain paused until the connection is confirmed."
                         : "Seller requests remain paused while logged out."

@@ -45,6 +45,9 @@ import type { ManagedShipmentScannerStatus } from "../background-shipment-scanne
 export type Settings = ConfigurationUiSettings;
 export type SettingsUpdate = ConfigurationUiUpdate;
 export type OrderList = ManagedOrderList;
+export interface ReadyOrderSnapshot {
+  readonly snapshot: OrderList | null;
+}
 export type Order = ManagedOrderSummary;
 export type OrderDetail = ManagedOrderDetail;
 export type MasterPullList = ManagedMasterPullList;

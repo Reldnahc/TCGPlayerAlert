@@ -167,6 +167,8 @@ npm run build
 npm run config:validate
 ```
 
+Dashboard snapshot requests are strictly read-only. Opening the Dashboard and its five-second local refresh never starts reconciliation, seller discovery, printing, or another configured fulfillment action. Before scheduled polling has produced a snapshot, the page says so explicitly. **Sync now** is a separately guarded mutation and is the only Dashboard control that invokes the fulfillment workflow.
+
 ## Operate
 
 Run one authoritative synchronization:

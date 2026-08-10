@@ -154,6 +154,15 @@ function baseFetch(
       }),
     );
   }
+  if (path === "/api/orders?status=ready-to-ship")
+    return Promise.resolve(
+      json({
+        snapshot: {
+          orders: [],
+          fetchedAt: "2026-08-07T12:00:00.000Z",
+        },
+      }),
+    );
   if (path.startsWith("/api/orders"))
     return Promise.resolve(
       json({ orders: [], fetchedAt: "2026-08-07T12:00:00.000Z" }),
@@ -440,8 +449,10 @@ describe("operator console", () => {
           readyReads += 1;
           return Promise.resolve(
             json({
-              orders: readyReads === 1 ? [] : [synchronizedOrder],
-              fetchedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
+              snapshot: {
+                orders: readyReads === 1 ? [] : [synchronizedOrder],
+                fetchedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
+              },
             }),
           );
         }
@@ -465,6 +476,72 @@ describe("operator console", () => {
         requestPath(input).includes("refresh=1"),
       ),
     ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => requestPath(input) === "/api/orders/sync",
+      ),
+    ).toBe(false);
+  });
+
+  it("starts fulfillment synchronization only after the operator selects Sync now", async () => {
+    const synchronizedOrder = {
+      orderNumber: "SYNTHETIC-EXPLICIT-SYNC",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 10,
+      shippingAmount: 1.49,
+      totalAmount: 11.49,
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders?status=ready-to-ship") {
+          return Promise.resolve(json({ snapshot: null }));
+        }
+        if (path === "/api/orders/sync") {
+          return Promise.resolve(
+            json({
+              orders: [synchronizedOrder],
+              fetchedAt: "2026-08-07T12:05:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input]) =>
+            requestPath(input) === "/api/orders?status=ready-to-ship",
+        ),
+      ).toBe(true),
+    );
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => requestPath(input) === "/api/orders/sync",
+      ),
+    ).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Sync now" }));
+
+    expect(await screen.findByText("SYNTHETIC-EXPLICIT-SYNC")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, options]) =>
+          requestPath(input) === "/api/orders/sync" &&
+          options?.method === "POST",
+      ),
+    ).toBe(true);
   });
 
   it("keeps the dashboard ready queue separate from the all-orders view", async () => {
@@ -495,8 +572,10 @@ describe("operator console", () => {
         if (path === "/api/orders?status=ready-to-ship") {
           return Promise.resolve(
             json({
-              orders: [],
-              fetchedAt: "2026-08-07T12:01:00.000Z",
+              snapshot: {
+                orders: [],
+                fetchedAt: "2026-08-07T12:01:00.000Z",
+              },
             }),
           );
         }
@@ -1092,24 +1171,26 @@ describe("operator console", () => {
             json({ orderNumber: "SYNTHETIC-ORDER-1", outcome: "applied" }),
           );
         }
-        if (path.startsWith("/api/orders?")) {
+        if (path === "/api/orders?status=ready-to-ship") {
           return Promise.resolve(
             json({
-              orders: [
-                {
-                  orderNumber: "SYNTHETIC-ORDER-1",
-                  buyerName: "Synthetic Buyer",
-                  orderDate: "2026-08-07T12:00:00.000Z",
-                  status: "Ready to Ship",
-                  statusCode: "ReadyToShip",
-                  canMarkShipped: true,
-                  shippingType: "Standard",
-                  productAmount: 10,
-                  shippingAmount: 1.49,
-                  totalAmount: 11.49,
-                },
-              ],
-              fetchedAt: "2026-08-07T12:00:00.000Z",
+              snapshot: {
+                orders: [
+                  {
+                    orderNumber: "SYNTHETIC-ORDER-1",
+                    buyerName: "Synthetic Buyer",
+                    orderDate: "2026-08-07T12:00:00.000Z",
+                    status: "Ready to Ship",
+                    statusCode: "ReadyToShip",
+                    canMarkShipped: true,
+                    shippingType: "Standard",
+                    productAmount: 10,
+                    shippingAmount: 1.49,
+                    totalAmount: 11.49,
+                  },
+                ],
+                fetchedAt: "2026-08-07T12:00:00.000Z",
+              },
             }),
           );
         }

@@ -24,6 +24,7 @@ interface OrdersContextValue {
     force?: boolean,
     refreshLoaded?: boolean,
   ) => Promise<void>;
+  readonly synchronizeReadyOrders: () => Promise<void>;
   readonly acknowledgeShipment: (orderNumber: string) => void;
 }
 
@@ -103,6 +104,35 @@ export function OrdersProvider({
     });
   }, []);
 
+  const acceptOrderList = useCallback((scope: Scope, result: OrderList) => {
+    let reconciliationsChanged = false;
+    for (const orderNumber of shipmentReconciliationsRef.current) {
+      const order = result.orders.find(
+        (candidate) => candidate.orderNumber === orderNumber,
+      );
+      if (order?.canMarkShipped !== true) {
+        shipmentReconciliationsRef.current.delete(orderNumber);
+        reconciliationsChanged = true;
+      }
+    }
+    if (reconciliationsChanged) {
+      setShipmentsPendingReconciliation(
+        new Set(shipmentReconciliationsRef.current),
+      );
+    }
+    setLists((current) => {
+      const next = {
+        ...current,
+        [scope]:
+          scope === "ready-to-ship"
+            ? readyList(result, shipmentReconciliationsRef.current)
+            : result,
+      };
+      listsRef.current = next;
+      return next;
+    });
+  }, []);
+
   const load = useCallback(
     async (scope: Scope, force = false, refreshLoaded = false) => {
       if (!connected) return;
@@ -113,33 +143,12 @@ export function OrdersProvider({
       setLoading(started);
       setErrors((current) => ({ ...current, [scope]: "" }));
       try {
-        const result = await uiApi.orders(scope, force);
-        let reconciliationsChanged = false;
-        for (const orderNumber of shipmentReconciliationsRef.current) {
-          const order = result.orders.find(
-            (candidate) => candidate.orderNumber === orderNumber,
-          );
-          if (order?.canMarkShipped !== true) {
-            shipmentReconciliationsRef.current.delete(orderNumber);
-            reconciliationsChanged = true;
-          }
-        }
-        if (reconciliationsChanged) {
-          setShipmentsPendingReconciliation(
-            new Set(shipmentReconciliationsRef.current),
-          );
-        }
-        setLists((current) => {
-          const next = {
-            ...current,
-            [scope]:
-              scope === "ready-to-ship"
-                ? readyList(result, shipmentReconciliationsRef.current)
-                : result,
-          };
-          listsRef.current = next;
-          return next;
-        });
+        const result =
+          scope === "ready-to-ship"
+            ? (await uiApi.readyOrders()).snapshot
+            : await uiApi.orders(force);
+        if (result === null) return;
+        acceptOrderList(scope, result);
       } catch (cause) {
         if (
           cause instanceof UiApiError &&
@@ -157,8 +166,36 @@ export function OrdersProvider({
         setLoading(finished);
       }
     },
-    [connected],
+    [acceptOrderList, connected],
   );
+
+  const synchronizeReadyOrders = useCallback(async () => {
+    if (!connected || loadingRef.current["ready-to-ship"]) return;
+    const scope = "ready-to-ship" as const;
+    const started = { ...loadingRef.current, [scope]: true };
+    loadingRef.current = started;
+    setLoading(started);
+    setErrors((current) => ({ ...current, [scope]: "" }));
+    try {
+      const result = await uiApi.synchronizeReadyOrders();
+      acceptOrderList(scope, result);
+    } catch (cause) {
+      if (
+        cause instanceof UiApiError &&
+        cause.code === "AUTHENTICATION_REQUIRED"
+      ) {
+        return;
+      }
+      setErrors((current) => ({
+        ...current,
+        [scope]: errorMessage(cause, "Orders could not be synchronized."),
+      }));
+    } finally {
+      const finished = { ...loadingRef.current, [scope]: false };
+      loadingRef.current = finished;
+      setLoading(finished);
+    }
+  }, [acceptOrderList, connected]);
 
   const value = useMemo(
     () => ({
@@ -167,6 +204,7 @@ export function OrdersProvider({
       errors,
       shipmentsPendingReconciliation,
       load,
+      synchronizeReadyOrders,
       acknowledgeShipment,
     }),
     [
@@ -176,6 +214,7 @@ export function OrdersProvider({
       load,
       loading,
       shipmentsPendingReconciliation,
+      synchronizeReadyOrders,
     ],
   );
   return (
