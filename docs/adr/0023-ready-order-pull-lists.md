@@ -45,7 +45,8 @@ metadata enrichment must avoid one catalog request per row.
   control a stable ascending or descending row sort; keep the check-off column
   unsortable. Store only the validated sort field and direction in browser-local
   storage so later visits and browser restarts restore the operator's layout.
-  The printed list follows the displayed order. Use a dense monochrome printer
+  Keep the summary visible while the row region scrolls independently. The
+  printed list follows the displayed order. Use a dense monochrome printer
   stylesheet and `window.print()` so the operating system's normal print dialog
   remains the generic printer boundary.
 - Never persist or log pull-sheet rows, product metadata, or customer/order

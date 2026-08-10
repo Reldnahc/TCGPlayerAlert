@@ -33,6 +33,40 @@ test("shows a printable master pull list with card metadata", async ({
   ).toBeVisible();
   await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
 
+  await page
+    .locator(".pull-list-table tbody tr")
+    .last()
+    .evaluate((row) => {
+      const body = row.parentElement;
+      if (body === null) throw new Error("Pull-list table body was not found.");
+      for (let index = 0; index < 80; index += 1) {
+        body.append(row.cloneNode(true));
+      }
+    });
+  const summary = page.locator(".pull-list-summary");
+  const summaryBeforeScroll = await summary.boundingBox();
+  await page.locator(".pull-list-region").evaluate((region) => {
+    region.scrollTop = region.scrollHeight;
+  });
+  await expect
+    .poll(() =>
+      page.locator(".pull-list-region").evaluate((region) => region.scrollTop),
+    )
+    .toBeGreaterThan(0);
+  await expect(summary).toBeVisible();
+  expect(await summary.boundingBox()).toEqual(summaryBeforeScroll);
+  expect(
+    await page
+      .locator(".pull-list-page .page-body")
+      .evaluate((body) => body.scrollTop),
+  ).toBe(0);
+
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Master pull list" }),
+  ).toBeVisible();
+  await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
+
   await page.screenshot({
     path: testInfo.outputPath("pull-list.png"),
     fullPage: true,

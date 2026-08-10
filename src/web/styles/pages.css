@@ -260,13 +260,18 @@
 .order-detail-tracking .empty-state {
   min-height: 105px;
 }
+.pull-list-page .page-body {
+  overflow: hidden;
+}
 .pull-list-layout {
-  display: grid;
-  align-content: start;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
   gap: 8px;
 }
 .pull-list-loading {
   display: grid;
+  flex: 1;
   min-height: 280px;
   place-items: center;
 }
@@ -304,10 +309,18 @@
   display: none;
 }
 .pull-list-sheet {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   border-color: #aeb4b8;
   color: #111;
   background: white;
+}
+.pull-list-region {
+  min-height: 0;
+  overflow: auto;
 }
 .pull-list-table {
   min-width: 860px;
