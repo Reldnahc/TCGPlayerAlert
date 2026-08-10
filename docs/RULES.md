@@ -1,6 +1,6 @@
 # Rules
 
-Rules select configured actions after an order is authoritatively confirmed and normalized. The format is configuration schema version 1.
+Rules select configured actions after an order is authoritatively confirmed and normalized. The format is configuration schema version 2.
 
 An action must also be enabled to run. The settings UI's address-label and packing-slip switches update the action-level `enabled` setting, so an operator can globally suppress either output while leaving reusable rule definitions intact.
 

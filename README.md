@@ -53,6 +53,11 @@ Copy-Item .env.example .env.local
 Copy-Item config/local.example.json config/local.json
 ```
 
+The current configuration schema is version 2. Existing version-one files are
+migrated safely in memory and are rewritten as a complete version-two document
+the next time Settings is saved; validation and startup never rewrite the file
+on their own.
+
 The environment file may remain blank when using the browser connector.
 
 ### Browser-managed seller connection

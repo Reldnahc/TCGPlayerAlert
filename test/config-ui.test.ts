@@ -146,6 +146,34 @@ describe("configuration UI", () => {
     });
   });
 
+  it("leaves version-one files untouched until a successful settings save", async () => {
+    const current = await fixture();
+    const source = JSON.parse(await readFile(current.path, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    source.version = 1;
+    delete source.confirmBeforeMarkingShipped;
+    await writeFile(current.path, `${JSON.stringify(source, null, 2)}\n`);
+
+    const initial = await current.service.read();
+    const afterRead = JSON.parse(
+      await readFile(current.path, "utf8"),
+    ) as Record<string, unknown>;
+
+    expect(afterRead.version).toBe(1);
+    expect(afterRead.confirmBeforeMarkingShipped).toBeUndefined();
+    expect(initial.confirmBeforeMarkingShipped).toBe(true);
+
+    await current.service.save(initial);
+    const afterSave = JSON.parse(
+      await readFile(current.path, "utf8"),
+    ) as Record<string, unknown>;
+
+    expect(afterSave.version).toBe(2);
+    expect(afterSave.confirmBeforeMarkingShipped).toBe(true);
+  });
+
   it("rejects stale revisions and dependent pricing-profile removal", async () => {
     const current = await fixture();
     const initial = await current.service.read();

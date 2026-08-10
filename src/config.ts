@@ -156,8 +156,10 @@ export interface RepricingProfileConfig {
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
+export const CURRENT_CONFIG_VERSION = 2 as const;
+
 export interface AppConfig {
-  readonly version: 1;
+  readonly version: typeof CURRENT_CONFIG_VERSION;
   readonly pricingProfileDefaultsVersion: 1;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
@@ -703,12 +705,102 @@ function parseStringArray(
   return value.map((entry) => String(entry));
 }
 
+function requireField(
+  source: UnknownRecord | undefined,
+  key: string,
+  path: string,
+  issues: string[],
+): void {
+  if (source?.[key] === undefined) {
+    issues.push(`${path}.${key} is required in configuration version 2.`);
+  }
+}
+
+function validateVersionTwoShape(
+  root: UnknownRecord | undefined,
+  issues: string[],
+): void {
+  for (const key of [
+    "pricingProfileDefaultsVersion",
+    "confirmBeforeMarkingShipped",
+    "shipmentScanner",
+    "inventoryAdditionQueue",
+    "merchandiseProfiles",
+    "defaultMerchandiseProfileId",
+    "repricingProfiles",
+    "defaultRepricingProfileId",
+  ]) {
+    requireField(root, key, "config", issues);
+  }
+  if (root?.dryRun !== undefined) {
+    issues.push(
+      "config.dryRun was removed in configuration version 2; disable individual actions and queues instead.",
+    );
+  }
+
+  const shipmentScanner = record(root?.shipmentScanner);
+  if (shipmentScanner !== undefined) {
+    requireField(shipmentScanner, "camera", "config.shipmentScanner", issues);
+    const camera = record(shipmentScanner.camera);
+    if (camera !== undefined) {
+      requireField(camera, "enabled", "config.shipmentScanner.camera", issues);
+      requireField(camera, "deviceId", "config.shipmentScanner.camera", issues);
+    }
+  }
+
+  if (Array.isArray(root?.merchandiseProfiles)) {
+    for (const [index, value] of root.merchandiseProfiles.entries()) {
+      const profile = record(value);
+      const path = `config.merchandiseProfiles[${String(index)}]`;
+      requireField(profile, "defaultCondition", path, issues);
+      requireField(profile, "defaultPrinting", path, issues);
+      requireField(profile, "pricingProfileId", path, issues);
+    }
+  }
+
+  if (Array.isArray(root?.repricingProfiles)) {
+    for (const [profileIndex, value] of root.repricingProfiles.entries()) {
+      const profile = record(value);
+      const profilePath = `config.repricingProfiles[${String(profileIndex)}]`;
+      requireField(profile, "sparseMarketFallback", profilePath, issues);
+      requireField(profile, "gamePricingModules", profilePath, issues);
+      if (!Array.isArray(profile?.ranges)) continue;
+      for (const [rangeIndex, rangeValue] of profile.ranges.entries()) {
+        const range = record(rangeValue);
+        const rangePath = `${profilePath}.ranges[${String(rangeIndex)}]`;
+        requireField(range, "minimumListings", rangePath, issues);
+        requireField(range, "supportMode", rangePath, issues);
+        requireField(range, "minimumSellerSupport", rangePath, issues);
+        requireField(range, "supportWindowPercent", rangePath, issues);
+      }
+    }
+  }
+
+  const actions = record(root?.actions);
+  for (const [actionId, value] of Object.entries(actions ?? {})) {
+    const action = record(value);
+    const path = `config.actions.${actionId}`;
+    requireField(action, "enabled", path, issues);
+    if (action?.type === "print-address-label") {
+      requireField(action, "omitLineValues", path, issues);
+    }
+  }
+}
+
 export function parseConfig(value: unknown): AppConfig {
   const issues: string[] = [];
   const root = record(value);
   if (root === undefined) issues.push("config must be an object.");
-  const disableLegacySideEffects = root?.dryRun === true;
-  if (root?.version !== 1) issues.push("config.version must be 1.");
+  const sourceVersion = root?.version;
+  const isVersionOne = sourceVersion === 1;
+  const isVersionTwo = sourceVersion === CURRENT_CONFIG_VERSION;
+  if (!isVersionOne && !isVersionTwo) {
+    issues.push(
+      `config.version must be 1 or ${String(CURRENT_CONFIG_VERSION)}; newer versions require an application update.`,
+    );
+  }
+  if (isVersionTwo) validateVersionTwoShape(root, issues);
+  const disableLegacySideEffects = isVersionOne && root?.dryRun === true;
   if (
     root?.pricingProfileDefaultsVersion !== undefined &&
     root.pricingProfileDefaultsVersion !== 1
@@ -805,6 +897,7 @@ export function parseConfig(value: unknown): AppConfig {
           parseRepricingProfile(profile, index, issues),
         );
   const seedSellNowProfile =
+    isVersionOne &&
     root?.pricingProfileDefaultsVersion === undefined &&
     repricingProfileValues !== undefined &&
     parsedRepricingProfiles.length < 20 &&
@@ -1338,7 +1431,7 @@ export function parseConfig(value: unknown): AppConfig {
 
   if (issues.length > 0) throw new ConfigurationError(issues);
   return {
-    version: 1,
+    version: CURRENT_CONFIG_VERSION,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
     confirmBeforeMarkingShipped,

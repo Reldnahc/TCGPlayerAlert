@@ -19,7 +19,7 @@ export type * from "./camera-capture.js";
 export type { WorkflowAction } from "./actions.js";
 export { ConfigurationService, startConfigurationUi } from "./config-ui.js";
 export type * from "./config-ui.js";
-export { loadConfig, parseConfig } from "./config.js";
+export { CURRENT_CONFIG_VERSION, loadConfig, parseConfig } from "./config.js";
 export type * from "./config.js";
 export type * from "./domain.js";
 export {

@@ -43,7 +43,7 @@ export const syntheticPackingSlip: FulfillmentDocument = {
 
 export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    version: 1,
+    version: 2,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     confirmBeforeMarkingShipped: true,

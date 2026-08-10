@@ -2,6 +2,10 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { ConfigurationError, parseConfig } from "../src/index.js";
 
+function markAsVersionOne(value: object): void {
+  Object.assign(value, { version: 1 });
+}
+
 describe("application configuration", () => {
   it("validates the committed example with every side effect disabled", async () => {
     const value = JSON.parse(
@@ -10,7 +14,7 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(1);
+    expect(config.version).toBe(2);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.shipmentScanner).toEqual({
@@ -105,19 +109,25 @@ describe("application configuration", () => {
     });
   });
 
-  it("keeps shipment confirmation enabled for older configuration files", async () => {
+  it("migrates version-one configuration without mutating its source", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    markAsVersionOne(value);
     delete value.confirmBeforeMarkingShipped;
 
-    expect(parseConfig(value).confirmBeforeMarkingShipped).toBe(true);
+    const config = parseConfig(value);
+
+    expect(config.version).toBe(2);
+    expect(config.confirmBeforeMarkingShipped).toBe(true);
+    expect(value.version).toBe(1);
   });
 
   it("keeps shipment scanning safely disabled for older configuration files", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    markAsVersionOne(value);
     delete value.shipmentScanner;
 
     expect(parseConfig(value).shipmentScanner).toEqual({
@@ -133,6 +143,7 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    markAsVersionOne(value);
     value.shipmentScanner = {
       enabled: true,
       automaticallyMarkShipped: false,
@@ -180,6 +191,7 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    markAsVersionOne(value);
     delete value.inventoryAdditionQueue;
     delete value.merchandiseProfiles;
     delete value.defaultMerchandiseProfileId;
@@ -237,6 +249,7 @@ describe("application configuration", () => {
     ) as {
       repricingProfiles: { ranges: Record<string, unknown>[] }[];
     };
+    markAsVersionOne(value);
     for (const range of value.repricingProfiles[0]?.ranges ?? []) {
       delete range.supportMode;
       delete range.minimumSellerSupport;
@@ -262,6 +275,7 @@ describe("application configuration", () => {
     ) as {
       repricingProfiles: { gamePricingModules?: unknown }[];
     };
+    markAsVersionOne(value);
     const firstProfile = value.repricingProfiles[0];
     const secondProfile = value.repricingProfiles[1];
     if (firstProfile === undefined || secondProfile === undefined) {
@@ -325,6 +339,7 @@ describe("application configuration", () => {
       pricingProfileDefaultsVersion?: number;
       repricingProfiles: { id: string }[];
     };
+    markAsVersionOne(value);
     value.repricingProfiles = value.repricingProfiles.filter(
       (profile) => profile.id !== "sell-now",
     );
@@ -353,6 +368,7 @@ describe("application configuration", () => {
     ) as {
       merchandiseProfiles: Record<string, unknown>[];
     };
+    markAsVersionOne(value);
     const profile = value.merchandiseProfiles[0];
     if (profile === undefined) throw new Error("Missing merchandise profile");
     delete profile.defaultCondition;
@@ -458,6 +474,49 @@ describe("application configuration", () => {
     }
   });
 
+  it("rejects version-two files that omit migration-owned fields", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    delete value.confirmBeforeMarkingShipped;
+    delete value.inventoryAdditionQueue;
+    const shipmentScanner = value.shipmentScanner as {
+      camera: Record<string, unknown>;
+    };
+    delete shipmentScanner.camera.deviceId;
+
+    try {
+      parseConfig(value);
+      throw new Error("Expected configuration validation to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect((error as ConfigurationError).issues).toEqual(
+        expect.arrayContaining([
+          "config.confirmBeforeMarkingShipped is required in configuration version 2.",
+          "config.inventoryAdditionQueue is required in configuration version 2.",
+          "config.shipmentScanner.camera.deviceId is required in configuration version 2.",
+        ]),
+      );
+    }
+  });
+
+  it("rejects configuration from a newer unsupported schema", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    value.version = 3;
+
+    expect(() => parseConfig(value)).toThrow(
+      expect.objectContaining({
+        issues: [
+          expect.stringContaining(
+            "newer versions require an application update",
+          ),
+        ],
+      }),
+    );
+  });
+
   it("rejects enabled printing while placeholder printers remain", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
@@ -492,6 +551,7 @@ describe("application configuration", () => {
       inventoryAdditionQueue: { enabled: boolean };
       actions: Record<string, { enabled: boolean }>;
     };
+    markAsVersionOne(value);
     value.priceUpdateQueue.enabled = true;
     value.inventoryAdditionQueue.enabled = true;
     for (const action of Object.values(value.actions)) action.enabled = true;

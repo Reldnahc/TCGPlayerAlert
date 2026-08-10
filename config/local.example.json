@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "pricingProfileDefaultsVersion": 1,
   "pollIntervalMinutes": 60,
   "confirmBeforeMarkingShipped": true,
