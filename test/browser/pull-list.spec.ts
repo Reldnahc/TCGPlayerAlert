@@ -15,6 +15,24 @@ test("shows a printable master pull list with card metadata", async ({
   await expect(page.getByText("Blue", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Print" })).toBeEnabled();
 
+  const productNames = page.locator(
+    ".pull-list-table tbody .pull-list-product strong",
+  );
+  await expect(productNames).toHaveText(["Lightning Bolt", "Counterspell"]);
+  await page.getByRole("button", { name: "Sort by product" }).click();
+  await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
+
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Master pull list" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Sort by product, currently ascending",
+    }),
+  ).toBeVisible();
+  await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
+
   await page.screenshot({
     path: testInfo.outputPath("pull-list.png"),
     fullPage: true,

@@ -762,6 +762,10 @@ describe("operator console", () => {
     vi.stubGlobal("fetch", fetchMock);
     const print = vi.spyOn(window, "print").mockImplementation(() => undefined);
     const user = userEvent.setup();
+    window.localStorage.setItem(
+      "tcgplayer-alert.master-pull-list-sort.v1",
+      JSON.stringify({ field: "unsupported", direction: "sideways" }),
+    );
     render(<App />);
 
     expect(
@@ -780,6 +784,57 @@ describe("operator console", () => {
     expect(
       screen.getByRole("link", { name: "All orders" }).getAttribute("href"),
     ).toBe("#orders");
+
+    const productOrder = () =>
+      within(screen.getByRole("table"))
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => within(row).getAllByRole("cell")[2]?.textContent);
+
+    expect(productOrder()).toEqual([
+      "Synthetic Red CardMagic: The Gathering",
+      "Product Without ColorSynthetic Game",
+    ]);
+    expect(screen.getByRole("button", { name: "Sort by qty" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sort by set / #" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sort by condition" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sort by rarity" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sort by color" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Sort by product" }));
+    expect(productOrder()).toEqual([
+      "Product Without ColorSynthetic Game",
+      "Synthetic Red CardMagic: The Gathering",
+    ]);
+    expect(
+      screen
+        .getByRole("button", {
+          name: "Sort by product, currently ascending",
+        })
+        .closest("th")
+        ?.getAttribute("aria-sort"),
+    ).toBe("ascending");
+
+    cleanup();
+    render(<App />);
+    expect(
+      await screen.findByRole("heading", { name: "Master pull list" }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Sort by product, currently ascending",
+        }),
+      ).toBeTruthy(),
+    );
+    expect(productOrder()).toEqual([
+      "Product Without ColorSynthetic Game",
+      "Synthetic Red CardMagic: The Gathering",
+    ]);
 
     await user.click(screen.getByRole("button", { name: "Print" }));
     expect(print).toHaveBeenCalledOnce();
