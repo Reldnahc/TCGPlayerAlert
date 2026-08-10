@@ -1,0 +1,45 @@
+.jobs-layout {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 9px;
+}
+.queue-tabs {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.queue-tabs .segmented button span {
+  margin-left: 5px;
+  color: var(--text-faint);
+}
+.worker-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.worker-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9da7ad;
+}
+.worker-state.is-running i {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(8, 122, 82, 0.13);
+}
+.jobs-table {
+  min-width: 940px;
+}
+.job-error {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--danger);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

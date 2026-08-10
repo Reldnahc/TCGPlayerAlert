@@ -1,0 +1,175 @@
+.inventory-layout {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  gap: 9px;
+}
+.inventory-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.inventory-table-region {
+  min-height: 220px;
+}
+.inventory-view-filter {
+  flex: 0 0 auto;
+}
+.inventory-table {
+  min-width: 1540px;
+}
+.inventory-table th:first-child,
+.inventory-table td:first-child {
+  width: 35px;
+  text-align: center;
+}
+.inventory-table .market-reference {
+  min-width: 330px;
+  max-width: 460px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.price-proposed,
+.price-change {
+  font-variant-numeric: tabular-nums;
+}
+.price-change {
+  display: inline-grid;
+  justify-items: end;
+  gap: 1px;
+  white-space: nowrap;
+}
+.price-change small {
+  font-size: 9px;
+  font-weight: 650;
+}
+.price-change--increase {
+  color: var(--success);
+}
+.price-change--decrease {
+  color: var(--danger);
+}
+.price-change--unchanged {
+  color: var(--text-faint);
+}
+.inventory-change-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.inventory-change-sort span {
+  min-width: 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.inventory-table tr.is-large-price-change > td {
+  background: #fff8e5;
+}
+.inventory-table tr.is-large-price-change > td:first-child {
+  box-shadow: inset 3px 0 0 #d69b20;
+}
+.inventory-table tr.is-large-price-change:hover > td {
+  background: #fff2c9;
+}
+.minimum-note {
+  display: block;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+.result-copy {
+  max-width: 300px;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.remove-confirm {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 4px;
+}
+.remove-confirm > span {
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 650;
+}
+.remove-confirm .button {
+  min-height: 27px;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.page-overlay {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(239, 242, 244, 0.76);
+  backdrop-filter: blur(1px);
+}
+.inventory-loading {
+  display: grid;
+  width: min(430px, calc(100% - 32px));
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  background: white;
+  box-shadow: var(--shadow-menu);
+}
+.inventory-loading .spinner {
+  color: var(--text);
+  font-weight: 700;
+}
+.inventory-loading__progress {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+}
+.inventory-loading__progress span {
+  position: absolute;
+  inset-block: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: inventory-progress 1.2s ease-in-out infinite;
+}
+.inventory-loading__progress.is-determinate span {
+  inset-inline-start: 0;
+  animation: none;
+  transition: width 160ms ease-out;
+}
+.inventory-loading p,
+.inventory-loading small {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.inventory-loading small {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes inventory-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}

@@ -4,7 +4,17 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/components.css";
-import "./styles/pages.css";
+import "./styles/pages/operations.css";
+import "./styles/pages/payments.css";
+import "./styles/pages/feedback.css";
+import "./styles/pages/messages.css";
+import "./styles/pages/settings.css";
+import "./styles/pages/catalog.css";
+import "./styles/pages/inventory.css";
+import "./styles/pages/jobs.css";
+import "./styles/pages/scanner.css";
+import "./styles/pages/responsive.css";
+import "./styles/pages/print.css";
 
 const root = document.querySelector("#app");
 if (root === null) throw new Error("The application mount point is missing.");

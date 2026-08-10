@@ -1,0 +1,336 @@
+// @vitest-environment jsdom
+
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/preact";
+import { userEvent } from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { App } from "../src/web/App.js";
+import { uiApi } from "../src/web/api.js";
+import {
+  baseFetch,
+  json,
+  requestPath,
+  settings,
+  resetWebUiTest,
+} from "./web-ui-fixtures.js";
+
+afterEach(resetWebUiTest);
+
+describe("order workspaces", () => {
+  it("opens a seller-confirmed internal order workspace from the order number", async () => {
+    window.location.hash = "orders";
+    const order = {
+      orderNumber: "SYNTHETIC-ORDER-DETAIL",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 12,
+      shippingAmount: 1.49,
+      totalAmount: 13.49,
+    };
+    const detail = {
+      createdAt: order.orderDate,
+      status: order.status,
+      statusCode: order.statusCode,
+      orderChannel: "Marketplace",
+      orderFulfillment: "Seller",
+      orderNumber: order.orderNumber,
+      sellerName: "Synthetic Seller",
+      buyerName: order.buyerName,
+      paymentType: "Credit card",
+      pickupStatus: "Not requested",
+      shippingType: order.shippingType,
+      estimatedDeliveryDate: "2026-08-12T12:00:00.000Z",
+      transaction: {
+        productAmount: 12,
+        shippingAmount: 1.49,
+        grossAmount: 13.49,
+        feeAmount: 1.5,
+        netAmount: 11.99,
+        directFeeAmount: 0,
+        taxes: [],
+      },
+      shippingAddress: {
+        recipientName: "Synthetic Buyer",
+        addressOne: "125 Example Avenue",
+        addressTwo: "Unit 4",
+        city: "Test City",
+        territory: "IL",
+        country: "US",
+        postalCode: "60000",
+      },
+      products: [
+        {
+          name: "Synthetic Card · Test Set · Near Mint",
+          unitPrice: 6,
+          extendedPrice: 12,
+          quantity: 2,
+          url: "https://www.tcgplayer.com/",
+          productId: "123",
+          skuId: "456",
+          listoId: 789,
+        },
+      ],
+      refunds: [],
+      refundStatus: "None",
+      refundCapabilities: { full: true, partial: true },
+      trackingNumbers: [],
+      canMarkShipped: true,
+      fetchedAt: "2026-08-07T12:01:00.000Z",
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path.startsWith(`/api/orders/${order.orderNumber}?`)) {
+          return Promise.resolve(json(detail));
+        }
+        if (path === `/api/orders/${order.orderNumber}`) {
+          return Promise.resolve(json(detail));
+        }
+        if (
+          path === `/api/orders/${order.orderNumber}/refund` &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(
+            json({
+              orderNumber: order.orderNumber,
+              refundType: "full",
+              outcome: "submitted",
+            }),
+          );
+        }
+        if (path === "/api/settings") {
+          return Promise.resolve(
+            json({ ...settings, confirmBeforeMarkingShipped: false }),
+          );
+        }
+        if (path === "/api/orders?") {
+          return Promise.resolve(
+            json({
+              orders: [order],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const refundOptions = vi.spyOn(uiApi, "refundOptions").mockResolvedValue({
+      origins: [{ name: "Seller initiated", value: "SellerInitiated" }],
+      reasons: [
+        { name: "Inventory issue", value: "Product - Inventory Issue" },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("link", { name: order.orderNumber }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: `Order ${order.orderNumber}`,
+      }),
+    ).toBeTruthy();
+    expect(await screen.findByText("125 Example Avenue")).toBeTruthy();
+    expect(
+      screen.getByText("Synthetic Card · Test Set · Near Mint"),
+    ).toBeTruthy();
+    expect(screen.getByText("No tracking has been added")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Open in TCGplayer" })
+        .getAttribute("href"),
+    ).toBe("https://sellerportal.tcgplayer.com/orders/SYNTHETIC-ORDER-DETAIL");
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) =>
+          requestPath(input) === "/api/orders/SYNTHETIC-ORDER-DETAIL",
+      ),
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Refund" }));
+    await screen.findByText(
+      "Review is always required before money is returned.",
+    );
+    await waitFor(() => expect(refundOptions).toHaveBeenCalledOnce());
+    await user.type(
+      await screen.findByRole("textbox", { name: "Message" }),
+      "Synthetic refund",
+    );
+    await user.click(screen.getByRole("button", { name: "Review refund" }));
+
+    expect(screen.getByText("Confirm this full refund")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, options]) =>
+          requestPath(input).endsWith("/refund") && options?.method === "POST",
+      ),
+    ).toHaveLength(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Confirm full refund" }),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, options]) =>
+            requestPath(input).endsWith("/refund") &&
+            options?.method === "POST",
+        ),
+      ).toHaveLength(1),
+    );
+    const refundCall = fetchMock.mock.calls.find(([input]) =>
+      requestPath(input).endsWith("/refund"),
+    );
+    const refundBody = refundCall?.[1]?.body;
+    if (typeof refundBody !== "string") {
+      throw new Error("Expected the refund to be submitted as JSON.");
+    }
+    expect(JSON.parse(refundBody) as unknown).toEqual({
+      type: "full",
+      origin: "SellerInitiated",
+      reason: "Product - Inventory Issue",
+      reasonText: "Synthetic refund",
+    });
+  });
+
+  it("displays and prints a master pull list with optional color metadata", async () => {
+    window.location.hash = "orders/pull-list";
+    const pullList = {
+      orderCount: 2,
+      totalQuantity: 3,
+      fetchedAt: "2026-08-07T12:01:00.000Z",
+      rows: [
+        {
+          productLine: "Magic: The Gathering",
+          productName: "Synthetic Red Card",
+          condition: "Near Mint",
+          number: "42",
+          setName: "Synthetic Set",
+          rarity: "Rare",
+          quantity: 8,
+          mainPhotoUrl: "https://www.example.test/red.jpg",
+          setReleaseDate: "2026-01-01",
+          skuId: "456",
+          orderQuantity: 2,
+          productId: 123,
+          metadata: [{ label: "Color", values: ["Red"] }],
+        },
+        {
+          productLine: "Synthetic Game",
+          productName: "Product Without Color",
+          condition: "Near Mint",
+          number: "7",
+          setName: "Synthetic Set",
+          rarity: "Common",
+          quantity: 4,
+          mainPhotoUrl: "https://www.example.test/colorless.jpg",
+          setReleaseDate: "2026-01-01",
+          skuId: "789",
+          orderQuantity: 1,
+          productId: 124,
+          metadata: [],
+        },
+      ],
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders/pull-list") {
+          return Promise.resolve(json(pullList));
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const print = vi.spyOn(window, "print").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "tcgplayer-alert.master-pull-list-sort.v1",
+      JSON.stringify({ field: "unsupported", direction: "sideways" }),
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Master pull list" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("Synthetic Red Card")).toBeTruthy();
+    expect(screen.getByText("Red")).toBeTruthy();
+    expect(screen.getByText("Product Without Color")).toBeTruthy();
+    expect(screen.queryByText("Unknown")).toBeNull();
+    expect(
+      screen.getByText("Cards to pull").nextElementSibling?.textContent,
+    ).toBe("3");
+    expect(
+      screen.getByText("2 ready orders · 3 cards · 2 unique SKUs"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "All orders" }).getAttribute("href"),
+    ).toBe("#orders");
+
+    const productOrder = () =>
+      within(screen.getByRole("table"))
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => within(row).getAllByRole("cell")[2]?.textContent);
+
+    expect(productOrder()).toEqual([
+      "Synthetic Red CardMagic: The Gathering",
+      "Product Without ColorSynthetic Game",
+    ]);
+    expect(screen.getByRole("button", { name: "Sort by qty" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sort by set / #" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sort by condition" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sort by rarity" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sort by color" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Sort by product" }));
+    expect(productOrder()).toEqual([
+      "Product Without ColorSynthetic Game",
+      "Synthetic Red CardMagic: The Gathering",
+    ]);
+    expect(
+      screen
+        .getByRole("button", {
+          name: "Sort by product, currently ascending",
+        })
+        .closest("th")
+        ?.getAttribute("aria-sort"),
+    ).toBe("ascending");
+
+    cleanup();
+    render(<App />);
+    expect(
+      await screen.findByRole("heading", { name: "Master pull list" }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Sort by product, currently ascending",
+        }),
+      ).toBeTruthy(),
+    );
+    expect(productOrder()).toEqual([
+      "Product Without ColorSynthetic Game",
+      "Synthetic Red CardMagic: The Gathering",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Print" }));
+    expect(print).toHaveBeenCalledOnce();
+  });
+});
