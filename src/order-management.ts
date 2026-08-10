@@ -1,6 +1,7 @@
 import {
   SellerOrderStatus,
   type OrderRefundMutationResult,
+  type PullSheetOrderAllocation,
   type PullSheetRow,
   type RefundOrderProductInput,
   type SellerOrderDetail,
@@ -8,6 +9,11 @@ import {
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import { ApplicationError } from "./errors.js";
+import type {
+  PulledOrderLineProgress,
+  PullListProgressState,
+  PullListProgressStore,
+} from "./pull-list-progress.js";
 import {
   resolveSellerKey,
   type SellerKeySource,
@@ -64,15 +70,24 @@ export interface PullListMetadata {
   readonly values: readonly string[];
 }
 
-export interface ManagedPullListRow extends PullSheetRow {
+export interface ManagedPullListRow extends Omit<
+  PullSheetRow,
+  "orderAllocations"
+> {
   readonly productId?: number;
   readonly metadata: readonly PullListMetadata[];
+  readonly pulledQuantity: number;
+  readonly remainingQuantity: number;
+  readonly pulled: boolean;
+  readonly canTrackPullProgress: boolean;
 }
 
 export interface ManagedMasterPullList {
   readonly orderCount: number;
   readonly rows: readonly ManagedPullListRow[];
   readonly totalQuantity: number;
+  readonly pulledQuantity: number;
+  readonly remainingQuantity: number;
   readonly fetchedAt: string;
   readonly metadataIssue?: string;
 }
@@ -96,6 +111,7 @@ type OrderManagementClient = Pick<
 export interface OrderManagementServiceOptions {
   readonly client: OrderManagementClient;
   readonly sellerKey: SellerKeySource;
+  readonly pullListProgressStore: PullListProgressStore;
   readonly pageSize: number;
   readonly maximumPages: number;
   readonly timezoneOffsetMinutes: number;
@@ -132,11 +148,16 @@ interface CachedRefundOptions {
 interface CachedPullList {
   readonly expiresAt: number;
   readonly value: ManagedMasterPullList;
+  readonly allocationsBySku: ReadonlyMap<
+    string,
+    readonly PullSheetOrderAllocation[]
+  >;
 }
 
 export class OrderManagementService {
   private readonly client: OrderManagementClient;
   private readonly sellerKey: SellerKeySource;
+  private readonly pullListProgressStore: PullListProgressStore;
   private cachedSellerKey: string | undefined;
   private readonly pageSize: number;
   private readonly maximumPages: number;
@@ -149,6 +170,7 @@ export class OrderManagementService {
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly detailCache = new Map<string, CachedOrderDetail>();
   private pullListCache: CachedPullList | undefined;
+  private pullListProgressOperation: Promise<void> = Promise.resolve();
   private readonly refundingOrders = new Set<string>();
   private refundOptionsCache: CachedRefundOptions | undefined;
   private readonly pirateShipCache = new Map<
@@ -159,6 +181,7 @@ export class OrderManagementService {
   constructor(options: OrderManagementServiceOptions) {
     this.client = options.client;
     this.sellerKey = options.sellerKey;
+    this.pullListProgressStore = options.pullListProgressStore;
     if (typeof options.sellerKey === "string") {
       requiredText(options.sellerKey, "Seller key", 256);
     }
@@ -321,17 +344,27 @@ export class OrderManagementService {
       .filter((order) => order.statusCode === SellerOrderStatus.ReadyToShip)
       .map((order) => order.orderNumber);
     if (orderNumbers.length === 0) {
-      const value: ManagedMasterPullList = {
-        orderCount: 0,
-        rows: [],
-        totalQuantity: 0,
-        fetchedAt: now.toISOString(),
-      };
-      this.pullListCache = {
-        expiresAt: now.getTime() + this.cacheMilliseconds,
-        value,
-      };
-      return value;
+      return this.withPullListProgressOperation(async () => {
+        const allocationsBySku = new Map<
+          string,
+          readonly PullSheetOrderAllocation[]
+        >();
+        await this.loadReconciledPullListProgress(allocationsBySku);
+        const value: ManagedMasterPullList = {
+          orderCount: 0,
+          rows: [],
+          totalQuantity: 0,
+          pulledQuantity: 0,
+          remainingQuantity: 0,
+          fetchedAt: now.toISOString(),
+        };
+        this.pullListCache = {
+          expiresAt: now.getTime() + this.cacheMilliseconds,
+          value,
+          allocationsBySku,
+        };
+        return value;
+      });
     }
     const requestOptions =
       options.signal === undefined ? undefined : { signal: options.signal };
@@ -367,6 +400,10 @@ export class OrderManagementService {
         rowsBySku.set(row.skuId, {
           ...existing,
           orderQuantity: existing.orderQuantity + row.orderQuantity,
+          orderAllocations: mergeOrderAllocations(
+            existing.orderAllocations,
+            row.orderAllocations,
+          ),
         });
       }
     }
@@ -381,37 +418,149 @@ export class OrderManagementService {
       uniqueProductIds,
       options.signal,
     );
-    const rows = pullSheetRows.map<ManagedPullListRow>((row) => {
+    const baseRows = pullSheetRows.map<ManagedPullListRow>((row) => {
       const productId = productIds.bySku.get(row.skuId);
       const colors =
         productId === undefined ? undefined : metadata.colors.get(productId);
       return {
-        ...row,
+        productLine: row.productLine,
+        productName: row.productName,
+        condition: row.condition,
+        number: row.number,
+        setName: row.setName,
+        rarity: row.rarity,
+        quantity: row.quantity,
+        mainPhotoUrl: row.mainPhotoUrl,
+        setReleaseDate: row.setReleaseDate,
+        skuId: row.skuId,
+        orderQuantity: row.orderQuantity,
         ...(productId === undefined ? {} : { productId }),
         metadata:
           colors === undefined || colors.length === 0
             ? []
             : [{ label: "Color", values: colors }],
+        pulledQuantity: 0,
+        remainingQuantity: row.orderQuantity,
+        pulled: false,
+        canTrackPullProgress: false,
       };
     });
-    const value: ManagedMasterPullList = {
-      orderCount: orderNumbers.length,
-      rows,
-      totalQuantity: rows.reduce((total, row) => total + row.orderQuantity, 0),
-      fetchedAt: now.toISOString(),
-      ...(productIds.issue === undefined && metadata.issue === undefined
-        ? {}
-        : {
-            metadataIssue: [productIds.issue, metadata.issue]
-              .filter((issue): issue is string => issue !== undefined)
-              .join(" "),
-          }),
-    };
-    this.pullListCache = {
-      expiresAt: now.getTime() + this.cacheMilliseconds,
-      value,
-    };
-    return value;
+    const allocationsBySku = new Map(
+      pullSheetRows.map((row) => [row.skuId, row.orderAllocations] as const),
+    );
+    return this.withPullListProgressOperation(async () => {
+      const progress =
+        await this.loadReconciledPullListProgress(allocationsBySku);
+      const value = applyPullListProgress(
+        {
+          orderCount: orderNumbers.length,
+          rows: baseRows,
+          totalQuantity: baseRows.reduce(
+            (total, row) => total + row.orderQuantity,
+            0,
+          ),
+          pulledQuantity: 0,
+          remainingQuantity: 0,
+          fetchedAt: now.toISOString(),
+          ...(productIds.issue === undefined && metadata.issue === undefined
+            ? {}
+            : {
+                metadataIssue: [productIds.issue, metadata.issue]
+                  .filter((issue): issue is string => issue !== undefined)
+                  .join(" "),
+              }),
+        },
+        allocationsBySku,
+        progress,
+      );
+      this.pullListCache = {
+        expiresAt: now.getTime() + this.cacheMilliseconds,
+        value,
+        allocationsBySku,
+      };
+      return value;
+    });
+  }
+
+  async setPullListRowPulled(
+    skuId: string,
+    pulled: boolean,
+    signal?: AbortSignal,
+  ): Promise<ManagedPullListRow> {
+    const normalizedSkuId = requiredText(skuId, "SKU", 128);
+    if (typeof pulled !== "boolean") {
+      throw new ApplicationError(
+        "CONFIGURATION_ERROR",
+        "Pulled must be true or false.",
+      );
+    }
+    await this.getMasterPullList(signal === undefined ? {} : { signal });
+    return this.withPullListProgressOperation(async () => {
+      const cached = this.pullListCache;
+      const currentRow = cached?.value.rows.find(
+        (row) => row.skuId === normalizedSkuId,
+      );
+      const allocations = cached?.allocationsBySku.get(normalizedSkuId);
+      if (cached === undefined || currentRow === undefined) {
+        throw new ApplicationError(
+          "CONFIGURATION_ERROR",
+          "The selected card is not in the current master pull list.",
+        );
+      }
+      if (!trackableAllocations(currentRow.orderQuantity, allocations)) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "TCGplayer did not identify the order allocation for this card, so pull progress cannot be changed safely.",
+        );
+      }
+      const current = await this.loadReconciledPullListProgress(
+        cached.allocationsBySku,
+      );
+      const next = setSkuPullProgress(
+        current,
+        normalizedSkuId,
+        allocations,
+        pulled,
+        this.now().toISOString(),
+      );
+      await this.pullListProgressStore.save(next);
+      const value = applyPullListProgress(
+        cached.value,
+        cached.allocationsBySku,
+        next,
+      );
+      this.pullListCache = { ...cached, value };
+      const updated = value.rows.find((row) => row.skuId === normalizedSkuId);
+      if (updated === undefined) {
+        throw new ApplicationError(
+          "PERSISTENCE_ERROR",
+          "The updated card disappeared from pull-list progress.",
+        );
+      }
+      return updated;
+    });
+  }
+
+  private async loadReconciledPullListProgress(
+    allocationsBySku: ReadonlyMap<string, readonly PullSheetOrderAllocation[]>,
+  ): Promise<PullListProgressState> {
+    const current = await this.pullListProgressStore.load();
+    const reconciled = reconcilePullListProgress(current, allocationsBySku);
+    if (reconciled.changed) {
+      await this.pullListProgressStore.save(reconciled.state);
+    }
+    return reconciled.state;
+  }
+
+  private withPullListProgressOperation<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const result = this.pullListProgressOperation.then(operation);
+    this.pullListProgressOperation = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async loadPullListProductIds(
@@ -786,6 +935,164 @@ function samePullSheetProduct(
     left.mainPhotoUrl === right.mainPhotoUrl &&
     left.setReleaseDate === right.setReleaseDate
   );
+}
+
+function mergeOrderAllocations(
+  left: readonly PullSheetOrderAllocation[],
+  right: readonly PullSheetOrderAllocation[],
+): readonly PullSheetOrderAllocation[] {
+  const quantities = new Map<string, number>();
+  for (const allocation of [...left, ...right]) {
+    quantities.set(
+      allocation.orderNumber,
+      (quantities.get(allocation.orderNumber) ?? 0) + allocation.quantity,
+    );
+  }
+  return [...quantities].map(([orderNumber, quantity]) => ({
+    orderNumber,
+    quantity,
+  }));
+}
+
+function trackableAllocations(
+  orderQuantity: number,
+  allocations: readonly PullSheetOrderAllocation[] | undefined,
+): allocations is readonly PullSheetOrderAllocation[] {
+  return (
+    allocations !== undefined &&
+    allocations.length > 0 &&
+    allocations.reduce(
+      (total, allocation) => total + allocation.quantity,
+      0,
+    ) === orderQuantity
+  );
+}
+
+function reconcilePullListProgress(
+  state: PullListProgressState,
+  allocationsBySku: ReadonlyMap<string, readonly PullSheetOrderAllocation[]>,
+): { readonly state: PullListProgressState; readonly changed: boolean } {
+  const currentLines = new Map<string, Map<string, number>>();
+  for (const [skuId, allocations] of allocationsBySku) {
+    for (const allocation of allocations) {
+      const orderLines =
+        currentLines.get(allocation.orderNumber) ?? new Map<string, number>();
+      orderLines.set(skuId, (orderLines.get(skuId) ?? 0) + allocation.quantity);
+      currentLines.set(allocation.orderNumber, orderLines);
+    }
+  }
+
+  let changed = false;
+  const orders: (readonly [
+    string,
+    Readonly<Record<string, { quantity: number; pulledAt: string }>>,
+  ])[] = [];
+  for (const [orderNumber, storedLines] of Object.entries(state.orders)) {
+    const allowedLines = currentLines.get(orderNumber);
+    if (allowedLines === undefined) {
+      changed = true;
+      continue;
+    }
+    const lines: (readonly [string, { quantity: number; pulledAt: string }])[] =
+      [];
+    for (const [skuId, progress] of Object.entries(storedLines)) {
+      const maximum = allowedLines.get(skuId);
+      if (maximum === undefined) {
+        changed = true;
+        continue;
+      }
+      const quantity = Math.min(progress.quantity, maximum);
+      if (quantity !== progress.quantity) changed = true;
+      lines.push([skuId, { quantity, pulledAt: progress.pulledAt }]);
+    }
+    if (lines.length === 0) {
+      changed = true;
+      continue;
+    }
+    orders.push([orderNumber, Object.fromEntries(lines)]);
+  }
+  return {
+    state: { version: 1, orders: Object.fromEntries(orders) },
+    changed,
+  };
+}
+
+function applyPullListProgress(
+  list: ManagedMasterPullList,
+  allocationsBySku: ReadonlyMap<string, readonly PullSheetOrderAllocation[]>,
+  progress: PullListProgressState,
+): ManagedMasterPullList {
+  const rows = list.rows.map((row) => {
+    const allocations = allocationsBySku.get(row.skuId);
+    const canTrackPullProgress = trackableAllocations(
+      row.orderQuantity,
+      allocations,
+    );
+    const pulledQuantity = canTrackPullProgress
+      ? allocations.reduce((total, allocation) => {
+          const stored =
+            progress.orders[allocation.orderNumber]?.[row.skuId]?.quantity ?? 0;
+          return total + Math.min(stored, allocation.quantity);
+        }, 0)
+      : 0;
+    const remainingQuantity = row.orderQuantity - pulledQuantity;
+    return {
+      ...row,
+      pulledQuantity,
+      remainingQuantity,
+      pulled: canTrackPullProgress && remainingQuantity === 0,
+      canTrackPullProgress,
+    };
+  });
+  const pulledQuantity = rows.reduce(
+    (total, row) => total + row.pulledQuantity,
+    0,
+  );
+  return {
+    ...list,
+    rows,
+    pulledQuantity,
+    remainingQuantity: list.totalQuantity - pulledQuantity,
+  };
+}
+
+function setSkuPullProgress(
+  state: PullListProgressState,
+  skuId: string,
+  allocations: readonly PullSheetOrderAllocation[],
+  pulled: boolean,
+  pulledAt: string,
+): PullListProgressState {
+  const orders = new Map<string, Map<string, PulledOrderLineProgress>>(
+    Object.entries(state.orders).map(
+      ([orderNumber, lines]) =>
+        [
+          orderNumber,
+          new Map<string, PulledOrderLineProgress>(Object.entries(lines)),
+        ] as const,
+    ),
+  );
+  for (const allocation of allocations) {
+    const lines =
+      orders.get(allocation.orderNumber) ??
+      new Map<string, PulledOrderLineProgress>();
+    if (pulled) {
+      lines.set(skuId, { quantity: allocation.quantity, pulledAt });
+      orders.set(allocation.orderNumber, lines);
+    } else {
+      lines.delete(skuId);
+      if (lines.size === 0) orders.delete(allocation.orderNumber);
+    }
+  }
+  return {
+    version: 1,
+    orders: Object.fromEntries(
+      [...orders].map(([orderNumber, lines]) => [
+        orderNumber,
+        Object.fromEntries(lines),
+      ]),
+    ),
+  };
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

@@ -30,6 +30,10 @@ metadata enrichment must avoid one catalog request per row.
 - Combine rows with the same exact SKU and sum their order quantities. Reject
   conflicting product identity fields for one SKU instead of silently merging
   uncertain products.
+- Preserve the validated per-order allocation supplied by
+  `tcgplayer-private-api` 0.15.0. Track picking progress on each exact
+  order-number/SKU allocation; never represent it as an order status or alter
+  the provider status. TCGplayer remains the sole order-status authority.
 - Derive optional product IDs from validated TCGplayer product-image URLs. When
   the export omits those URLs, read ready-order details sequentially only until
   every pull-sheet SKU that can be matched has a product ID. Reuse cached order
@@ -49,8 +53,15 @@ metadata enrichment must avoid one catalog request per row.
   printed list follows the displayed order. Use a dense monochrome printer
   stylesheet and `window.print()` so the operating system's normal print dialog
   remains the generic printer boundary.
-- Never persist or log pull-sheet rows, product metadata, or customer/order
-  content.
+- Default the working and printed master list to allocations that still need to
+  be pulled. A `Show pulled` control may reveal completed SKU rows with their
+  checkboxes prechecked. Checking a combined SKU marks only its current
+  per-order allocations; a later order for the same SKU remains unpulled and
+  contributes only its new quantity.
+- Persist only order number, SKU, pulled quantity, and timestamp in a separate
+  versioned progress document. Prune entries when their allocation is no longer
+  in TCGplayer's ready queue. Never persist or log pull-sheet product fields,
+  product metadata, customer details, or a synthetic order status.
 
 ## Consequences
 
@@ -64,5 +75,7 @@ requests. Optional detail or catalog drift cannot block fulfillment, while
 pull-sheet identity or SKU drift fails explicitly. The feature works with any
 printer exposed through the browser's operating-system print dialog. Sorting is
 entirely client-side and adds no provider requests. Its preference is local to
-the browser profile and resets when the operator clears site data; pull-list
-rows themselves remain in memory only.
+the browser profile and resets when the operator clears site data. Pull
+progress survives browser and application restarts without retaining card
+descriptions or customer data, and updating it adds no seller API request while
+the current list is cached.

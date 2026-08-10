@@ -210,6 +210,8 @@ describe("order workspaces", () => {
     const pullList = {
       orderCount: 2,
       totalQuantity: 3,
+      pulledQuantity: 0,
+      remainingQuantity: 3,
       fetchedAt: "2026-08-07T12:01:00.000Z",
       rows: [
         {
@@ -226,6 +228,10 @@ describe("order workspaces", () => {
           orderQuantity: 2,
           productId: 123,
           metadata: [{ label: "Color", values: ["Red"] }],
+          pulledQuantity: 0,
+          remainingQuantity: 2,
+          pulled: false,
+          canTrackPullProgress: true,
         },
         {
           productLine: "Synthetic Game",
@@ -241,6 +247,10 @@ describe("order workspaces", () => {
           orderQuantity: 1,
           productId: 124,
           metadata: [],
+          pulledQuantity: 0,
+          remainingQuantity: 1,
+          pulled: false,
+          canTrackPullProgress: true,
         },
       ],
     };
@@ -332,5 +342,102 @@ describe("order workspaces", () => {
 
     await user.click(screen.getByRole("button", { name: "Print" }));
     expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("marks a card pulled, hides it by default, and restores it prechecked", async () => {
+    window.location.hash = "orders/pull-list";
+    const row = {
+      productLine: "Magic: The Gathering",
+      productName: "Synthetic Pull Card",
+      condition: "Near Mint",
+      number: "42",
+      setName: "Synthetic Set",
+      rarity: "Rare",
+      quantity: 8,
+      mainPhotoUrl: "https://www.example.test/card.jpg",
+      setReleaseDate: "2026-01-01",
+      skuId: "456",
+      orderQuantity: 2,
+      productId: 123,
+      metadata: [{ label: "Color", values: ["Blue"] }],
+      pulledQuantity: 0,
+      remainingQuantity: 2,
+      pulled: false,
+      canTrackPullProgress: true,
+    };
+    const pullList = {
+      orderCount: 1,
+      totalQuantity: 2,
+      pulledQuantity: 0,
+      remainingQuantity: 2,
+      fetchedAt: "2026-08-07T12:01:00.000Z",
+      rows: [row],
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders/pull-list") {
+          return Promise.resolve(json(pullList));
+        }
+        if (path === "/api/orders/pull-list/items/456") {
+          if (typeof options?.body !== "string") {
+            throw new Error("Expected a synthetic JSON request body");
+          }
+          const body = JSON.parse(options.body) as { pulled: boolean };
+          return Promise.resolve(
+            json({
+              ...row,
+              pulledQuantity: body.pulled ? 2 : 0,
+              remainingQuantity: body.pulled ? 0 : 2,
+              pulled: body.pulled,
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const markPulled = await screen.findByRole("checkbox", {
+      name: "Mark Synthetic Pull Card as pulled",
+    });
+    await user.click(markPulled);
+
+    const markNotPulled = await screen.findByRole("checkbox", {
+      name: "Mark Synthetic Pull Card as not pulled",
+    });
+    expect((markNotPulled as HTMLInputElement).checked).toBe(true);
+    expect(
+      screen.getByText("Cards to pull").nextElementSibling?.textContent,
+    ).toBe("0");
+    expect(
+      screen.getByText("Pulled", { selector: ".pull-list-summary span" })
+        .nextElementSibling?.textContent,
+    ).toBe("2");
+
+    await user.click(screen.getByRole("checkbox", { name: "Show pulled (1)" }));
+    expect(screen.queryByText("Synthetic Pull Card")).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: "Show pulled (1)" }));
+    const restored = screen.getByRole("checkbox", {
+      name: "Mark Synthetic Pull Card as not pulled",
+    });
+    expect((restored as HTMLInputElement).checked).toBe(true);
+
+    await user.click(restored);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("checkbox", {
+          name: "Mark Synthetic Pull Card as pulled",
+        }),
+      ).toBeTruthy(),
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/orders/pull-list/items/456",
+      ),
+    ).toHaveLength(2);
   });
 });

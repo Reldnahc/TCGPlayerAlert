@@ -71,6 +71,10 @@
   .pull-list-sheet__header {
     display: none;
   }
+  .pull-list-row--pulled,
+  .pull-list-show-pulled {
+    display: none !important;
+  }
   .pull-list-table {
     width: 100%;
     min-width: 0;
@@ -120,7 +124,8 @@
   .pull-list-check {
     width: 3mm;
     height: 3mm;
-    border: 0.6pt solid #000;
+    margin: 0;
+    accent-color: #000;
   }
   .pull-list-quantity {
     font-size: 9pt;

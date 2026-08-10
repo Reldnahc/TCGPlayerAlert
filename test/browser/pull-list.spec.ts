@@ -67,6 +67,23 @@ test("shows a printable master pull list with card metadata", async ({
   ).toBeVisible();
   await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
 
+  await page
+    .getByRole("checkbox", { name: "Mark Lightning Bolt as pulled" })
+    .click();
+  const pulledLightning = page.getByRole("checkbox", {
+    name: "Mark Lightning Bolt as not pulled",
+  });
+  await expect(pulledLightning).toBeChecked();
+  await expect(
+    page.getByText("Cards to pull").locator("..").locator("strong"),
+  ).toHaveText("2");
+
+  await page.getByRole("checkbox", { name: "Show pulled (1)" }).uncheck();
+  await expect(productNames).toHaveText(["Counterspell"]);
+  await page.getByRole("checkbox", { name: "Show pulled (1)" }).check();
+  await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
+  await expect(pulledLightning).toBeChecked();
+
   await page.screenshot({
     path: testInfo.outputPath("pull-list.png"),
     fullPage: true,
@@ -78,8 +95,9 @@ test("shows a printable master pull list with card metadata", async ({
   await expect(page.locator(".pull-list-summary")).toBeHidden();
   await expect(page.locator(".pull-list-sheet__header")).toBeHidden();
   await expect(page.locator(".pull-list-print-meta")).toHaveText(
-    "2 ready orders · 5 cards · 2 unique SKUs",
+    "2 ready orders · 2 cards · 1 unique SKUs",
   );
+  await expect(page.locator(".pull-list-row--pulled")).toBeHidden();
   await expect(page.locator(".pull-list-table")).toBeVisible();
   await expect(page.locator(".pull-list-table tbody td").first()).toHaveCSS(
     "color",

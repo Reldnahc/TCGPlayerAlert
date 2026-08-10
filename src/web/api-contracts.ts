@@ -278,7 +278,7 @@ export const orderDetailDecoder: Decoder<OrderDetail> = object({
 });
 
 const pullMetadata = object({ label: text, values: array(text) });
-const pullRow = object({
+export const pullListRowDecoder = object({
   productLine: text,
   productName: text,
   condition: text,
@@ -292,12 +292,18 @@ const pullRow = object({
   orderQuantity: nonNegativeInteger,
   productId: optional(nonNegativeInteger),
   metadata: array(pullMetadata),
+  pulledQuantity: nonNegativeInteger,
+  remainingQuantity: nonNegativeInteger,
+  pulled: boolean,
+  canTrackPullProgress: boolean,
 });
 
 export const masterPullListDecoder: Decoder<MasterPullList> = object({
   orderCount: nonNegativeInteger,
-  rows: array(pullRow),
+  rows: array(pullListRowDecoder),
   totalQuantity: nonNegativeInteger,
+  pulledQuantity: nonNegativeInteger,
+  remainingQuantity: nonNegativeInteger,
   fetchedAt: isoDateTime,
   metadataIssue: optional(text),
 });

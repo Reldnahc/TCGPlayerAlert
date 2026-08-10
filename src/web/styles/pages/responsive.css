@@ -78,11 +78,13 @@
   .pull-list-summary {
     grid-template-columns: 1fr 1fr;
   }
-  .pull-list-summary > div:nth-child(3) {
+  .pull-list-summary > div:nth-child(3),
+  .pull-list-summary > div:nth-child(5) {
     border-top: 1px solid var(--border);
     border-left: 0;
   }
-  .pull-list-summary > div:nth-child(4) {
+  .pull-list-summary > div:nth-child(4),
+  .pull-list-summary > div:nth-child(5) {
     border-top: 1px solid var(--border);
   }
   .automation-strip {

@@ -87,7 +87,7 @@ function compareRows(
 ): number {
   switch (field) {
     case "quantity":
-      return left.orderQuantity - right.orderQuantity;
+      return left.remainingQuantity - right.remainingQuantity;
     case "product":
       return PULL_LIST_COLLATOR.compare(left.productName, right.productName);
     case "set":
@@ -99,6 +99,25 @@ function compareRows(
     case "color":
       return PULL_LIST_COLLATOR.compare(rowColor(left), rowColor(right));
   }
+}
+
+function replacePullListRow(
+  list: MasterPullList,
+  updated: PullListRow,
+): MasterPullList {
+  const rows = list.rows.map((row) =>
+    row.skuId === updated.skuId ? updated : row,
+  );
+  const pulledQuantity = rows.reduce(
+    (total, row) => total + row.pulledQuantity,
+    0,
+  );
+  return {
+    ...list,
+    rows,
+    pulledQuantity,
+    remainingQuantity: list.totalQuantity - pulledQuantity,
+  };
 }
 
 function SortableHeader({
@@ -134,12 +153,17 @@ export function MasterPullListPage() {
   const [pullList, setPullList] = useState<MasterPullList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [mutationError, setMutationError] = useState("");
   const [sort, setSort] = useState<PullListSort | null>(readPullListSort);
+  const [showPulled, setShowPulled] = useState(false);
+  const [updatingSkuId, setUpdatingSkuId] = useState<string | null>(null);
 
   const sortedRows = useMemo(() => {
-    if (pullList === null || sort === null) return pullList?.rows ?? [];
+    const visibleRows =
+      pullList?.rows.filter((row) => showPulled || !row.pulled) ?? [];
+    if (sort === null) return visibleRows;
 
-    return pullList.rows
+    return visibleRows
       .map((row, index) => ({ row, index }))
       .sort((left, right) => {
         const comparison = compareRows(left.row, right.row, sort.field);
@@ -147,7 +171,11 @@ export function MasterPullListPage() {
         return sort.direction === "ascending" ? comparison : -comparison;
       })
       .map(({ row }) => row);
-  }, [pullList, sort]);
+  }, [pullList, showPulled, sort]);
+
+  const remainingSkuCount =
+    pullList?.rows.filter((row) => row.remainingQuantity > 0).length ?? 0;
+  const pulledSkuCount = pullList?.rows.filter((row) => row.pulled).length ?? 0;
 
   const updateSort = useCallback((field: PullListSortField) => {
     setSort((current) => {
@@ -189,6 +217,27 @@ export function MasterPullListPage() {
     return () => controller.abort();
   }, [load]);
 
+  const setRowPulled = useCallback(
+    async (row: PullListRow, pulled: boolean) => {
+      setUpdatingSkuId(row.skuId);
+      setMutationError("");
+      try {
+        const updated = await uiApi.setPullListRowPulled(row.skuId, pulled);
+        setPullList((current) =>
+          current === null ? current : replacePullListRow(current, updated),
+        );
+        if (pulled) setShowPulled(true);
+      } catch (cause) {
+        setMutationError(
+          errorMessage(cause, "Pull progress could not be updated."),
+        );
+      } finally {
+        setUpdatingSkuId(null);
+      }
+    },
+    [],
+  );
+
   return (
     <main class="page pull-list-page">
       <PageHeader
@@ -210,7 +259,7 @@ export function MasterPullListPage() {
             <Button
               tone="primary"
               icon="printer"
-              disabled={pullList === null || pullList.rows.length === 0}
+              disabled={pullList === null || remainingSkuCount === 0}
               onClick={() => window.print()}
             >
               Print
@@ -228,6 +277,9 @@ export function MasterPullListPage() {
             </Button>
           </Notice>
         )}
+        {mutationError === "" ? null : (
+          <Notice tone="danger">{mutationError}</Notice>
+        )}
         {loading && pullList === null ? (
           <div class="pull-list-loading">
             <Spinner label="Loading master pull list" />
@@ -244,11 +296,15 @@ export function MasterPullListPage() {
               </div>
               <div>
                 <span>Cards to pull</span>
-                <strong>{String(pullList.totalQuantity)}</strong>
+                <strong>{String(pullList.remainingQuantity)}</strong>
               </div>
               <div>
-                <span>Unique SKUs</span>
-                <strong>{String(pullList.rows.length)}</strong>
+                <span>Pulled</span>
+                <strong>{String(pullList.pulledQuantity)}</strong>
+              </div>
+              <div>
+                <span>SKUs to pull</span>
+                <strong>{String(remainingSkuCount)}</strong>
               </div>
               <div>
                 <span>Loaded</span>
@@ -257,8 +313,8 @@ export function MasterPullListPage() {
             </section>
             <p class="pull-list-print-meta">
               {String(pullList.orderCount)} ready orders ·{" "}
-              {String(pullList.totalQuantity)} cards ·{" "}
-              {String(pullList.rows.length)} unique SKUs
+              {String(pullList.remainingQuantity)} cards ·{" "}
+              {String(remainingSkuCount)} unique SKUs
             </p>
             <section class="surface pull-list-sheet">
               <header class="surface__header pull-list-sheet__header">
@@ -268,9 +324,25 @@ export function MasterPullListPage() {
                     Pull the combined quantity shown for each exact printing.
                   </p>
                 </div>
+                <label class="pull-list-show-pulled">
+                  <input
+                    type="checkbox"
+                    checked={showPulled}
+                    onChange={(event) =>
+                      setShowPulled(event.currentTarget.checked)
+                    }
+                  />
+                  <span>Show pulled ({String(pulledSkuCount)})</span>
+                </label>
               </header>
-              {pullList.rows.length === 0 ? (
-                <EmptyState title="There are no cards to pull" />
+              {sortedRows.length === 0 ? (
+                <EmptyState
+                  title={
+                    pullList.rows.length === 0
+                      ? "There are no cards to pull"
+                      : "All cards on this list are pulled"
+                  }
+                />
               ) : (
                 <div class="data-region data-region--embedded pull-list-region">
                   <table class="data-table pull-list-table">
@@ -334,17 +406,49 @@ export function MasterPullListPage() {
                     </thead>
                     <tbody>
                       {sortedRows.map((row) => (
-                        <tr key={row.skuId}>
+                        <tr
+                          key={row.skuId}
+                          class={row.pulled ? "pull-list-row--pulled" : ""}
+                        >
                           <td class="pull-list-col-check">
-                            <span class="pull-list-check" aria-hidden="true" />
+                            <input
+                              type="checkbox"
+                              class="pull-list-check"
+                              checked={row.pulled}
+                              disabled={
+                                !row.canTrackPullProgress ||
+                                updatingSkuId !== null
+                              }
+                              aria-label={`Mark ${row.productName} as ${row.pulled ? "not pulled" : "pulled"}`}
+                              title={
+                                row.canTrackPullProgress
+                                  ? undefined
+                                  : "TCGplayer did not provide per-order allocation details for this row."
+                              }
+                              onChange={(event) =>
+                                void setRowPulled(
+                                  row,
+                                  event.currentTarget.checked,
+                                )
+                              }
+                            />
                           </td>
                           <td class="align-right numeric pull-list-quantity">
-                            {String(row.orderQuantity)}
+                            {String(
+                              row.pulled
+                                ? row.orderQuantity
+                                : row.remainingQuantity,
+                            )}
                           </td>
                           <td class="pull-list-col-product">
                             <div class="cell-stack pull-list-product">
                               <strong>{row.productName}</strong>
                               <small>{row.productLine}</small>
+                              {row.pulledQuantity > 0 && !row.pulled ? (
+                                <small>
+                                  {String(row.pulledQuantity)} already pulled
+                                </small>
+                              ) : null}
                             </div>
                           </td>
                           <td class="pull-list-col-set">

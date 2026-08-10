@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ConfirmedSellerOrder } from "tcgplayer-private-api";
 import { OrderManagementService } from "../src/order-management.js";
+import {
+  emptyPullListProgressState,
+  type PullListProgressState,
+  type PullListProgressStore,
+} from "../src/pull-list-progress.js";
 
 const firstOrder = {
   orderNumber: "synthetic-order-1",
@@ -37,7 +42,23 @@ const pullSheetRow = {
   setReleaseDate: "2026-01-01",
   skuId: "456",
   orderQuantity: 2,
+  orderAllocations: [{ orderNumber: firstOrder.orderNumber, quantity: 2 }],
 };
+
+class MemoryPullListProgressStore implements PullListProgressStore {
+  state: PullListProgressState = emptyPullListProgressState();
+  saves = 0;
+
+  load(): Promise<PullListProgressState> {
+    return Promise.resolve(this.state);
+  }
+
+  save(state: PullListProgressState): Promise<void> {
+    this.state = state;
+    this.saves += 1;
+    return Promise.resolve();
+  }
+}
 
 function orderDetail(
   orderNumber = firstOrder.orderNumber,
@@ -192,16 +213,22 @@ function service(
       actionType: "print-address-label" | "print-packing-slip",
     ) => Promise<void>;
     readonly onShipmentAccepted?: (orderNumber: string) => void;
+    readonly pullListProgressStore?: PullListProgressStore;
   } = {},
 ) {
+  const {
+    pullListProgressStore = new MemoryPullListProgressStore(),
+    ...serviceOptions
+  } = options;
   return new OrderManagementService({
     client: fakeClient,
     sellerKey: "synthetic-seller",
+    pullListProgressStore,
     pageSize: 1,
     maximumPages: 10,
     timezoneOffsetMinutes: 300,
     now: () => new Date("2026-08-04T12:00:00.000Z"),
-    ...options,
+    ...serviceOptions,
   });
 }
 
@@ -304,7 +331,16 @@ describe("order management", () => {
       contentType: "text/csv",
       fileName: "pull-sheet.csv",
       orderNumbers: [firstOrder.orderNumber, anotherReadyOrder.orderNumber],
-      rows: [pullSheetRow, { ...pullSheetRow, orderQuantity: 1 }],
+      rows: [
+        pullSheetRow,
+        {
+          ...pullSheetRow,
+          orderQuantity: 1,
+          orderAllocations: [
+            { orderNumber: anotherReadyOrder.orderNumber, quantity: 1 },
+          ],
+        },
+      ],
     });
     const orders = service(fakeClient);
 
@@ -314,12 +350,18 @@ describe("order management", () => {
     expect(first).toEqual({
       orderCount: 2,
       totalQuantity: 3,
+      pulledQuantity: 0,
+      remainingQuantity: 3,
       fetchedAt: "2026-08-04T12:00:00.000Z",
       rows: [
         expect.objectContaining({
           productId: 123,
           productName: "Synthetic Card",
           orderQuantity: 3,
+          pulledQuantity: 0,
+          remainingQuantity: 3,
+          pulled: false,
+          canTrackPullProgress: true,
           metadata: [{ label: "Color", values: ["Blue"] }],
         }),
       ],
@@ -344,6 +386,156 @@ describe("order management", () => {
       { productIds: [123], channelId: 0, offset: 0, limit: 1 },
       undefined,
     );
+  });
+
+  it("persists pull progress per order allocation without another provider request", async () => {
+    const fakeClient = client();
+    const progressStore = new MemoryPullListProgressStore();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    const orders = service(fakeClient, {
+      pullListProgressStore: progressStore,
+    });
+    await orders.getMasterPullList();
+
+    const pulled = await orders.setPullListRowPulled(pullSheetRow.skuId, true);
+
+    expect(pulled).toMatchObject({
+      skuId: pullSheetRow.skuId,
+      pulled: true,
+      pulledQuantity: 2,
+      remainingQuantity: 0,
+    });
+    expect(progressStore.state).toEqual({
+      version: 1,
+      orders: {
+        [firstOrder.orderNumber]: {
+          [pullSheetRow.skuId]: {
+            quantity: 2,
+            pulledAt: "2026-08-04T12:00:00.000Z",
+          },
+        },
+      },
+    });
+    expect((await orders.getMasterPullList()).rows[0]).toMatchObject({
+      pulled: true,
+      remainingQuantity: 0,
+    });
+    expect(fakeClient.searchOrders).toHaveBeenCalledOnce();
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
+
+    const restored = await orders.setPullListRowPulled(
+      pullSheetRow.skuId,
+      false,
+    );
+    expect(restored).toMatchObject({
+      pulled: false,
+      pulledQuantity: 0,
+      remainingQuantity: 2,
+    });
+    expect(progressStore.state.orders).toEqual({});
+  });
+
+  it("shows only a newly arrived allocation as remaining for an already pulled SKU", async () => {
+    const fakeClient = client();
+    const progressStore = new MemoryPullListProgressStore();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    const orders = service(fakeClient, {
+      pullListProgressStore: progressStore,
+    });
+    await orders.getMasterPullList();
+    await orders.setPullListRowPulled(pullSheetRow.skuId, true);
+
+    const newOrder = {
+      ...firstOrder,
+      orderNumber: "synthetic-order-2",
+    };
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 2,
+      orders: [firstOrder, newOrder],
+    });
+    fakeClient.exportPullSheet.mockResolvedValue({
+      text: "synthetic pull sheet",
+      contentType: "text/csv",
+      fileName: "pull-sheet.csv",
+      orderNumbers: [firstOrder.orderNumber, newOrder.orderNumber],
+      rows: [
+        {
+          ...pullSheetRow,
+          orderQuantity: 3,
+          orderAllocations: [
+            { orderNumber: firstOrder.orderNumber, quantity: 2 },
+            { orderNumber: newOrder.orderNumber, quantity: 1 },
+          ],
+        },
+      ],
+    });
+
+    const refreshed = await orders.getMasterPullList({ force: true });
+
+    expect(refreshed.rows[0]).toMatchObject({
+      orderQuantity: 3,
+      pulledQuantity: 2,
+      remainingQuantity: 1,
+      pulled: false,
+    });
+  });
+
+  it("prunes progress after TCGplayer no longer returns the order as ready", async () => {
+    const fakeClient = client();
+    const progressStore = new MemoryPullListProgressStore();
+    progressStore.state = {
+      version: 1,
+      orders: {
+        [firstOrder.orderNumber]: {
+          [pullSheetRow.skuId]: {
+            quantity: 2,
+            pulledAt: "2026-08-04T11:00:00.000Z",
+          },
+        },
+      },
+    };
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [secondOrder],
+    });
+
+    await service(fakeClient, {
+      pullListProgressStore: progressStore,
+    }).getMasterPullList();
+
+    expect(progressStore.state.orders).toEqual({});
+  });
+
+  it("refuses to guess pull progress when provider allocations are unavailable", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    fakeClient.exportPullSheet.mockResolvedValue({
+      text: "synthetic pull sheet",
+      contentType: "text/csv",
+      fileName: "pull-sheet.csv",
+      orderNumbers: [firstOrder.orderNumber],
+      rows: [{ ...pullSheetRow, orderAllocations: [] }],
+    });
+    const orders = service(fakeClient);
+
+    const list = await orders.getMasterPullList();
+
+    expect(list.rows[0]).toMatchObject({
+      canTrackPullProgress: false,
+      remainingQuantity: 2,
+    });
+    await expect(
+      orders.setPullListRowPulled(pullSheetRow.skuId, true),
+    ).rejects.toMatchObject({ code: "PROVIDER_ERROR" });
   });
 
   it("does not load order details when product image URLs identify every row", async () => {
@@ -441,6 +633,8 @@ describe("order management", () => {
       orderCount: 0,
       rows: [],
       totalQuantity: 0,
+      pulledQuantity: 0,
+      remainingQuantity: 0,
       fetchedAt: "2026-08-04T12:00:00.000Z",
     });
     expect(fakeClient.exportPullSheet).not.toHaveBeenCalled();

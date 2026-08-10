@@ -44,6 +44,7 @@ import {
   inventoryQueueDecoder,
   markAllMessagesReadDecoder,
   masterPullListDecoder,
+  pullListRowDecoder,
   messageMutationDecoder,
   messagesPageDecoder,
   messageThreadDecoder,
@@ -363,6 +364,18 @@ export const uiApi = {
       `/api/orders/pull-list${force ? "?refresh=1" : ""}`,
       masterPullListDecoder,
       signal === undefined ? {} : { signal },
+    ),
+  setPullListRowPulled: (
+    skuId: string,
+    pulled: boolean,
+  ): Promise<MasterPullList["rows"][number]> =>
+    requestJson(
+      `/api/orders/pull-list/items/${encodeURIComponent(skuId)}`,
+      pullListRowDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({ pulled }),
+      },
     ),
   payments: (
     page: number,

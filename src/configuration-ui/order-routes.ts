@@ -82,6 +82,20 @@ export const handleOrderRoute: ConfigurationRouteHandler = async (context) => {
     if (!response.destroyed) sendJson(response, 200, result);
     return true;
   }
+  const pullListSkuId = parsePullListItemPath(request.method, url.pathname);
+  if (pullListSkuId !== undefined) {
+    if (!requireOrderService(context)) return true;
+    const source = objectValue(await readJsonBody(request));
+    const pulled = source?.pulled;
+    if (typeof pulled !== "boolean") {
+      throw new ConfigurationError(["Pulled must be true or false."]);
+    }
+    const result = await withRequestAbort(request, response, (signal) =>
+      context.orderService.setPullListRowPulled(pullListSkuId, pulled, signal),
+    );
+    if (!response.destroyed) sendJson(response, 200, result);
+    return true;
+  }
   const orderAction = parseOrderAction(request.method, url.pathname);
   if (orderAction === undefined) return false;
   if (!requireOrderService(context)) return true;
@@ -148,6 +162,26 @@ export const handleOrderRoute: ConfigurationRouteHandler = async (context) => {
   }
   return true;
 };
+
+function parsePullListItemPath(
+  method: string | undefined,
+  pathname: string,
+): string | undefined {
+  if (
+    method !== "POST" ||
+    !/^\/api\/orders\/pull-list\/items\/[^/]{1,384}$/u.test(pathname)
+  ) {
+    return undefined;
+  }
+  const encoded = pathname.slice("/api/orders/pull-list/items/".length);
+  try {
+    const skuId = decodeURIComponent(encoded);
+    if (!safeText(skuId) || skuId.length > 128) throw new Error("invalid");
+    return skuId;
+  } catch {
+    throw new ConfigurationError(["The pull-list SKU is invalid."]);
+  }
+}
 
 export const handleAddressLabelRoute: ConfigurationRouteHandler = async (
   context,

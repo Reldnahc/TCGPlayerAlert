@@ -277,7 +277,7 @@
 }
 .pull-list-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   overflow: hidden;
   border-color: #aeb4b8;
   color: #111;
@@ -317,6 +317,21 @@
   border-color: #aeb4b8;
   color: #111;
   background: white;
+}
+.pull-list-show-pulled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+.pull-list-show-pulled input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 .pull-list-region {
   min-height: 0;
@@ -395,12 +410,20 @@
   padding: 4px 6px;
 }
 .pull-list-check {
-  display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 1px solid #333;
-  border-radius: 1px;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
   vertical-align: middle;
+}
+.pull-list-check:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.pull-list-row--pulled td:not(.pull-list-col-check) {
+  color: var(--text-muted);
+  background: #f7f8f8;
 }
 .pull-list-quantity {
   color: #111;

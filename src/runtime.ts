@@ -15,6 +15,10 @@ import type { Logger } from "./logger.js";
 import { createPrinter, type Printer } from "./printing.js";
 import { FulfillmentWorkflow } from "./orchestrator.js";
 import { JsonStateStore } from "./state.js";
+import {
+  JsonPullListProgressStore,
+  pullListProgressPath,
+} from "./pull-list-progress.js";
 import { TcgplayerOrderProvider } from "./tcgplayer-provider.js";
 import { FileSyncLease } from "./sync-lease.js";
 import {
@@ -323,6 +327,9 @@ export function createOrderManagementService(
   return new OrderManagementService({
     client,
     sellerKey: access.sellerKey,
+    pullListProgressStore: new JsonPullListProgressStore(
+      pullListProgressPath(config.stateFile),
+    ),
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes,

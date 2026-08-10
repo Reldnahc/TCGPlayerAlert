@@ -532,6 +532,8 @@ describe("configuration UI", () => {
     const pullList = {
       orderCount: 2,
       totalQuantity: 2,
+      pulledQuantity: 0,
+      remainingQuantity: 2,
       fetchedAt: "2026-08-07T12:00:00.000Z",
       rows: [
         {
@@ -548,6 +550,10 @@ describe("configuration UI", () => {
           orderQuantity: 2,
           productId: 123,
           metadata: [{ label: "Color", values: ["Blue"] }],
+          pulledQuantity: 0,
+          remainingQuantity: 2,
+          pulled: false,
+          canTrackPullProgress: true,
         },
       ],
     };
@@ -559,11 +565,22 @@ describe("configuration UI", () => {
         }) => Promise<typeof pullList>
       >()
       .mockResolvedValue(pullList);
+    const setPullListRowPulled = vi
+      .fn((skuId: string, pulled: boolean, signal?: AbortSignal) => {
+        void skuId;
+        void pulled;
+        void signal;
+        return Promise.resolve(pullList.rows[0]);
+      })
+      .mockName("setPullListRowPulled");
     server = await startConfigurationUi({
       configPath: current.path,
       service: current.service,
       port: 0,
-      orderService: { getMasterPullList } as unknown as OrderManagementService,
+      orderService: {
+        getMasterPullList,
+        setPullListRowPulled,
+      } as unknown as OrderManagementService,
     });
 
     const response = await fetch(
@@ -577,6 +594,36 @@ describe("configuration UI", () => {
     expect(getMasterPullList.mock.calls[0]?.[0].signal).toBeInstanceOf(
       AbortSignal,
     );
+
+    const update = await fetch(`${server.url}/api/orders/pull-list/items/456`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: server.url,
+      },
+      body: JSON.stringify({ pulled: true }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(await update.json()).toEqual(pullList.rows[0]);
+    expect(setPullListRowPulled).toHaveBeenCalledOnce();
+    expect(setPullListRowPulled.mock.calls[0]?.[0]).toBe("456");
+    expect(setPullListRowPulled.mock.calls[0]?.[1]).toBe(true);
+    expect(setPullListRowPulled.mock.calls[0]?.[2]).toBeInstanceOf(AbortSignal);
+
+    const invalid = await fetch(
+      `${server.url}/api/orders/pull-list/items/456`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: server.url,
+        },
+        body: JSON.stringify({ pulled: "yes" }),
+      },
+    );
+    expect(invalid.status).toBe(400);
+    expect(setPullListRowPulled).toHaveBeenCalledOnce();
   });
 
   it("routes validated order refunds through the injected order service", async () => {
