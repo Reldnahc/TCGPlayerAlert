@@ -1,6 +1,5 @@
 import type {
   AdditionPreview,
-  ApiErrorBody,
   CatalogProduct,
   CatalogSearch,
   FeedbackPage,
@@ -37,6 +36,41 @@ import type {
   TrackingResult,
   UnreadMessages,
 } from "./contracts.js";
+import {
+  additionPreviewDecoder,
+  catalogProductDecoder,
+  catalogSearchDecoder,
+  feedbackPageDecoder,
+  inventoryQueueDecoder,
+  markAllMessagesReadDecoder,
+  masterPullListDecoder,
+  messageMutationDecoder,
+  messagesPageDecoder,
+  messageThreadDecoder,
+  orderDetailDecoder,
+  orderListDecoder,
+  paymentDetailDecoder,
+  paymentsPageDecoder,
+  pirateShipDecoder,
+  priceQueueDecoder,
+  pricingPreviewDecoder,
+  queuedInventoryJobDecoder,
+  queuedInventoryJobsDecoder,
+  queuedPriceJobDecoder,
+  queuedPriceJobsDecoder,
+  readyOrderSnapshotDecoder,
+  refundOptionsDecoder,
+  refundResultDecoder,
+  sellerConnectionDecoder,
+  sellerPairingDecoder,
+  settingsDecoder,
+  shipmentResultDecoder,
+  shipmentScannerStatusDecoder,
+  shipmentScanResultDecoder,
+  trackingResultDecoder,
+  unreadMessagesDecoder,
+} from "./api-contracts.js";
+import { DecodeError, discard, type Decoder } from "./decoder.js";
 
 export class UiApiError extends Error {
   readonly code?: string;
@@ -59,22 +93,40 @@ function notifyAuthenticationRequired(code: string | undefined): void {
 
 async function responseBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
-  return contentType.includes("application/json")
-    ? response.json()
-    : response.text();
+  try {
+    return contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+  } catch {
+    throw new UiApiError(
+      "The server returned malformed JSON.",
+      "INVALID_RESPONSE",
+    );
+  }
 }
 
 function apiMessage(body: unknown, fallback: string): string {
   if (typeof body !== "object" || body === null) return fallback;
-  const candidate = body as ApiErrorBody;
-  if (candidate.issues !== undefined && candidate.issues.length > 0) {
+  const candidate = body as Readonly<Record<string, unknown>>;
+  if (
+    Array.isArray(candidate.issues) &&
+    candidate.issues.length > 0 &&
+    candidate.issues.every((issue) => typeof issue === "string")
+  ) {
     return candidate.issues.join(" ");
   }
-  return candidate.message ?? fallback;
+  return typeof candidate.message === "string" ? candidate.message : fallback;
+}
+
+function apiCode(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const code = (body as Readonly<Record<string, unknown>>).code;
+  return typeof code === "string" ? code : undefined;
 }
 
 export async function requestJson<T>(
   path: string,
+  responseDecoder: Decoder<T>,
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
@@ -88,17 +140,28 @@ export async function requestJson<T>(
   });
   const body = await responseBody(response);
   if (!response.ok) {
-    const code =
-      typeof body === "object" && body !== null && "code" in body
-        ? String(body.code)
-        : undefined;
+    const code = apiCode(body);
     notifyAuthenticationRequired(code);
     throw new UiApiError(
       apiMessage(body, `Request failed (${String(response.status)}).`),
       code,
     );
   }
-  return body as T;
+  return decodeResponse(responseDecoder, body);
+}
+
+function decodeResponse<T>(responseDecoder: Decoder<T>, body: unknown): T {
+  try {
+    return responseDecoder.decode(body);
+  } catch (error) {
+    if (error instanceof DecodeError) {
+      throw new UiApiError(
+        `The server returned invalid data: ${error.message}`,
+        "INVALID_RESPONSE",
+      );
+    }
+    throw error;
+  }
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
@@ -160,17 +223,14 @@ async function streamingRepricingPreview(
   if (!contentType.includes("application/x-ndjson")) {
     const body = await responseBody(response);
     if (!response.ok) {
-      const code =
-        typeof body === "object" && body !== null && "code" in body
-          ? String(body.code)
-          : undefined;
+      const code = apiCode(body);
       notifyAuthenticationRequired(code);
       throw new UiApiError(
         apiMessage(body, `Request failed (${String(response.status)}).`),
         code,
       );
     }
-    return body as PricingPreview;
+    return decodeResponse(pricingPreviewDecoder, body);
   }
   if (!response.ok || response.body === null) {
     throw new UiApiError(
@@ -195,7 +255,7 @@ async function streamingRepricingPreview(
       return;
     }
     if (event?.type === "complete") {
-      preview = event.preview as PricingPreview;
+      preview = decodeResponse(pricingPreviewDecoder, event.preview);
       return;
     }
     if (event?.type === "error") {
@@ -226,31 +286,38 @@ async function streamingRepricingPreview(
 
 export const uiApi = {
   sellerConnection: (): Promise<SellerConnectionStatus> =>
-    requestJson("/api/auth/status"),
+    requestJson("/api/auth/status", sellerConnectionDecoder),
   startSellerPairing: (): Promise<SellerPairingChallenge> =>
-    requestJson("/api/auth/pairing", { method: "POST", body: "{}" }),
+    requestJson("/api/auth/pairing", sellerPairingDecoder, {
+      method: "POST",
+      body: "{}",
+    }),
   disconnectSeller: (): Promise<SellerConnectionStatus> =>
-    requestJson("/api/auth/disconnect", { method: "POST", body: "{}" }),
-  settings: (): Promise<Settings> => requestJson("/api/settings"),
+    requestJson("/api/auth/disconnect", sellerConnectionDecoder, {
+      method: "POST",
+      body: "{}",
+    }),
+  settings: (): Promise<Settings> =>
+    requestJson("/api/settings", settingsDecoder),
   saveSettings: (settings: SettingsUpdate): Promise<Settings> =>
-    requestJson("/api/settings", {
+    requestJson("/api/settings", settingsDecoder, {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
   printTest: (actionId: string, settings: SettingsUpdate): Promise<void> =>
-    requestJson(`/api/print-tests/${encodeURIComponent(actionId)}`, {
+    requestJson(`/api/print-tests/${encodeURIComponent(actionId)}`, discard, {
       method: "POST",
       body: JSON.stringify(settings),
     }),
   printAddressLabel: (address: string): Promise<void> =>
-    requestJson("/api/address-labels/print", {
+    requestJson("/api/address-labels/print", discard, {
       method: "POST",
       body: JSON.stringify({ address }),
     }),
   shipmentScannerStatus: (): Promise<ShipmentScannerStatus> =>
-    requestJson("/api/shipment-scanner"),
+    requestJson("/api/shipment-scanner", shipmentScannerStatusDecoder),
   scanShipmentTag: (tagId: number): Promise<ShipmentScanResult> =>
-    requestJson("/api/shipment-scanner/scan", {
+    requestJson("/api/shipment-scanner/scan", shipmentScanResultDecoder, {
       method: "POST",
       body: JSON.stringify({ tagId }),
     }),
@@ -258,19 +325,23 @@ export const uiApi = {
     tagId: number,
     orderNumber: string,
   ): Promise<ShipmentScanResult> =>
-    requestJson("/api/shipment-scanner/mark-shipped", {
-      method: "POST",
-      body: JSON.stringify({ tagId, orderNumber }),
-    }),
+    requestJson(
+      "/api/shipment-scanner/mark-shipped",
+      shipmentScanResultDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({ tagId, orderNumber }),
+      },
+    ),
   orders: (force = false): Promise<OrderList> => {
     const query = new URLSearchParams();
     if (force) query.set("refresh", "1");
-    return requestJson(`/api/orders?${query.toString()}`);
+    return requestJson(`/api/orders?${query.toString()}`, orderListDecoder);
   },
   readyOrders: (): Promise<ReadyOrderSnapshot> =>
-    requestJson("/api/orders?status=ready-to-ship"),
+    requestJson("/api/orders?status=ready-to-ship", readyOrderSnapshotDecoder),
   synchronizeReadyOrders: (): Promise<OrderList> =>
-    requestJson("/api/orders/sync", {
+    requestJson("/api/orders/sync", orderListDecoder, {
       method: "POST",
       body: JSON.stringify({}),
     }),
@@ -281,6 +352,7 @@ export const uiApi = {
   ): Promise<OrderDetail> =>
     requestJson(
       `/api/orders/${encodeURIComponent(orderNumber)}${force ? "?refresh=1" : ""}`,
+      orderDetailDecoder,
       signal === undefined ? {} : { signal },
     ),
   masterPullList: (
@@ -289,6 +361,7 @@ export const uiApi = {
   ): Promise<MasterPullList> =>
     requestJson(
       `/api/orders/pull-list${force ? "?refresh=1" : ""}`,
+      masterPullListDecoder,
       signal === undefined ? {} : { signal },
     ),
   payments: (
@@ -299,11 +372,15 @@ export const uiApi = {
     const query = new URLSearchParams({ page: String(page) });
     if (status !== "") query.set("status", status);
     if (force) query.set("refresh", "1");
-    return requestJson(`/api/payments?${query.toString()}`);
+    return requestJson(
+      `/api/payments?${query.toString()}`,
+      paymentsPageDecoder,
+    );
   },
   payment: (referenceId: string, force = false): Promise<PaymentDetail> =>
     requestJson(
       `/api/payments/${encodeURIComponent(referenceId)}${force ? "?refresh=1" : ""}`,
+      paymentDetailDecoder,
     ),
   feedback: (
     page: number,
@@ -320,6 +397,7 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(
       `/api/feedback?${query.toString()}`,
+      feedbackPageDecoder,
       signal === undefined ? {} : { signal },
     );
   },
@@ -329,6 +407,7 @@ export const uiApi = {
   ): Promise<UnreadMessages> =>
     requestJson(
       `/api/messages/unread-count${force ? "?refresh=1" : ""}`,
+      unreadMessagesDecoder,
       signal === undefined ? {} : { signal },
     ),
   messages: (
@@ -344,6 +423,7 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(
       `/api/messages?${query.toString()}`,
+      messagesPageDecoder,
       signal === undefined ? {} : { signal },
     );
   },
@@ -357,16 +437,21 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(
       `/api/messages/${String(threadId)}?${query.toString()}`,
+      messageThreadDecoder,
       signal === undefined ? {} : { signal },
     );
   },
   markMessageThreadRead: (threadId: number): Promise<MessageMutationResult> =>
-    requestJson(`/api/messages/${String(threadId)}/mark-read`, {
-      method: "POST",
-      body: "{}",
-    }),
+    requestJson(
+      `/api/messages/${String(threadId)}/mark-read`,
+      messageMutationDecoder,
+      {
+        method: "POST",
+        body: "{}",
+      },
+    ),
   markAllMessageThreadsRead: (): Promise<MarkAllMessagesReadResult> =>
-    requestJson("/api/messages/mark-all-read", {
+    requestJson("/api/messages/mark-all-read", markAllMessagesReadDecoder, {
       method: "POST",
       body: "{}",
     }),
@@ -374,40 +459,66 @@ export const uiApi = {
     threadId: number,
     body: string,
   ): Promise<MessageMutationResult> =>
-    requestJson(`/api/messages/${String(threadId)}/reply`, {
-      method: "POST",
-      body: JSON.stringify({ body }),
-    }),
+    requestJson(
+      `/api/messages/${String(threadId)}/reply`,
+      messageMutationDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      },
+    ),
   printOrder: (orderNumber: string, actionType: string): Promise<void> =>
-    requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/print`, {
-      method: "POST",
-      body: JSON.stringify({ actionType }),
-    }),
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}/print`,
+      discard,
+      {
+        method: "POST",
+        body: JSON.stringify({ actionType }),
+      },
+    ),
   addTracking: (
     orderNumber: string,
     trackingNumber: string,
   ): Promise<TrackingResult> =>
-    requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/tracking`, {
-      method: "POST",
-      body: JSON.stringify({ trackingNumber }),
-    }),
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}/tracking`,
+      trackingResultDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({ trackingNumber }),
+      },
+    ),
   markShipped: (orderNumber: string): Promise<ShipmentResult> =>
-    requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/mark-shipped`, {
-      method: "POST",
-      body: "{}",
-    }),
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}/mark-shipped`,
+      shipmentResultDecoder,
+      {
+        method: "POST",
+        body: "{}",
+      },
+    ),
   refundOptions: (force = false): Promise<RefundOptions> =>
-    requestJson(`/api/orders/refunds/options${force ? "?refresh=1" : ""}`),
+    requestJson(
+      `/api/orders/refunds/options${force ? "?refresh=1" : ""}`,
+      refundOptionsDecoder,
+    ),
   refundOrder: (
     orderNumber: string,
     refund: RefundRequest,
   ): Promise<RefundResult> =>
-    requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/refund`, {
-      method: "POST",
-      body: JSON.stringify(refund),
-    }),
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}/refund`,
+      refundResultDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify(refund),
+      },
+    ),
   pirateShip: (orderNumber: string): Promise<PirateShipResult> =>
-    requestJson(`/api/orders/${encodeURIComponent(orderNumber)}/pirate-ship`),
+    requestJson(
+      `/api/orders/${encodeURIComponent(orderNumber)}/pirate-ship`,
+      pirateShipDecoder,
+    ),
   catalogSearch: (
     query: string,
     productLine: string,
@@ -423,28 +534,33 @@ export const uiApi = {
     if (setName !== "") parameters.set("setName", setName);
     return requestJson(
       `/api/catalog/search?${parameters.toString()}`,
+      catalogSearchDecoder,
       signal === undefined ? {} : { signal },
     );
   },
   catalogProduct: (productId: number): Promise<CatalogProduct> =>
-    requestJson(`/api/catalog/products/${String(productId)}`),
+    requestJson(
+      `/api/catalog/products/${String(productId)}`,
+      catalogProductDecoder,
+    ),
   previewAddition: (body: unknown): Promise<AdditionPreview> =>
-    requestJson("/api/inventory-additions/preview", {
+    requestJson("/api/inventory-additions/preview", additionPreviewDecoder, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   queueAddition: (previewId: string): Promise<QueuedJobs<InventoryJob>> =>
     requestJson(
       `/api/inventory-additions/previews/${encodeURIComponent(previewId)}/queue`,
+      queuedInventoryJobsDecoder,
       {
         method: "POST",
         body: "{}",
       },
     ),
   inventoryJobs: (): Promise<InventoryQueueResponse> =>
-    requestJson("/api/inventory-additions"),
+    requestJson("/api/inventory-additions", inventoryQueueDecoder),
   priceJobs: (): Promise<PriceQueueResponse> =>
-    requestJson("/api/price-updates"),
+    requestJson("/api/price-updates", priceQueueDecoder),
   mutateJob: <T extends InventoryJob | PriceJob>(
     queue: "inventory" | "price",
     jobId: string,
@@ -452,13 +568,16 @@ export const uiApi = {
   ): Promise<QueuedJob<T>> => {
     const base =
       queue === "inventory" ? "/api/inventory-additions" : "/api/price-updates";
-    return requestJson(
-      `${base}/${encodeURIComponent(jobId)}${action === "resubmit" ? "/resubmit" : ""}`,
-      {
-        method: action === "resubmit" ? "POST" : "DELETE",
-        body: "{}",
-      },
-    );
+    const path = `${base}/${encodeURIComponent(jobId)}${action === "resubmit" ? "/resubmit" : ""}`;
+    const options = {
+      method: action === "resubmit" ? "POST" : "DELETE",
+      body: "{}",
+    };
+    return (
+      queue === "inventory"
+        ? requestJson(path, queuedInventoryJobDecoder, options)
+        : requestJson(path, queuedPriceJobDecoder, options)
+    ) as Promise<QueuedJob<T>>;
   },
   repricingPreview: (
     rules: PricingRules,
@@ -472,6 +591,7 @@ export const uiApi = {
   ): Promise<QueuedJobs<PriceJob>> =>
     requestJson(
       `/api/repricing/previews/${encodeURIComponent(previewId)}/queue`,
+      queuedPriceJobsDecoder,
       {
         method: "POST",
         body: JSON.stringify({ rowIds }),
@@ -483,6 +603,7 @@ export const uiApi = {
   ): Promise<QueuedJob<InventoryJob>> =>
     requestJson(
       `/api/repricing/previews/${encodeURIComponent(previewId)}/remove`,
+      queuedInventoryJobDecoder,
       {
         method: "POST",
         body: JSON.stringify({ rowId }),

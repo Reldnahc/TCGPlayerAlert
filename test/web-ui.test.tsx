@@ -132,7 +132,12 @@ function baseFetch(
       throw new Error("Expected a JSON request body.");
     const submitted = JSON.parse(options.body) as Settings;
     return Promise.resolve(
-      json({ ...settings, ...submitted, revision: "saved-revision" }),
+      json({
+        ...settings,
+        ...submitted,
+        outputs: settings.outputs,
+        revision: "saved-revision",
+      }),
     );
   }
   if (path === "/api/settings") return Promise.resolve(json(settings));
@@ -1282,13 +1287,75 @@ describe("operator console", () => {
           return Promise.resolve(
             json({
               id: "00000000-0000-4000-8000-000000000001",
+              createdAt: "2026-08-07T12:00:00.000Z",
+              expiresAt: "2026-08-07T12:10:00.000Z",
+              product: {
+                productId: 123,
+                imageUrl: "https://product-images.tcgplayer.com/123.jpg",
+                productName: "Synthetic Card",
+                productLineName: "Magic: The Gathering",
+                setName: "Synthetic Set",
+                rarityName: "Rare",
+                cardNumber: "42",
+                marketPrice: 3.5,
+                foilMarketPrice: 8.25,
+                sellerListable: true,
+              },
+              sku: {
+                productConditionId: 456,
+                conditionId: 1,
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+              },
+              currentQuantity: 0,
+              addQuantity: 1,
               proposedPrice: 3.49,
+              effectiveShippingPrice: 1.49,
+              proposedDeliveredPrice: 4.98,
+              competitorPrice: 3.49,
+              competitorShipping: 1.49,
+              competitorCondition: "Near Mint",
+              minimumApplied: false,
               queueable: true,
               reason: "Uses the marketplace reference.",
+              rules: {
+                ...settings.repricingProfiles[0],
+                estimatedShippingPrice: 1.49,
+              },
             }),
           );
         if (path.includes("/api/inventory-additions/previews/"))
-          return Promise.resolve(json({ jobs: [{ id: "job" }] }, 202));
+          return Promise.resolve(
+            json(
+              {
+                jobs: [
+                  {
+                    id: "job",
+                    createdAt: "2026-08-07T12:00:00.000Z",
+                    updatedAt: "2026-08-07T12:00:00.000Z",
+                    attempts: 0,
+                    status: "pending",
+                    operation: "add",
+                    addition: {
+                      productId: 123,
+                      productName: "Synthetic Card",
+                      productConditionId: 456,
+                      conditionId: 1,
+                      channelId: 0,
+                      categoryName: "Magic: The Gathering",
+                      currentQuantity: 0,
+                      addQuantity: 1,
+                      price: 3.49,
+                      storePriceCustomId: null,
+                      reserveQuantity: 0,
+                    },
+                  },
+                ],
+              },
+              202,
+            ),
+          );
         return baseFetch(input, options);
       },
     );

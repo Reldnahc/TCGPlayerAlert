@@ -99,12 +99,6 @@ export interface QueuedJob<T> {
   readonly job: T;
 }
 
-export interface ApiErrorBody {
-  readonly message?: string;
-  readonly issues?: readonly string[];
-  readonly code?: string;
-}
-
 export interface SellerConnectionStatus {
   readonly state: "connected" | "expired" | "disconnected";
   readonly source?: "browser" | "environment";
