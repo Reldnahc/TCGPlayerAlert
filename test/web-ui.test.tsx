@@ -775,6 +775,9 @@ describe("operator console", () => {
       screen.getByText("Cards to pull").nextElementSibling?.textContent,
     ).toBe("3");
     expect(
+      screen.getByText("2 ready orders · 3 cards · 2 unique SKUs"),
+    ).toBeTruthy();
+    expect(
       screen.getByRole("link", { name: "All orders" }).getAttribute("href"),
     ).toBe("#orders");
 

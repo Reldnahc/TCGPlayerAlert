@@ -104,6 +104,11 @@ export function MasterPullListPage() {
                 <strong>{dateTime(pullList.fetchedAt)}</strong>
               </div>
             </section>
+            <p class="pull-list-print-meta">
+              {String(pullList.orderCount)} ready orders ·{" "}
+              {String(pullList.totalQuantity)} cards ·{" "}
+              {String(pullList.rows.length)} unique SKUs
+            </p>
             <section class="surface pull-list-sheet">
               <header class="surface__header pull-list-sheet__header">
                 <div>
@@ -118,17 +123,26 @@ export function MasterPullListPage() {
               ) : (
                 <div class="data-region data-region--embedded pull-list-region">
                   <table class="data-table pull-list-table">
+                    <colgroup>
+                      <col class="pull-list-col-check" />
+                      <col class="pull-list-col-quantity" />
+                      <col class="pull-list-col-product" />
+                      <col class="pull-list-col-set" />
+                      <col class="pull-list-col-condition" />
+                      <col class="pull-list-col-rarity" />
+                      <col class="pull-list-col-metadata" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th class="pull-list-col-check">
                           <span class="visually-hidden">Pulled</span>
                         </th>
                         <th class="align-right pull-list-col-quantity">Qty</th>
-                        <th>Product</th>
-                        <th>Set / number</th>
-                        <th>Condition</th>
-                        <th>Rarity</th>
-                        <th>Metadata</th>
+                        <th class="pull-list-col-product">Product</th>
+                        <th class="pull-list-col-set">Set / #</th>
+                        <th class="pull-list-col-condition">Condition</th>
+                        <th class="pull-list-col-rarity">Rarity</th>
+                        <th class="pull-list-col-metadata">Color</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -140,13 +154,13 @@ export function MasterPullListPage() {
                           <td class="align-right numeric pull-list-quantity">
                             {String(row.orderQuantity)}
                           </td>
-                          <td>
+                          <td class="pull-list-col-product">
                             <div class="cell-stack pull-list-product">
                               <strong>{row.productName}</strong>
                               <small>{row.productLine}</small>
                             </div>
                           </td>
-                          <td>
+                          <td class="pull-list-col-set">
                             <div class="cell-stack">
                               <strong>{row.setName}</strong>
                               {row.number === "" ? null : (
@@ -154,20 +168,21 @@ export function MasterPullListPage() {
                               )}
                             </div>
                           </td>
-                          <td>{row.condition}</td>
-                          <td>{row.rarity === "" ? "—" : row.rarity}</td>
-                          <td>
+                          <td class="pull-list-col-condition">
+                            {row.condition}
+                          </td>
+                          <td class="pull-list-col-rarity">
+                            {row.rarity === "" ? "—" : row.rarity}
+                          </td>
+                          <td class="pull-list-col-metadata">
                             {row.metadata.length === 0 ? (
                               <span class="pull-list-metadata-empty">—</span>
                             ) : (
-                              <div class="pull-list-metadata">
-                                {row.metadata.map((item) => (
-                                  <span key={item.label}>
-                                    <small>{item.label}</small>
-                                    <strong>{item.values.join(" / ")}</strong>
-                                  </span>
-                                ))}
-                              </div>
+                              <strong class="pull-list-metadata">
+                                {row.metadata
+                                  .flatMap((item) => item.values)
+                                  .join(" / ")}
+                              </strong>
                             )}
                           </td>
                         </tr>

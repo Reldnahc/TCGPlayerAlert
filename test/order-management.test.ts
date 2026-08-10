@@ -33,72 +33,78 @@ const pullSheetRow = {
   setName: "Synthetic Set",
   rarity: "Rare",
   quantity: 10,
-  mainPhotoUrl: "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
+  mainPhotoUrl: "",
   setReleaseDate: "2026-01-01",
   skuId: "456",
   orderQuantity: 2,
 };
 
+function orderDetail(
+  orderNumber = firstOrder.orderNumber,
+): ConfirmedSellerOrder["order"] {
+  return {
+    createdAt: firstOrder.orderDate,
+    status: firstOrder.orderStatus,
+    statusCode: firstOrder.orderStatusCode,
+    orderChannel: firstOrder.orderChannel,
+    orderFulfillment: firstOrder.orderFulfillment,
+    orderNumber,
+    sellerName: "Synthetic Seller",
+    buyerName: firstOrder.buyerName,
+    paymentType: "CreditCard",
+    pickupStatus: "",
+    shippingType: firstOrder.shippingType,
+    estimatedDeliveryDate: "2026-08-08T12:00:00.000Z",
+    transaction: {
+      productAmount: firstOrder.productAmount,
+      shippingAmount: firstOrder.shippingAmount,
+      grossAmount: firstOrder.totalAmount,
+      feeAmount: 1,
+      netAmount: 12.49,
+      directFeeAmount: 0,
+      taxes: [],
+    },
+    shippingAddress: {
+      recipientName: "Synthetic Buyer",
+      addressOne: "123 Example Street",
+      addressTwo: "Apt 4",
+      city: "Example City",
+      territory: "IL",
+      country: "US",
+      postalCode: "00000",
+    },
+    products: [
+      {
+        name: "Synthetic Card",
+        unitPrice: 6,
+        extendedPrice: 12,
+        quantity: 2,
+        url: "https://www.example.test/product/123",
+        productId: "123",
+        skuId: "456",
+      },
+    ],
+    refunds: [],
+    refundStatus: "None",
+    refundCapabilities: { full: true, partial: true },
+    trackingNumbers: [],
+    allowedActions: [
+      "AddTracking",
+      "MarkShipped",
+      "FullRefund",
+      "PartialRefund",
+    ],
+  };
+}
+
 function client() {
   return {
     searchOrders: vi.fn(),
+    getOrder: vi.fn((orderNumber: string) =>
+      Promise.resolve(orderDetail(orderNumber)),
+    ),
     confirmOrder: vi.fn((): Promise<ConfirmedSellerOrder> =>
-      Promise.resolve({
-        summary: firstOrder,
-        order: {
-          createdAt: firstOrder.orderDate,
-          status: firstOrder.orderStatus,
-          statusCode: firstOrder.orderStatusCode,
-          orderChannel: firstOrder.orderChannel,
-          orderFulfillment: firstOrder.orderFulfillment,
-          orderNumber: firstOrder.orderNumber,
-          sellerName: "Synthetic Seller",
-          buyerName: firstOrder.buyerName,
-          paymentType: "CreditCard",
-          pickupStatus: "",
-          shippingType: firstOrder.shippingType,
-          estimatedDeliveryDate: "2026-08-08T12:00:00.000Z",
-          transaction: {
-            productAmount: firstOrder.productAmount,
-            shippingAmount: firstOrder.shippingAmount,
-            grossAmount: firstOrder.totalAmount,
-            feeAmount: 1,
-            netAmount: 12.49,
-            directFeeAmount: 0,
-            taxes: [],
-          },
-          shippingAddress: {
-            recipientName: "Synthetic Buyer",
-            addressOne: "123 Example Street",
-            addressTwo: "Apt 4",
-            city: "Example City",
-            territory: "IL",
-            country: "US",
-            postalCode: "00000",
-          },
-          products: [
-            {
-              name: "Synthetic Card",
-              unitPrice: 6,
-              extendedPrice: 12,
-              quantity: 2,
-              url: "https://www.example.test/product/123",
-              productId: "123",
-              skuId: "456",
-            },
-          ],
-          refunds: [],
-          refundStatus: "None",
-          refundCapabilities: { full: true, partial: true },
-          trackingNumbers: [],
-          allowedActions: [
-            "AddTracking",
-            "MarkShipped",
-            "FullRefund",
-            "PartialRefund",
-          ],
-        },
-      }),
+      Promise.resolve({ summary: firstOrder, order: orderDetail() }),
     ),
     getPackingSlip: vi.fn(() =>
       Promise.resolve({
@@ -329,10 +335,68 @@ describe("order management", () => {
       },
       undefined,
     );
+    expect(fakeClient.getOrder).toHaveBeenCalledOnce();
+    expect(fakeClient.getOrder).toHaveBeenCalledWith(
+      firstOrder.orderNumber,
+      undefined,
+    );
     expect(fakeClient.searchMarketplaceProducts).toHaveBeenCalledWith(
       { productIds: [123], channelId: 0, offset: 0, limit: 1 },
       undefined,
     );
+  });
+
+  it("does not load order details when product image URLs identify every row", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    fakeClient.exportPullSheet.mockResolvedValue({
+      text: "synthetic pull sheet",
+      contentType: "text/csv",
+      fileName: "pull-sheet.csv",
+      orderNumbers: [firstOrder.orderNumber],
+      rows: [
+        {
+          ...pullSheetRow,
+          mainPhotoUrl:
+            "https://product-images.tcgplayer.com/fit-in/200x279/123.jpg",
+        },
+      ],
+    });
+
+    await service(fakeClient).getMasterPullList();
+
+    expect(fakeClient.getOrder).not.toHaveBeenCalled();
+    expect(fakeClient.searchMarketplaceProducts).toHaveBeenCalledWith(
+      { productIds: [123], channelId: 0, offset: 0, limit: 1 },
+      undefined,
+    );
+  });
+
+  it("keeps the pull list usable when optional product matching fails", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    fakeClient.getOrder.mockRejectedValue(
+      new Error("synthetic detail failure"),
+    );
+
+    const result = await service(fakeClient).getMasterPullList();
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({
+        skuId: pullSheetRow.skuId,
+        metadata: [],
+      }),
+    ]);
+    expect(result.metadataIssue).toBe(
+      "Optional card metadata could not be matched to every product.",
+    );
+    expect(fakeClient.searchMarketplaceProducts).not.toHaveBeenCalled();
   });
 
   it("keeps master pull-sheet exports within the 500-order request limit", async () => {

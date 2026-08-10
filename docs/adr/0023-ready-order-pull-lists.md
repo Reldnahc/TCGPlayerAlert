@@ -30,27 +30,31 @@ metadata enrichment must avoid one catalog request per row.
 - Combine rows with the same exact SKU and sum their order quantities. Reject
   conflicting product identity fields for one SKU instead of silently merging
   uncertain products.
-- Derive optional product IDs only from validated TCGplayer product-image URLs,
-  then request marketplace metadata in sequential batches of at most 24 exact
-  product IDs. Preserve provider-supplied colors and omit color when none
-  exists.
+- Derive optional product IDs from validated TCGplayer product-image URLs. When
+  the export omits those URLs, read ready-order details sequentially only until
+  every pull-sheet SKU that can be matched has a product ID. Reuse cached order
+  details, then request marketplace metadata in sequential batches of at most
+  24 exact product IDs. Preserve provider-supplied colors and omit color when
+  none exists.
 - Treat metadata as an enhancement. If its read fails, return the complete
   operational master list with a visible warning instead of failing the list.
 - Cache the assembled master list in server memory for 30 seconds. Refresh
   bypasses both it and the ready-order cache, and order mutations invalidate it.
 - Render a dedicated master-list route with combined quantity, product, set,
-  number, condition, rarity, and available metadata. Use `window.print()` and a
-  printer stylesheet so the operating system's normal print dialog remains the
-  generic printer boundary.
+  number, condition, rarity, and available metadata. Use a dense monochrome
+  printer stylesheet and `window.print()` so the operating system's normal
+  print dialog remains the generic printer boundary.
 - Never persist or log pull-sheet rows, product metadata, or customer/order
   content.
 
 ## Consequences
 
 A cold load performs the paginated ready-order search, one pull-sheet export
-per 500 ready orders, and one public marketplace request per 24 unique products.
-It does not confirm every individual order. Repeated exact SKUs become one
-physical picking row, and revisits within the cache window add no requests.
-Optional catalog drift cannot block fulfillment, while pull-sheet identity or
-SKU drift fails explicitly. The feature works with any printer exposed through
-the browser's operating-system print dialog.
+per 500 ready orders, up to one detail read per ready order needed to resolve
+missing product IDs, and one public marketplace request per 24 unique products.
+It stops detail reads as soon as every pull-sheet SKU is resolved and reuses
+details already in the short-lived in-memory cache. Repeated exact SKUs become
+one physical picking row, and revisits within the pull-list cache window add no
+requests. Optional detail or catalog drift cannot block fulfillment, while
+pull-sheet identity or SKU drift fails explicitly. The feature works with any
+printer exposed through the browser's operating-system print dialog.

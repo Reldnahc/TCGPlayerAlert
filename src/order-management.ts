@@ -80,6 +80,7 @@ export interface ManagedMasterPullList {
 type OrderManagementClient = Pick<
   TcgplayerSellerClient,
   | "searchOrders"
+  | "getOrder"
   | "confirmOrder"
   | "getPackingSlip"
   | "exportPullSheet"
@@ -370,20 +371,18 @@ export class OrderManagementService {
       }
     }
     const pullSheetRows = [...rowsBySku.values()];
-    const uniqueProductIds = [
-      ...new Set(
-        pullSheetRows.flatMap((row) => {
-          const productId = parseProductIdFromPhotoUrl(row.mainPhotoUrl);
-          return productId === undefined ? [] : [productId];
-        }),
-      ),
-    ];
+    const productIds = await this.loadPullListProductIds(
+      pullSheetRows,
+      orderNumbers,
+      options.signal,
+    );
+    const uniqueProductIds = [...new Set(productIds.bySku.values())];
     const metadata = await this.loadPullListMetadata(
       uniqueProductIds,
       options.signal,
     );
     const rows = pullSheetRows.map<ManagedPullListRow>((row) => {
-      const productId = parseProductIdFromPhotoUrl(row.mainPhotoUrl);
+      const productId = productIds.bySku.get(row.skuId);
       const colors =
         productId === undefined ? undefined : metadata.colors.get(productId);
       return {
@@ -400,15 +399,86 @@ export class OrderManagementService {
       rows,
       totalQuantity: rows.reduce((total, row) => total + row.orderQuantity, 0),
       fetchedAt: now.toISOString(),
-      ...(metadata.issue === undefined
+      ...(productIds.issue === undefined && metadata.issue === undefined
         ? {}
-        : { metadataIssue: metadata.issue }),
+        : {
+            metadataIssue: [productIds.issue, metadata.issue]
+              .filter((issue): issue is string => issue !== undefined)
+              .join(" "),
+          }),
     };
     this.pullListCache = {
       expiresAt: now.getTime() + this.cacheMilliseconds,
       value,
     };
     return value;
+  }
+
+  private async loadPullListProductIds(
+    rows: readonly PullSheetRow[],
+    orderNumbers: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly bySku: ReadonlyMap<string, number>;
+    readonly issue?: string;
+  }> {
+    const bySku = new Map<string, number>();
+    const unresolvedSkuIds = new Set<string>();
+    for (const row of rows) {
+      const productId = parseProductIdFromPhotoUrl(row.mainPhotoUrl);
+      if (productId === undefined) {
+        unresolvedSkuIds.add(row.skuId);
+      } else {
+        bySku.set(row.skuId, productId);
+      }
+    }
+    if (unresolvedSkuIds.size === 0) return { bySku };
+    try {
+      for (const orderNumber of orderNumbers) {
+        signal?.throwIfAborted();
+        const cacheKey = orderNumber.toLocaleLowerCase();
+        const cached = this.detailCache.get(cacheKey);
+        const now = this.now();
+        const order =
+          cached !== undefined && cached.expiresAt > now.getTime()
+            ? cached.value
+            : toManagedOrderDetail(
+                await this.client.getOrder(
+                  orderNumber,
+                  signal === undefined ? undefined : { signal },
+                ),
+                now.toISOString(),
+              );
+        if (order.orderNumber !== orderNumber) {
+          throw new ApplicationError(
+            "PROVIDER_ERROR",
+            "TCGplayer returned product metadata for a different order.",
+          );
+        }
+        if (cached === undefined || cached.expiresAt <= now.getTime()) {
+          this.detailCache.set(cacheKey, {
+            expiresAt: now.getTime() + this.cacheMilliseconds,
+            value: order,
+          });
+        }
+        for (const product of order.products) {
+          if (!unresolvedSkuIds.has(product.skuId)) continue;
+          const productId = parseProductId(product.productId);
+          if (productId === undefined) continue;
+          bySku.set(product.skuId, productId);
+          unresolvedSkuIds.delete(product.skuId);
+        }
+        if (unresolvedSkuIds.size === 0) break;
+      }
+      return { bySku };
+    } catch (cause) {
+      signal?.throwIfAborted();
+      void cause;
+      return {
+        bySku,
+        issue: "Optional card metadata could not be matched to every product.",
+      };
+    }
   }
 
   private async loadPullListMetadata(
@@ -682,6 +752,12 @@ function parseProductIdFromPhotoUrl(value: string): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+function parseProductId(value: string): number | undefined {
+  if (!/^[1-9]\d{0,15}$/u.test(value)) return undefined;
+  const productId = Number(value);
+  return Number.isSafeInteger(productId) ? productId : undefined;
 }
 
 function sameStringSet(
