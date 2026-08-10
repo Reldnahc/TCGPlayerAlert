@@ -164,6 +164,127 @@ describe("catalog and inventory", () => {
     );
   });
 
+  it("schedules an exact catalog SKU without pricing or queueing it immediately", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path.startsWith("/api/catalog/search")) {
+          return Promise.resolve(
+            json({
+              totalProducts: 1,
+              productLines: [{ name: "Magic: The Gathering", count: 1 }],
+              sets: [{ name: "Synthetic Set", count: 1 }],
+              products: [
+                {
+                  productId: 123,
+                  imageUrl: "https://product-images.tcgplayer.com/123.jpg",
+                  productName: "Synthetic Card",
+                  productLineName: "Magic: The Gathering",
+                  setName: "Synthetic Set",
+                  rarityName: "Rare",
+                  cardNumber: "42",
+                  marketPrice: 3.5,
+                  foilMarketPrice: 8.25,
+                  sellerListable: true,
+                  matchKind: "exact",
+                  matchRank: [0],
+                },
+              ],
+              nextOffset: 1,
+              hasMore: false,
+            }),
+          );
+        }
+        if (path === "/api/catalog/products/123") {
+          return Promise.resolve(
+            json({
+              productId: 123,
+              imageUrl: "https://product-images.tcgplayer.com/123.jpg",
+              productName: "Synthetic Card",
+              productLineName: "Magic: The Gathering",
+              setName: "Synthetic Set",
+              rarityName: "Rare",
+              cardNumber: "42",
+              marketPrice: 3.5,
+              foilMarketPrice: 8.25,
+              sellerListable: true,
+              skus: [
+                {
+                  productConditionId: 456,
+                  conditionId: 1,
+                  condition: "Near Mint",
+                  printing: "Normal",
+                  language: "English",
+                },
+              ],
+            }),
+          );
+        }
+        if (
+          path === "/api/internal-jobs/listings" &&
+          options?.method === "POST"
+        ) {
+          if (typeof options.body !== "string")
+            throw new Error("Expected a scheduled listing body.");
+          const submitted = JSON.parse(options.body) as {
+            runAt: string;
+            merchandiseProfileId: string;
+            item: Record<string, unknown>;
+          };
+          return Promise.resolve(
+            json(
+              {
+                schedule: {
+                  id: "00000000-0000-4000-8000-000000000200",
+                  name: "List 1 card",
+                  enabled: true,
+                  timing: { kind: "once", runAt: submitted.runAt },
+                  payload: {
+                    type: "list-inventory",
+                    merchandiseProfileId: submitted.merchandiseProfileId,
+                    items: [submitted.item],
+                  },
+                  createdAt: "2026-08-10T12:00:00.000Z",
+                  updatedAt: "2026-08-10T12:00:00.000Z",
+                  nextRunAt: submitted.runAt,
+                },
+              },
+              202,
+            ),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.selectOptions(
+      screen.getByLabelText("Listing time"),
+      "scheduled",
+    );
+    await user.type(
+      screen.getByLabelText("Card name or product #"),
+      "Synthetic Card",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("Synthetic Card");
+    await user.click(screen.getByRole("button", { name: "+1" }));
+
+    expect((await screen.findAllByText(/Scheduled \+1 for/u)).length).toBe(2);
+    const call = fetchMock.mock.calls.find(
+      ([input]) => requestPath(input) === "/api/internal-jobs/listings",
+    );
+    expect(call).toBeDefined();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => requestPath(input) === "/api/inventory-additions/preview",
+      ),
+    ).toBe(false);
+  });
+
   it("reports inventory loading progress and filters to proposed changes", async () => {
     let emitPreviewEvent:
       | ((value: unknown, options?: { readonly close?: boolean }) => void)

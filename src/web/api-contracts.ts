@@ -5,6 +5,10 @@ import type {
   FeedbackPage,
   InventoryJob,
   InventoryQueueResponse,
+  InternalJobsResponse,
+  JobRunResponse,
+  JobScheduleResponse,
+  DeletedResponse,
   MasterPullList,
   MarkAllMessagesReadResult,
   MessageMutationResult,
@@ -746,6 +750,7 @@ const jobBase = {
   nextAttemptAt: optional(isoDateTime),
   errorCode: optional(text),
   resubmittedFromJobId: optional(text),
+  sourceRunId: optional(text),
 } as const;
 const inventoryJobDecoder: Decoder<InventoryJob> = union(
   object({
@@ -844,6 +849,127 @@ export const queuedInventoryJobDecoder: Decoder<QueuedJob<InventoryJob>> =
   object({ job: inventoryJobDecoder });
 export const queuedPriceJobDecoder: Decoder<QueuedJob<PriceJob>> = object({
   job: priceJobDecoder,
+});
+
+const scheduleTiming = union(
+  object({ kind: literal("once"), runAt: isoDateTime }),
+  object({
+    kind: literal("interval"),
+    everyMinutes: nonNegativeInteger,
+    anchorAt: isoDateTime,
+  }),
+  object({ kind: literal("daily"), timeOfDay: text, timeZone: text }),
+  object({
+    kind: literal("weekly"),
+    weekdays: array(nonNegativeInteger),
+    timeOfDay: text,
+    timeZone: text,
+  }),
+);
+const repricingLimits = object({
+  maximumUpdates: nonNegativeInteger,
+  maximumDecreasePercent: number,
+  maximumDecreaseAmount: number,
+  maximumIncreasePercent: number,
+  maximumBlockedPercent: number,
+});
+const listingItem = object({
+  productId: nonNegativeInteger,
+  productConditionId: nonNegativeInteger,
+  productName: text,
+  quantity: nonNegativeInteger,
+});
+const internalPayload = union(
+  object({
+    type: literal("reprice-inventory"),
+    pricingProfileId: text,
+    mode: enumeration("review", "automatic"),
+    scope: literal("all"),
+    limits: repricingLimits,
+  }),
+  object({
+    type: literal("list-inventory"),
+    merchandiseProfileId: text,
+    items: array(listingItem),
+  }),
+);
+const internalSchedule = object({
+  id: text,
+  name: text,
+  enabled: boolean,
+  timing: scheduleTiming,
+  payload: internalPayload,
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+  nextRunAt: optional(isoDateTime),
+  lastRunAt: optional(isoDateTime),
+  lastRunId: optional(text),
+});
+const internalReportItem = object({
+  key: text,
+  productName: text,
+  outcome: enumeration(
+    "queued",
+    "proposed",
+    "unchanged",
+    "skipped",
+    "review-required",
+  ),
+  quantity: optional(nonNegativeInteger),
+  currentPrice: optional(number),
+  proposedPrice: optional(number),
+  reason: optional(text),
+});
+const internalReport = object({
+  proposed: nonNegativeInteger,
+  queuedPriceJobs: nonNegativeInteger,
+  queuedInventoryJobs: nonNegativeInteger,
+  unchanged: nonNegativeInteger,
+  skipped: nonNegativeInteger,
+  reviewRequired: nonNegativeInteger,
+  truncatedItems: nonNegativeInteger,
+  items: array(internalReportItem),
+});
+const internalRun = object({
+  id: text,
+  scheduleId: text,
+  scheduleName: text,
+  payload: internalPayload,
+  trigger: enumeration("scheduled", "manual"),
+  status: enumeration(
+    "queued",
+    "running",
+    "succeeded",
+    "partial",
+    "failed",
+    "review-required",
+    "canceled",
+    "skipped",
+  ),
+  scheduledFor: isoDateTime,
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+  startedAt: optional(isoDateTime),
+  completedAt: optional(isoDateTime),
+  nextAttemptAt: optional(isoDateTime),
+  attempts: nonNegativeInteger,
+  report: optional(internalReport),
+  errorCode: optional(text),
+});
+
+export const internalJobsDecoder: Decoder<InternalJobsResponse> = object({
+  schedules: array(internalSchedule),
+  runs: array(internalRun),
+  runnerRunning: boolean,
+});
+export const jobScheduleResponseDecoder: Decoder<JobScheduleResponse> = object({
+  schedule: internalSchedule,
+});
+export const jobRunResponseDecoder: Decoder<JobRunResponse> = object({
+  run: internalRun,
+});
+export const deletedResponseDecoder: Decoder<DeletedResponse> = object({
+  deleted: boolean,
 });
 
 const repricingRow = object({

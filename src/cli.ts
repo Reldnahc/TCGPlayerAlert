@@ -11,6 +11,7 @@ import {
   createInventoryAdditionExecutor,
   createInventoryAdditionQueue,
   createInventoryAdditionService,
+  createInternalJobStore,
   createOrderManagementService,
   createFeedbackManagementService,
   createMessageManagementService,
@@ -31,6 +32,10 @@ import { PriceUpdateWorker } from "./price-update-queue.js";
 import { InventoryAdditionWorker } from "./inventory-additions.js";
 import { FileSyncLease } from "./sync-lease.js";
 import { OrderSyncCoordinator } from "./order-sync.js";
+import {
+  InternalJobExecutor,
+  InternalJobRunner,
+} from "./internal-jobs/index.js";
 
 const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
@@ -94,6 +99,21 @@ try {
   } else if (command === "configure") {
     const config = await loadConfig(configPath);
     const { sessionManager, sellerApi } = await createSellerRuntime(config);
+    const priceQueue = createPriceUpdateQueue(config);
+    const inventoryQueue = createInventoryAdditionQueue(config);
+    const repricingService = createRepricingService(
+      config,
+      process.env,
+      sessionManager,
+      sellerApi,
+    );
+    const inventoryService = createInventoryAdditionService(
+      config,
+      process.env,
+      sessionManager,
+      sellerApi,
+    );
+    const internalJobs = createInternalJobStore(config);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -101,20 +121,11 @@ try {
     const ui = await startConfigurationUi({
       configPath,
       port: uiPort,
-      priceQueue: createPriceUpdateQueue(config),
-      repricingService: createRepricingService(
-        config,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
-      inventoryQueue: createInventoryAdditionQueue(config),
-      inventoryService: createInventoryAdditionService(
-        config,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
+      priceQueue,
+      repricingService,
+      inventoryQueue,
+      inventoryService,
+      internalJobs,
       orderService: createOrderManagementService(
         config,
         configPath,
@@ -162,6 +173,19 @@ try {
     process.once("SIGTERM", stop);
     const priceQueue = createPriceUpdateQueue(initialConfig);
     const inventoryQueue = createInventoryAdditionQueue(initialConfig);
+    const repricingService = createRepricingService(
+      initialConfig,
+      process.env,
+      sessionManager,
+      sellerApi,
+    );
+    const inventoryService = createInventoryAdditionService(
+      initialConfig,
+      process.env,
+      sessionManager,
+      sellerApi,
+    );
+    const internalJobs = createInternalJobStore(initialConfig);
     const readyOrders = createReadyOrderSource(
       initialConfig,
       process.env,
@@ -235,25 +259,33 @@ try {
       ),
       canProcess: sessionManager.isConnected,
     });
+    const internalJobRunner = new InternalJobRunner({
+      store: internalJobs,
+      executor: new InternalJobExecutor({
+        repricingService,
+        inventoryService,
+        priceQueue,
+        inventoryQueue,
+        loadConfig: () => loadConfig(configPath),
+      }),
+      logger: jsonLogger,
+      workerLease: new FileSyncLease(
+        `${initialConfig.stateFile}.internal-jobs.worker-lock`,
+      ),
+      canProcess: () =>
+        sessionManager.isConnected() && !orderSync.isSynchronizing(),
+    });
     const ui = await startConfigurationUi({
       configPath,
       port: uiPort,
       priceQueue,
       priceWorkerRunning: true,
-      repricingService: createRepricingService(
-        initialConfig,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
+      repricingService,
       inventoryQueue,
       inventoryWorkerRunning: true,
-      inventoryService: createInventoryAdditionService(
-        initialConfig,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
+      inventoryService,
+      internalJobs,
+      internalJobRunnerRunning: true,
       orderService,
       orderSync,
       shipmentScannerService,
@@ -295,6 +327,13 @@ try {
           errorCode: safeErrorCode(error),
         });
       });
+    const internalJobRunnerPromise = internalJobRunner
+      .run(controller.signal)
+      .catch((error: unknown) => {
+        jsonLogger.error("internal-jobs.worker-failed", {
+          errorCode: safeErrorCode(error),
+        });
+      });
     const backgroundScannerPromise = backgroundShipmentScanner
       .run(controller.signal)
       .catch((error: unknown) => {
@@ -326,6 +365,7 @@ try {
       await backgroundScannerPromise;
       await priceWorkerPromise;
       await inventoryWorkerPromise;
+      await internalJobRunnerPromise;
     }
     jsonLogger.info("service.stopped");
   } else if (command === "price" && argumentsList[1] === "queue") {

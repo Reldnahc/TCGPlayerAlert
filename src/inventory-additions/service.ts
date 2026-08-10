@@ -51,6 +51,10 @@ export interface InventoryAdditionPreview {
   readonly rules: InventoryPricingRules;
 }
 
+export interface InventoryAdditionPreviewOptions {
+  readonly forceRefresh?: boolean;
+}
+
 export type CatalogMatchKind = "exact" | "variant" | "related";
 
 export interface CatalogSearchProduct extends CatalogProductSummary {
@@ -560,7 +564,10 @@ export class InventoryAdditionService {
     }
   }
 
-  async preview(value: unknown): Promise<InventoryAdditionPreview> {
+  async preview(
+    value: unknown,
+    options: InventoryAdditionPreviewOptions = {},
+  ): Promise<InventoryAdditionPreview> {
     const sellerKey = this.currentSellerKey();
     this.removeExpiredPreviews();
     this.removeExpiredSelectionData();
@@ -591,6 +598,9 @@ export class InventoryAdditionService {
     );
     if (issues.length > 0) throw new ConfigurationError(issues);
     const rules = parseInventoryPricingRules(source?.rules);
+    if (options.forceRefresh === true) {
+      this.invalidateSelectionData(productId);
+    }
     const product = await this.getProduct(productId);
     const sku = product.skus.find(
       (candidate) => candidate.productConditionId === productConditionId,
@@ -849,6 +859,15 @@ export class InventoryAdditionService {
     }
     for (const [key, snapshot] of this.comparisonSnapshots) {
       if (snapshot.expiresAt <= now) this.comparisonSnapshots.delete(key);
+    }
+  }
+
+  private invalidateSelectionData(productId: number): void {
+    this.catalogProducts.delete(productId);
+    this.selectionSnapshots.delete(String(productId));
+    const prefix = `[${String(productId)},`;
+    for (const key of this.comparisonSnapshots.keys()) {
+      if (key.startsWith(prefix)) this.comparisonSnapshots.delete(key);
     }
   }
 

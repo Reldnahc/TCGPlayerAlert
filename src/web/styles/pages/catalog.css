@@ -4,6 +4,12 @@
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 9px;
 }
+.listing-time-field {
+  width: 130px;
+}
+.listing-date-field {
+  width: 205px;
+}
 .catalog-searchbar {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) 190px 220px auto;

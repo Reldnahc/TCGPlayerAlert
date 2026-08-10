@@ -60,6 +60,10 @@ import {
   SellerRequestGovernor,
   type SellerApiRuntime,
 } from "./seller-api.js";
+import {
+  internalJobStatePath,
+  InternalJobStore,
+} from "./internal-jobs/index.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -303,6 +307,13 @@ export function createInventoryAdditionService(
   return new InventoryAdditionService({
     client,
     sellerKey: access.sellerKey,
+  });
+}
+
+export function createInternalJobStore(config: AppConfig): InternalJobStore {
+  return new InternalJobStore({
+    stateFile: internalJobStatePath(config.stateFile),
+    historyLimit: 200,
   });
 }
 

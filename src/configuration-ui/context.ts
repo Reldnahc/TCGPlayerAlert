@@ -15,6 +15,7 @@ import type { ShipmentScannerService } from "../shipment-scanner.js";
 import type { BackgroundShipmentScanner } from "../background-shipment-scanner.js";
 import type { FeedbackManagementService } from "../feedback-management.js";
 import type { SellerRequestMetrics } from "../seller-api.js";
+import type { InternalJobStore } from "../internal-jobs/index.js";
 
 export interface ConfigurationRouteService {
   read(): Promise<unknown>;
@@ -55,6 +56,8 @@ export interface ConfigurationRouteContext {
   readonly executeAddressLabel: ConfigurationRouteAddressLabelPrint | undefined;
   readonly executePrintTest: ConfigurationRoutePrintTest | undefined;
   readonly sellerRequestMetrics: (() => SellerRequestMetrics) | undefined;
+  readonly internalJobs: InternalJobStore | undefined;
+  readonly internalJobRunnerRunning: boolean;
 }
 
 export type ConfigurationRouteHandler = (

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import process from "node:process";
 import {
   ConfigurationService,
+  InternalJobStore,
   shipmentTagId,
   startConfigurationUi,
 } from "../dist/index.js";
@@ -13,10 +14,35 @@ const previewDirectory = await mkdtemp(
   join(tmpdir(), "tcgplayer-alert-preview-"),
 );
 const configPath = join(previewDirectory, "local.json");
+const internalJobStore = new InternalJobStore({
+  stateFile: join(previewDirectory, "workflow-state.json.internal-jobs.json"),
+});
 await writeFile(
   configPath,
   await readFile("config/local.example.json", "utf8"),
 );
+await internalJobStore.createSchedule({
+  name: "Morning price review",
+  enabled: true,
+  timing: {
+    kind: "daily",
+    timeOfDay: "08:00",
+    timeZone: "America/Chicago",
+  },
+  payload: {
+    type: "reprice-inventory",
+    pricingProfileId: "match-lowest",
+    mode: "review",
+    scope: "all",
+    limits: {
+      maximumUpdates: 200,
+      maximumDecreasePercent: 20,
+      maximumDecreaseAmount: 20,
+      maximumIncreasePercent: 100,
+      maximumBlockedPercent: 20,
+    },
+  },
+});
 
 const now = "2026-08-07T17:15:00.000Z";
 const previewUnreadMessageCounts = new Map([
@@ -305,18 +331,40 @@ let priceJobs = [
   },
 ];
 
-function counts(jobs) {
+function counts(jobs, statuses) {
   return Object.fromEntries(
-    [...new Set(jobs.map((job) => job.status))].map((status) => [
+    statuses.map((status) => [
       status,
       jobs.filter((job) => job.status === status).length,
     ]),
   );
 }
 
+const inventoryStatuses = [
+  "pending",
+  "applying",
+  "submitted",
+  "failed",
+  "review-required",
+  "superseded",
+  "canceled",
+];
+const priceStatuses = [
+  "pending",
+  "applying",
+  "applied",
+  "failed",
+  "review-required",
+  "superseded",
+  "canceled",
+];
+
 const inventoryQueue = {
   snapshot: () =>
-    Promise.resolve({ jobs: inventoryJobs, counts: counts(inventoryJobs) }),
+    Promise.resolve({
+      jobs: inventoryJobs,
+      counts: counts(inventoryJobs, inventoryStatuses),
+    }),
   enqueue: (addition) => {
     const job = {
       id: randomUUID(),
@@ -348,7 +396,10 @@ const inventoryQueue = {
 };
 const priceQueue = {
   snapshot: () =>
-    Promise.resolve({ jobs: priceJobs, counts: counts(priceJobs) }),
+    Promise.resolve({
+      jobs: priceJobs,
+      counts: counts(priceJobs, priceStatuses),
+    }),
   enqueue: ({ updates }) => {
     const jobs = updates.map((update) => ({
       id: randomUUID(),
@@ -638,6 +689,8 @@ const server = await startConfigurationUi({
   inventoryWorkerRunning: false,
   priceQueue,
   priceWorkerRunning: true,
+  internalJobs: internalJobStore,
+  internalJobRunnerRunning: false,
   repricingService,
   orderService: {
     listOrders: (scope) =>

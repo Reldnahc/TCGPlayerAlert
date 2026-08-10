@@ -41,6 +41,13 @@ import type {
 } from "../repricing.js";
 import type { ShipmentScanResult as ServerShipmentScanResult } from "../shipment-scanner.js";
 import type { ManagedShipmentScannerStatus } from "../background-shipment-scanner.js";
+import type {
+  InternalJobSnapshot,
+  InternalRun,
+  InternalSchedule,
+  InternalScheduleInput,
+  ScheduledListingInput,
+} from "../internal-jobs/index.js";
 
 export type Settings = ConfigurationUiSettings;
 export type SettingsUpdate = ConfigurationUiUpdate;
@@ -79,6 +86,10 @@ export type CatalogProduct = CatalogProductDetails;
 export type AdditionPreview = InventoryAdditionPreview;
 export type InventoryJob = InventoryAdditionJob;
 export type PriceJob = PriceUpdateJob;
+export type JobSchedule = InternalSchedule;
+export type JobScheduleInput = InternalScheduleInput;
+export type JobRun = InternalRun;
+export type ScheduledListing = ScheduledListingInput;
 export type PricingPreview = RepricingPreview;
 export type PricingProgress = RepricingProgress;
 export type PricingRules = RepricingRules;
@@ -89,6 +100,22 @@ export interface InventoryQueueResponse extends InventoryAdditionQueueSnapshot {
 
 export interface PriceQueueResponse extends PriceUpdateQueueSnapshot {
   readonly workerRunning: boolean;
+}
+
+export interface InternalJobsResponse extends InternalJobSnapshot {
+  readonly runnerRunning: boolean;
+}
+
+export interface JobScheduleResponse {
+  readonly schedule: JobSchedule;
+}
+
+export interface JobRunResponse {
+  readonly run: JobRun;
+}
+
+export interface DeletedResponse {
+  readonly deleted: boolean;
 }
 
 export interface QueuedJobs<T> {

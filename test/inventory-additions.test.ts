@@ -160,6 +160,30 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
+  it("atomically and idempotently dispatches a scheduled listing batch", async () => {
+    const { queue } = await queueFixture();
+    const sourceRunId = "00000000-0000-4000-8000-000000000099";
+    const additions = [
+      addition,
+      {
+        ...addition,
+        productId: 124,
+        productConditionId: 457,
+        productName: "Another Synthetic Card",
+      },
+    ];
+
+    const created = await queue.enqueueScheduled(additions, sourceRunId);
+    const repeated = await queue.enqueueScheduled(
+      [{ ...addition, addQuantity: 10 }],
+      sourceRunId,
+    );
+
+    expect(repeated.map((job) => job.id)).toEqual(created.map((job) => job.id));
+    expect(await queue.jobsForSourceRun(sourceRunId)).toHaveLength(2);
+    expect((await queue.snapshot()).jobs).toHaveLength(2);
+  });
+
   it("loads and ranks one catalog page with product-line and set facets", async () => {
     const related = { ...product, productId: 1, productName: "Synthetic Box" };
     const variant = {
@@ -568,6 +592,18 @@ describe("inventory additions", () => {
     });
     expect(getCatalogProduct).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(7);
+
+    await service.preview(
+      {
+        productId: product.productId,
+        productConditionId: 456,
+        addQuantity: 5,
+        rules: { ...rules, conditionPolicy: "same" },
+      },
+      { forceRefresh: true },
+    );
+    expect(getCatalogProduct).toHaveBeenCalledTimes(3);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(10);
   });
 
   it("uses the configured minimum with a market fallback", async () => {

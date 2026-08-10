@@ -108,6 +108,32 @@ describe("price-update queue", () => {
     expect(snapshot.jobs).toHaveLength(1200);
   });
 
+  it("idempotently returns the mutations already dispatched by an internal run", async () => {
+    const { queue } = await queueFixture();
+    const sourceRunId = "00000000-0000-4000-8000-000000000099";
+    const updates = [
+      syntheticUpdate,
+      {
+        ...syntheticUpdate,
+        productId: 124,
+        productConditionId: 457,
+        productName: "Another Synthetic Card",
+      },
+    ];
+
+    const created = await queue.enqueue({ updates }, { sourceRunId });
+    const repeated = await queue.enqueue(
+      { updates: [{ ...syntheticUpdate, price: 1 }] },
+      { sourceRunId },
+    );
+    const claimed = await queue.claimNext();
+
+    expect(repeated.map((job) => job.id)).toEqual(created.map((job) => job.id));
+    expect(claimed?.sourceRunId).toBe(sourceRunId);
+    expect(await queue.jobsForSourceRun(sourceRunId)).toHaveLength(2);
+    expect((await queue.snapshot()).jobs).toHaveLength(2);
+  });
+
   it("resubmits a failed update once as a new auditable job", async () => {
     const { queue } = await queueFixture();
     const original = (await queue.enqueue(syntheticUpdate))[0];

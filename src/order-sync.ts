@@ -48,6 +48,10 @@ export class OrderSyncCoordinator {
     return this.readyOrders.snapshot();
   }
 
+  isSynchronizing(): boolean {
+    return this.activeSync !== undefined;
+  }
+
   async synchronizeReadyOrders(
     options: ReadyOrderSynchronizationOptions = {},
   ): Promise<ManagedOrderList> {

@@ -21,6 +21,7 @@ import { useToast } from "../state/ToastContext.js";
 import { errorMessage, money } from "../utils.js";
 
 const PROFILE_KEY = "tcgplayer-alert.merchandise-profile";
+const LISTING_MODE_KEY = "tcgplayer-alert.listing-mode";
 const CONDITIONS = [
   "Near Mint",
   "Lightly Played",
@@ -91,6 +92,12 @@ export function AddCardsPage() {
   const [profileId, setProfileId] = useState(
     () => window.localStorage.getItem(PROFILE_KEY) ?? "",
   );
+  const [listingMode, setListingMode] = useState<"now" | "scheduled">(() =>
+    window.localStorage.getItem(LISTING_MODE_KEY) === "scheduled"
+      ? "scheduled"
+      : "now",
+  );
+  const [scheduledAt, setScheduledAt] = useState(defaultScheduledTime);
   const [query, setQuery] = useState("");
   const [productLine, setProductLine] = useState("");
   const [setName, setSetName] = useState("");
@@ -347,6 +354,32 @@ export function AddCardsPage() {
       }
       if (sku === undefined)
         throw new Error("The matching SKU could not be selected.");
+      if (listingMode === "scheduled") {
+        const runAt = new Date(scheduledAt);
+        if (
+          !Number.isFinite(runAt.getTime()) ||
+          runAt.getTime() <= Date.now()
+        ) {
+          throw new Error("Choose a future listing time before adding cards.");
+        }
+        await uiApi.scheduleListing({
+          runAt: runAt.toISOString(),
+          merchandiseProfileId: activeProfile.id,
+          item: {
+            productId,
+            productConditionId: sku.productConditionId,
+            productName: productDetails.productName,
+            quantity,
+          },
+        });
+        const text = `Scheduled +${String(quantity)}${sku.language === activeProfile.language ? "" : ` as ${sku.language}`} for ${runAt.toLocaleString()}.`;
+        setRowMessages((current) => ({
+          ...current,
+          [productId]: { tone: "success", text },
+        }));
+        toast.show(text, "success");
+        return;
+      }
       const preview = await uiApi.previewAddition({
         productId,
         productConditionId: sku.productConditionId,
@@ -375,7 +408,12 @@ export function AddCardsPage() {
         ...current,
         [productId]: {
           tone: "danger",
-          text: errorMessage(cause, "The card was not queued."),
+          text: errorMessage(
+            cause,
+            listingMode === "scheduled"
+              ? "The card was not scheduled."
+              : "The card was not queued.",
+          ),
         },
       }));
     } finally {
@@ -421,6 +459,29 @@ export function AddCardsPage() {
               ))}
             </select>
           </Field>
+          <Field label="Listing time" class="listing-time-field">
+            <select
+              value={listingMode}
+              onChange={(event) => {
+                const mode = event.currentTarget.value as "now" | "scheduled";
+                setListingMode(mode);
+                window.localStorage.setItem(LISTING_MODE_KEY, mode);
+              }}
+            >
+              <option value="now">Now</option>
+              <option value="scheduled">Scheduled</option>
+            </select>
+          </Field>
+          {listingMode === "scheduled" ? (
+            <Field label="Release at" class="listing-date-field">
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                min={localDateTimeValue(new Date(Date.now() + 60_000))}
+                onInput={(event) => setScheduledAt(event.currentTarget.value)}
+              />
+            </Field>
+          ) : null}
           <span class="profile-summary">
             {activeProfile === undefined
               ? "No profile configured"
@@ -593,6 +654,18 @@ export function AddCardsPage() {
       )}
     </main>
   );
+}
+
+function defaultScheduledTime(): string {
+  const date = new Date();
+  date.setMinutes(0, 0, 0);
+  date.setHours(date.getHours() + 1);
+  return localDateTimeValue(date);
+}
+
+function localDateTimeValue(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function CatalogRow({

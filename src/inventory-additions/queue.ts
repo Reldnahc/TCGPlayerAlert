@@ -99,6 +99,7 @@ interface InventoryAdditionJobBase {
   readonly nextAttemptAt?: string;
   readonly errorCode?: string;
   readonly resubmittedFromJobId?: string;
+  readonly sourceRunId?: string;
 }
 
 export type InventoryAdditionJob =
@@ -343,7 +344,12 @@ function parseQueueState(value: unknown): InventoryAdditionQueueState {
       Number(job.attempts) < 0 ||
       (job.resubmittedFromJobId !== undefined &&
         (typeof job.resubmittedFromJobId !== "string" ||
-          !/^[0-9a-f-]{36}$/iu.test(job.resubmittedFromJobId)))
+          !/^[0-9a-f-]{36}$/iu.test(job.resubmittedFromJobId))) ||
+      (job.sourceRunId !== undefined &&
+        (typeof job.sourceRunId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+            job.sourceRunId,
+          )))
     ) {
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
@@ -366,6 +372,9 @@ function parseQueueState(value: unknown): InventoryAdditionQueueState {
       ...(typeof job.resubmittedFromJobId === "string"
         ? { resubmittedFromJobId: job.resubmittedFromJobId }
         : {}),
+      ...(typeof job.sourceRunId === "string"
+        ? { sourceRunId: job.sourceRunId }
+        : {}),
     };
     return operation === "remove"
       ? { ...base, operation, removal: parseRemoval(job.removal) }
@@ -381,6 +390,18 @@ function hasCode(error: unknown, code: string): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === code
   );
+}
+
+function optionalSourceRunId(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+      value,
+    )
+  ) {
+    throw new ConfigurationError(["The internal source run id is invalid."]);
+  }
+  return value;
 }
 
 export class InventoryAdditionQueueStore {
@@ -403,55 +424,92 @@ export class InventoryAdditionQueueStore {
       options.lease ?? new FileSyncLease(`${this.stateFile}.queue-lock`);
   }
 
-  enqueue(value: unknown): Promise<readonly InventoryAdditionJob[]> {
-    const addition = parseAddition(value);
+  enqueue(
+    value: unknown,
+    options: { readonly sourceRunId?: string } = {},
+  ): Promise<readonly InventoryAdditionJob[]> {
+    return this.enqueueAdditions([parseAddition(value)], options.sourceRunId);
+  }
+
+  enqueueScheduled(
+    values: readonly unknown[],
+    sourceRunId: string,
+  ): Promise<readonly InventoryAdditionJob[]> {
+    if (values.length === 0) return Promise.resolve([]);
+    const additions = values.map(parseAddition);
+    if (new Set(additions.map(additionKey)).size !== additions.length) {
+      throw new ConfigurationError([
+        "A scheduled inventory batch cannot repeat the same exact SKU.",
+      ]);
+    }
+    return this.enqueueAdditions(additions, sourceRunId);
+  }
+
+  private enqueueAdditions(
+    additions: readonly SellerInventoryAddition[],
+    sourceRunIdValue?: string,
+  ): Promise<readonly InventoryAdditionJob[]> {
+    const sourceRunId = optionalSourceRunId(sourceRunIdValue);
     return this.exclusive(async () =>
       this.lease.runExclusive(async () => {
         const state = await this.loadState();
-        const timestamp = this.now().toISOString();
-        const key = additionKey(addition);
-        const previous = state.jobs.find(
-          (job) =>
-            job.status === "pending" &&
-            job.operation === "add" &&
-            additionKey(job.addition) === key,
-        );
-        const combined =
-          previous?.operation !== "add"
-            ? addition
-            : {
-                ...addition,
-                addQuantity:
-                  previous.addition.addQuantity + addition.addQuantity,
-              };
-        if (combined.currentQuantity + combined.addQuantity > 10_000_000) {
-          throw new ConfigurationError([
-            "The combined pending quantity exceeds the supported limit.",
-          ]);
+        if (sourceRunId !== undefined) {
+          const existing = state.jobs.filter(
+            (job) => job.sourceRunId === sourceRunId,
+          );
+          if (existing.length > 0) return existing;
         }
-        const jobs = state.jobs.map((job) =>
-          job.status === "pending" && jobKey(job) === key
-            ? {
-                ...job,
-                status: "superseded" as const,
-                updatedAt: timestamp,
-              }
-            : job,
-        );
-        const created: InventoryAdditionJob = {
-          id: randomUUID(),
-          operation: "add",
-          addition: combined,
-          status: "pending",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          attempts: 0,
-        };
+        const timestamp = this.now().toISOString();
+        let jobs = [...state.jobs];
+        const created: InventoryAdditionJob[] = [];
+        for (const addition of additions) {
+          const key = additionKey(addition);
+          const previous = jobs.find(
+            (job) =>
+              job.status === "pending" &&
+              job.operation === "add" &&
+              additionKey(job.addition) === key,
+          );
+          const combined =
+            previous?.operation !== "add"
+              ? addition
+              : {
+                  ...addition,
+                  addQuantity:
+                    previous.addition.addQuantity + addition.addQuantity,
+                };
+          if (combined.currentQuantity + combined.addQuantity > 10_000_000) {
+            throw new ConfigurationError([
+              "The combined pending quantity exceeds the supported limit.",
+            ]);
+          }
+          jobs = jobs.map((job) =>
+            job.status === "pending" && jobKey(job) === key
+              ? {
+                  ...job,
+                  status: "superseded" as const,
+                  updatedAt: timestamp,
+                }
+              : job,
+          );
+          const job: InventoryAdditionJob = {
+            id: randomUUID(),
+            operation: "add",
+            addition: combined,
+            status: "pending",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            attempts: 0,
+            ...(sourceRunId === undefined ? {} : { sourceRunId }),
+          };
+          jobs.push(job);
+          created.push(job);
+        }
         await this.saveState({
           version: 1,
-          jobs: this.prune([...jobs, created]),
+          jobs: this.prune(jobs),
         });
-        return [created];
+        return created;
       }),
     );
   }
@@ -493,6 +551,20 @@ export class InventoryAdditionQueueStore {
   snapshot(): Promise<InventoryAdditionQueueSnapshot> {
     return this.exclusive(async () =>
       this.snapshotFrom(await this.loadState()),
+    );
+  }
+
+  jobsForSourceRun(
+    sourceRunId: string,
+  ): Promise<readonly InventoryAdditionJob[]> {
+    const normalized = optionalSourceRunId(sourceRunId);
+    if (normalized === undefined) {
+      throw new ConfigurationError(["The internal source run id is required."]);
+    }
+    return this.exclusive(async () =>
+      (await this.loadState()).jobs.filter(
+        (job) => job.sourceRunId === normalized,
+      ),
     );
   }
 

@@ -40,6 +40,7 @@ export interface PriceUpdateJob {
   readonly nextAttemptAt?: string;
   readonly errorCode?: string;
   readonly resubmittedFromJobId?: string;
+  readonly sourceRunId?: string;
 }
 
 interface PriceUpdateQueueState {
@@ -85,11 +86,21 @@ export class PriceUpdateQueueStore {
       options.lease ?? new FileSyncLease(`${this.stateFile}.queue-lock`);
   }
 
-  enqueue(value: unknown): Promise<readonly PriceUpdateJob[]> {
+  enqueue(
+    value: unknown,
+    options: { readonly sourceRunId?: string } = {},
+  ): Promise<readonly PriceUpdateJob[]> {
     const updates = parsePriceUpdates(value);
+    const sourceRunId = optionalSourceRunId(options.sourceRunId);
     return this.exclusive(async () =>
       this.lease.runExclusive(async () => {
         const state = await this.loadState();
+        if (sourceRunId !== undefined) {
+          const existing = state.jobs.filter(
+            (job) => job.sourceRunId === sourceRunId,
+          );
+          if (existing.length > 0) return existing;
+        }
         const timestamp = this.now().toISOString();
         const keys = new Set(updates.map(listingKey));
         const jobs = state.jobs.map((job) =>
@@ -104,6 +115,7 @@ export class PriceUpdateQueueStore {
           createdAt: timestamp,
           updatedAt: timestamp,
           attempts: 0,
+          ...(sourceRunId === undefined ? {} : { sourceRunId }),
         }));
         await this.saveState({
           version: 1,
@@ -117,6 +129,18 @@ export class PriceUpdateQueueStore {
   snapshot(): Promise<PriceUpdateQueueSnapshot> {
     return this.exclusive(async () =>
       this.snapshotFrom(await this.loadState()),
+    );
+  }
+
+  jobsForSourceRun(sourceRunId: string): Promise<readonly PriceUpdateJob[]> {
+    const normalized = optionalSourceRunId(sourceRunId);
+    if (normalized === undefined) {
+      throw new ConfigurationError(["The internal source run id is required."]);
+    }
+    return this.exclusive(async () =>
+      (await this.loadState()).jobs.filter(
+        (job) => job.sourceRunId === normalized,
+      ),
     );
   }
 
@@ -243,10 +267,8 @@ export class PriceUpdateQueueStore {
         );
         if (next === undefined) return undefined;
         const claimed: PriceUpdateJob = {
-          id: next.id,
-          update: next.update,
+          ...next,
           status: "applying",
-          createdAt: next.createdAt,
           updatedAt: now.toISOString(),
           attempts: next.attempts + 1,
         };
@@ -712,7 +734,12 @@ function parseQueueState(value: unknown): PriceUpdateQueueState {
       !Number.isInteger(job.attempts) ||
       (job.resubmittedFromJobId !== undefined &&
         (typeof job.resubmittedFromJobId !== "string" ||
-          !/^[0-9a-f-]{36}$/iu.test(job.resubmittedFromJobId)))
+          !/^[0-9a-f-]{36}$/iu.test(job.resubmittedFromJobId))) ||
+      (job.sourceRunId !== undefined &&
+        (typeof job.sourceRunId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+            job.sourceRunId,
+          )))
     ) {
       throw new ApplicationError(
         "PERSISTENCE_ERROR",
@@ -742,6 +769,9 @@ function parseQueueState(value: unknown): PriceUpdateQueueState {
       ...(typeof job.resubmittedFromJobId === "string"
         ? { resubmittedFromJobId: job.resubmittedFromJobId }
         : {}),
+      ...(typeof job.sourceRunId === "string"
+        ? { sourceRunId: job.sourceRunId }
+        : {}),
     };
   });
   return { version: 1, jobs };
@@ -749,6 +779,18 @@ function parseQueueState(value: unknown): PriceUpdateQueueState {
 
 function listingKey(update: SellerPriceUpdate): string {
   return `${String(update.productConditionId)}:${String(update.channelId)}`;
+}
+
+function optionalSourceRunId(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+      value,
+    )
+  ) {
+    throw new ConfigurationError(["The internal source run id is invalid."]);
+  }
+  return value;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {

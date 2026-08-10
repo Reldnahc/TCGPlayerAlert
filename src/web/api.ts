@@ -5,6 +5,12 @@ import type {
   FeedbackPage,
   InventoryJob,
   InventoryQueueResponse,
+  InternalJobsResponse,
+  JobRunResponse,
+  JobScheduleInput,
+  JobScheduleResponse,
+  ScheduledListing,
+  DeletedResponse,
   MessagesPage,
   MessageMutationResult,
   MarkAllMessagesReadResult,
@@ -42,6 +48,10 @@ import {
   catalogSearchDecoder,
   feedbackPageDecoder,
   inventoryQueueDecoder,
+  internalJobsDecoder,
+  jobRunResponseDecoder,
+  jobScheduleResponseDecoder,
+  deletedResponseDecoder,
   markAllMessagesReadDecoder,
   masterPullListDecoder,
   pullListRowDecoder,
@@ -592,6 +602,47 @@ export const uiApi = {
         : requestJson(path, queuedPriceJobDecoder, options)
     ) as Promise<QueuedJob<T>>;
   },
+  internalJobs: (): Promise<InternalJobsResponse> =>
+    requestJson("/api/internal-jobs", internalJobsDecoder),
+  createJobSchedule: (
+    schedule: JobScheduleInput,
+  ): Promise<JobScheduleResponse> =>
+    requestJson("/api/internal-jobs/schedules", jobScheduleResponseDecoder, {
+      method: "POST",
+      body: JSON.stringify(schedule),
+    }),
+  updateJobSchedule: (
+    scheduleId: string,
+    schedule: JobScheduleInput,
+  ): Promise<JobScheduleResponse> =>
+    requestJson(
+      `/api/internal-jobs/schedules/${encodeURIComponent(scheduleId)}`,
+      jobScheduleResponseDecoder,
+      { method: "PUT", body: JSON.stringify(schedule) },
+    ),
+  deleteJobSchedule: (scheduleId: string): Promise<DeletedResponse> =>
+    requestJson(
+      `/api/internal-jobs/schedules/${encodeURIComponent(scheduleId)}`,
+      deletedResponseDecoder,
+      { method: "DELETE", body: "{}" },
+    ),
+  runJobSchedule: (scheduleId: string): Promise<JobRunResponse> =>
+    requestJson(
+      `/api/internal-jobs/schedules/${encodeURIComponent(scheduleId)}/run`,
+      jobRunResponseDecoder,
+      { method: "POST", body: "{}" },
+    ),
+  cancelJobRun: (runId: string): Promise<JobRunResponse> =>
+    requestJson(
+      `/api/internal-jobs/runs/${encodeURIComponent(runId)}`,
+      jobRunResponseDecoder,
+      { method: "DELETE", body: "{}" },
+    ),
+  scheduleListing: (listing: ScheduledListing): Promise<JobScheduleResponse> =>
+    requestJson("/api/internal-jobs/listings", jobScheduleResponseDecoder, {
+      method: "POST",
+      body: JSON.stringify(listing),
+    }),
   repricingPreview: (
     rules: PricingRules,
     forceRefresh: boolean,

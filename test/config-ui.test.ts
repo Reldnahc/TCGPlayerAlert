@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConfigurationService,
+  InternalJobStore,
   loadConfig,
   startConfigurationUi,
   type AppConfig,
@@ -297,6 +298,87 @@ describe("configuration UI", () => {
     expect(forbidden.status).toBe(403);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ pollIntervalMinutes: 17 });
+  });
+
+  it("manages internal schedules and manual runs through the loopback API", async () => {
+    const current = await fixture();
+    const directory = await mkdtemp(join(tmpdir(), "tcgplayer-alert-jobs-ui-"));
+    const internalJobs = new InternalJobStore({
+      stateFile: join(directory, "jobs.json"),
+    });
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      internalJobs,
+      internalJobRunnerRunning: true,
+      port: 0,
+    });
+    const mutate = (path: string, method: string, body: unknown) =>
+      fetch(`${server?.url ?? ""}${path}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server?.url ?? "",
+        },
+        body: JSON.stringify(body),
+      });
+    const input = {
+      name: "Nightly review",
+      enabled: true,
+      timing: {
+        kind: "daily",
+        timeOfDay: "03:00",
+        timeZone: "America/Chicago",
+      },
+      payload: {
+        type: "reprice-inventory",
+        pricingProfileId: "match-lowest",
+        mode: "review",
+        scope: "all",
+        limits: {
+          maximumUpdates: 200,
+          maximumDecreasePercent: 20,
+          maximumDecreaseAmount: 20,
+          maximumIncreasePercent: 100,
+          maximumBlockedPercent: 20,
+        },
+      },
+    };
+
+    const createdResponse = await mutate(
+      "/api/internal-jobs/schedules",
+      "POST",
+      input,
+    );
+    const created = (await createdResponse.json()) as {
+      schedule: { id: string };
+    };
+    const runResponse = await mutate(
+      `/api/internal-jobs/schedules/${created.schedule.id}/run`,
+      "POST",
+      {},
+    );
+    const run = (await runResponse.json()) as { run: { id: string } };
+    const canceledResponse = await mutate(
+      `/api/internal-jobs/runs/${run.run.id}`,
+      "DELETE",
+      {},
+    );
+    const snapshotResponse = await fetch(`${server.url}/api/internal-jobs`);
+    const snapshot = (await snapshotResponse.json()) as {
+      runnerRunning: boolean;
+      schedules: readonly unknown[];
+      runs: readonly { status: string }[];
+    };
+
+    expect(createdResponse.status).toBe(201);
+    expect(runResponse.status).toBe(202);
+    expect(canceledResponse.status).toBe(200);
+    expect(snapshot).toMatchObject({
+      runnerRunning: true,
+      schedules: [expect.objectContaining({ name: "Nightly review" })],
+      runs: [expect.objectContaining({ status: "canceled" })],
+    });
   });
 
   it("pairs a browser session through the loopback UI without returning the cookie", async () => {
