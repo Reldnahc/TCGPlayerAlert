@@ -21,7 +21,7 @@ import {
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
-  createSellerSessionManager,
+  createSellerRuntime,
   createBackgroundShipmentScanner,
   createShipmentScannerService,
   createWorkflow,
@@ -64,13 +64,14 @@ try {
     );
   } else if (command === "sync") {
     const config = await loadConfig(configPath);
-    const sessionManager = await createSellerSessionManager(config);
+    const { sessionManager, sellerApi } = await createSellerRuntime(config);
     const workflow = createWorkflow(
       config,
       jsonLogger,
       process.env,
       undefined,
       sessionManager,
+      sellerApi,
     );
     const result = await workflow.run("manual", {
       processBacklog: argumentsList.includes("--process-backlog"),
@@ -92,7 +93,7 @@ try {
     );
   } else if (command === "configure") {
     const config = await loadConfig(configPath);
-    const sessionManager = await createSellerSessionManager(config);
+    const { sessionManager, sellerApi } = await createSellerRuntime(config);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -105,12 +106,14 @@ try {
         config,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       inventoryQueue: createInventoryAdditionQueue(config),
       inventoryService: createInventoryAdditionService(
         config,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       orderService: createOrderManagementService(
         config,
@@ -118,23 +121,28 @@ try {
         process.env,
         undefined,
         sessionManager,
+        sellerApi,
       ),
       paymentService: createPaymentManagementService(
         config,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       feedbackService: createFeedbackManagementService(
         config,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       messageService: createMessageManagementService(
         config,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       sessionManager,
+      sellerRequestMetrics: sellerApi.requests.snapshot,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });
@@ -146,7 +154,8 @@ try {
     }
   } else if (command === "start") {
     const initialConfig = await loadConfig(configPath);
-    const sessionManager = await createSellerSessionManager(initialConfig);
+    const { sessionManager, sellerApi } =
+      await createSellerRuntime(initialConfig);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -157,6 +166,7 @@ try {
       initialConfig,
       process.env,
       sessionManager,
+      sellerApi,
     );
     const orderService = createOrderManagementService(
       initialConfig,
@@ -164,6 +174,7 @@ try {
       process.env,
       readyOrders,
       sessionManager,
+      sellerApi,
     );
     const shipmentScannerService = createShipmentScannerService(
       initialConfig,
@@ -185,6 +196,7 @@ try {
           process.env,
           readyOrders,
           sessionManager,
+          sellerApi,
         ),
     });
     const priceWorker = new PriceUpdateWorker({
@@ -193,6 +205,7 @@ try {
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       settings: async () => {
         const current = await loadConfig(configPath);
@@ -210,6 +223,7 @@ try {
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       settings: async () => {
         const current = await loadConfig(configPath);
@@ -230,6 +244,7 @@ try {
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       inventoryQueue,
       inventoryWorkerRunning: true,
@@ -237,6 +252,7 @@ try {
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       orderService,
       orderSync,
@@ -246,18 +262,22 @@ try {
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       feedbackService: createFeedbackManagementService(
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       messageService: createMessageManagementService(
         initialConfig,
         process.env,
         sessionManager,
+        sellerApi,
       ),
       sessionManager,
+      sellerRequestMetrics: sellerApi.requests.snapshot,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
     });

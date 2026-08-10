@@ -1,5 +1,6 @@
 import {
   createTcgplayerSellerClient,
+  type TcgplayerSellerClient,
   type TcgplayerSellerClientOptions,
 } from "tcgplayer-private-api";
 import type {
@@ -19,6 +20,7 @@ import {
 } from "./ready-orders.js";
 
 export interface TcgplayerProviderOptions {
+  readonly client?: TcgplayerSellerClient;
   readonly authCookie?: string;
   readonly session?: TcgplayerSellerClientOptions["session"];
   readonly onAuthenticationRequired?: TcgplayerSellerClientOptions["onAuthenticationRequired"];
@@ -42,22 +44,25 @@ export class TcgplayerOrderProvider implements OrderProvider {
       (options.authCookie === undefined
         ? undefined
         : { authCookie: options.authCookie });
-    if (session === undefined) {
+    if (options.client !== undefined) {
+      this.client = options.client;
+    } else if (session === undefined) {
       throw new ApplicationError(
         "CONFIGURATION_ERROR",
         "A TCGplayer seller session is required.",
       );
+    } else {
+      this.client = createTcgplayerSellerClient({
+        session,
+        ...(options.onAuthenticationRequired === undefined
+          ? {}
+          : { onAuthenticationRequired: options.onAuthenticationRequired }),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...(options.requestDelayMs === undefined
+          ? {}
+          : { requestDelayMs: options.requestDelayMs }),
+      });
     }
-    this.client = createTcgplayerSellerClient({
-      session,
-      ...(options.onAuthenticationRequired === undefined
-        ? {}
-        : { onAuthenticationRequired: options.onAuthenticationRequired }),
-      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-      ...(options.requestDelayMs === undefined
-        ? {}
-        : { requestDelayMs: options.requestDelayMs }),
-    });
     this.readyOrders =
       options.readyOrders ??
       new TcgplayerReadyOrderSource({

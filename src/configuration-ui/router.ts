@@ -8,10 +8,12 @@ import { handleInventoryRoute } from "./inventory-routes.js";
 import { handleAddressLabelRoute, handleOrderRoute } from "./order-routes.js";
 import { handleShipmentScannerRoute } from "./scanner-routes.js";
 import { handleSettingsRoute } from "./settings-routes.js";
+import { handleProviderRoute } from "./provider-routes.js";
 
 const ROUTE_HANDLERS: readonly ConfigurationRouteHandler[] = [
   handleSettingsRoute,
   handleAuthenticationRoute,
+  handleProviderRoute,
   handleShipmentScannerRoute,
   handleSellerAccountRoute,
   handleOrderRoute,

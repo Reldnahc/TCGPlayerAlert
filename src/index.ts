@@ -69,11 +69,14 @@ export {
   executeConfiguredAddressLabel,
   createRepricingService,
   createSellerSessionManager,
+  createSellerRuntime,
   createShipmentScannerService,
   createWorkflow,
   executeConfiguredSyntheticPrintTest,
   executeConfiguredOrderPrint,
 } from "./runtime.js";
+export { createSellerApiRuntime, SellerRequestGovernor } from "./seller-api.js";
+export type * from "./seller-api.js";
 export { createShipmentAprilTag, SHIPMENT_TAG_FAMILY } from "./april-tag.js";
 export {
   emptyShipmentScanState,

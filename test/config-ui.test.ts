@@ -206,6 +206,45 @@ describe("configuration UI", () => {
     );
   });
 
+  it("serves aggregate seller request metrics without request targets", async () => {
+    const current = await fixture();
+    const sellerRequestMetrics = vi.fn(() => ({
+      maximumConcurrency: 2,
+      minimumStartSpacingMs: 250,
+      requestAttempts: 12,
+      successfulResponses: 10,
+      errorResponses: 1,
+      networkFailures: 1,
+      abortedRequests: 0,
+      inFlightRequests: 2,
+      queuedRequests: 3,
+      peakInFlightRequests: 2,
+      lastStartedAt: "2026-08-10T12:00:00.000Z",
+      lastCompletedAt: "2026-08-10T11:59:59.000Z",
+    }));
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      sellerRequestMetrics,
+    });
+
+    const response = await fetch(`${server.url}/api/provider/requests`);
+    const body = (await response.json()) as unknown;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      requestAttempts: 12,
+      maximumConcurrency: 2,
+      minimumStartSpacingMs: 250,
+      inFlightRequests: 2,
+      queuedRequests: 3,
+      peakInFlightRequests: 2,
+    });
+    expect(JSON.stringify(body)).not.toMatch(/url|path|seller|order/iu);
+    expect(sellerRequestMetrics).toHaveBeenCalledOnce();
+  });
+
   it("accepts same-origin settings updates and rejects cross-origin mutations", async () => {
     const current = await fixture();
     server = await startConfigurationUi({

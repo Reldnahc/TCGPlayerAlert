@@ -5,6 +5,7 @@ import {
   createTcgplayerSellerClient,
   isTcgplayerApiError,
   type SellerPriceUpdate,
+  type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
 import type { AppConfig, PriceUpdateQueueConfig } from "./config.js";
 import {
@@ -500,6 +501,7 @@ export function createTcgplayerPriceUpdateExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
   credentials?: SellerCredentialAccess,
+  sharedClient?: TcgplayerSellerClient,
 ): PriceUpdateExecutor {
   const access =
     credentials ??
@@ -508,10 +510,12 @@ export function createTcgplayerPriceUpdateExecutor(
       config.provider.sellerKeyEnv,
       environment,
     );
-  const client = createTcgplayerSellerClient({
-    session: access.session,
-    onAuthenticationRequired: access.onAuthenticationRequired,
-  });
+  const client =
+    sharedClient ??
+    createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    });
   return {
     apply: async (update, signal) => {
       const sellerKey = access.sellerKey();

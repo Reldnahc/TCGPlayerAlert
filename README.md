@@ -197,6 +197,12 @@ npm run status
 
 The scheduler, Dashboard **Sync now**, and separately invoked command-line syncs use the same workflow. In-process requests are coalesced, and the filesystem lease prevents separate processes from reconciling or dispatching actions concurrently.
 
+All seller-backed features in one running process share one private-API client. Its request starts retain the package's 250 ms spacing, and a FIFO governor permits at most two network attempts in flight across the entire application. Aggregate pressure can be inspected locally without exposing request targets or seller/customer data (replace the port when `--port` is used):
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:47831/api/provider/requests
+```
+
 ## Add cards to inventory
 
 Open the settings screen and use **Add cards**:

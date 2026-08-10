@@ -1726,6 +1726,7 @@ export function createTcgplayerInventoryAdditionExecutor(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
   credentials?: SellerCredentialAccess,
+  sharedClient?: TcgplayerSellerClient,
 ): InventoryAdditionExecutor {
   const access =
     credentials ??
@@ -1734,10 +1735,12 @@ export function createTcgplayerInventoryAdditionExecutor(
       config.provider.sellerKeyEnv,
       environment,
     );
-  const client = createTcgplayerSellerClient({
-    session: access.session,
-    onAuthenticationRequired: access.onAuthenticationRequired,
-  });
+  const client =
+    sharedClient ??
+    createTcgplayerSellerClient({
+      session: access.session,
+      onAuthenticationRequired: access.onAuthenticationRequired,
+    });
   return {
     apply: async (change, operation) => {
       const sellerKey = access.sellerKey();

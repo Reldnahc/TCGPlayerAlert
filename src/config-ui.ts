@@ -57,6 +57,7 @@ import {
   sendJson,
 } from "./configuration-ui/http.js";
 import { dispatchConfigurationRoute } from "./configuration-ui/router.js";
+import type { SellerRequestMetrics } from "./seller-api.js";
 
 interface OutputSettingsBase {
   readonly actionId: string;
@@ -311,6 +312,7 @@ export interface StartConfigurationUiOptions {
   readonly sessionManager?: SellerSessionService;
   readonly executeAddressLabel?: ConfigurationAddressLabelPrint;
   readonly executePrintTest?: ConfigurationPrintTest;
+  readonly sellerRequestMetrics?: () => SellerRequestMetrics;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
 }
@@ -356,6 +358,7 @@ export async function startConfigurationUi(
     sessionManager: options.sessionManager,
     executeAddressLabel: options.executeAddressLabel,
     executePrintTest: options.executePrintTest,
+    sellerRequestMetrics: options.sellerRequestMetrics,
   };
   const server = createServer((request, response) => {
     void handleRequest(request, response, runtime, webAssets);

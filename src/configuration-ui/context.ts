@@ -14,6 +14,7 @@ import type { SellerSessionService } from "../seller-session.js";
 import type { ShipmentScannerService } from "../shipment-scanner.js";
 import type { BackgroundShipmentScanner } from "../background-shipment-scanner.js";
 import type { FeedbackManagementService } from "../feedback-management.js";
+import type { SellerRequestMetrics } from "../seller-api.js";
 
 export interface ConfigurationRouteService {
   read(): Promise<unknown>;
@@ -53,6 +54,7 @@ export interface ConfigurationRouteContext {
   readonly sessionManager: SellerSessionService | undefined;
   readonly executeAddressLabel: ConfigurationRouteAddressLabelPrint | undefined;
   readonly executePrintTest: ConfigurationRoutePrintTest | undefined;
+  readonly sellerRequestMetrics: (() => SellerRequestMetrics) | undefined;
 }
 
 export type ConfigurationRouteHandler = (
