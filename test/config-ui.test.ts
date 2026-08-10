@@ -733,6 +733,7 @@ describe("configuration UI", () => {
       `${server.url}/api/payments/SYNTHETIC%20PAYOUT%2F1`,
     );
     const invalid = await fetch(`${server.url}/api/payments?status=Invented`);
+    const invalidPage = await fetch(`${server.url}/api/payments?page=0`);
 
     expect(page.status).toBe(200);
     expect(await page.json()).toMatchObject({
@@ -755,6 +756,10 @@ describe("configuration UI", () => {
       expect.objectContaining({ force: false }),
     );
     expect(invalid.status).toBe(400);
+    expect(invalidPage.status).toBe(400);
+    expect(await invalidPage.json()).toEqual({
+      message: "The payment page is invalid.",
+    });
   });
 
   it("serves filtered read-only seller feedback", async () => {
@@ -927,6 +932,11 @@ describe("configuration UI", () => {
       },
     );
     const invalid = await fetch(`${server.url}/api/messages/not-a-thread`);
+    const wrongMethod = await fetch(`${server.url}/api/messages`, {
+      method: "DELETE",
+      headers: mutationHeaders,
+      body: "{}",
+    });
 
     expect(count.status).toBe(200);
     expect(await count.json()).toEqual({ unreadCount: 2 });
@@ -972,6 +982,7 @@ describe("configuration UI", () => {
     expect(markAllRead).toHaveBeenCalledOnce();
     expect(reply).toHaveBeenCalledOnce();
     expect(invalid.status).toBe(404);
+    expect(wrongMethod.status).toBe(404);
   });
 
   it("prints synthetic output using the submitted unsaved printer settings", async () => {
