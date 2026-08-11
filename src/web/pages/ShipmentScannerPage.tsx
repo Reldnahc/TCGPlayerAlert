@@ -106,6 +106,10 @@ export function ShipmentScannerPage() {
       (candidate) => candidate.id === camera?.deviceId,
     )?.label ?? (camera?.deviceId === "" ? "System default" : camera?.deviceId);
   const cameraMessage = backgroundCameraMessage(status);
+  const previewFrameUrl =
+    camera?.previewFrameAt === undefined
+      ? undefined
+      : `/api/shipment-scanner/camera-frame?frame=${encodeURIComponent(camera.previewFrameAt)}`;
 
   return (
     <main class="page scanner-page">
@@ -190,9 +194,23 @@ export function ShipmentScannerPage() {
             </div>
             <div class="surface__body scanner-panel__body">
               <div
-                class={`camera-stage camera-stage--service${camera?.state === "running" ? " is-active" : ""}`}
+                class={`camera-stage camera-stage--service${camera?.state === "running" ? " is-active" : ""}${previewFrameUrl === undefined ? "" : " has-preview"}`}
               >
-                <div>
+                {previewFrameUrl === undefined ? null : (
+                  <img
+                    class="camera-stage__preview"
+                    src={previewFrameUrl}
+                    alt="Live basket camera preview"
+                    draggable={false}
+                    onError={(event) => {
+                      event.currentTarget.hidden = true;
+                    }}
+                    onLoad={(event) => {
+                      event.currentTarget.hidden = false;
+                    }}
+                  />
+                )}
+                <div class="camera-stage__status">
                   <strong>{cameraMessage.title}</strong>
                   <span>{cameraMessage.detail}</span>
                   {selectedCamera === undefined ? null : (

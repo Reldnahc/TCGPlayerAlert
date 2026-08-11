@@ -388,6 +388,7 @@ const cameraStatus = object({
   }),
   latchedTagId: optional(nonNegativeInteger),
   lastFrameAt: optional(isoDateTime),
+  previewFrameAt: optional(isoDateTime),
   lastDetectionAt: optional(isoDateTime),
   lastResultAt: optional(isoDateTime),
   lastResult: optional(shipmentScanResultDecoder),

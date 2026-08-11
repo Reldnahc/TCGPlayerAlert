@@ -8,6 +8,7 @@ import {
   loadConfig,
   startConfigurationUi,
   type AppConfig,
+  type BackgroundShipmentScanner,
   type ConfigurationUiServer,
   type FeedbackManagementService,
   type MessageManagementService,
@@ -942,6 +943,47 @@ describe("configuration UI", () => {
       "SYNTHETIC-ORDER",
       expect.any(AbortSignal),
     );
+  });
+
+  it("serves the latest service-owned camera frame without caching it", async () => {
+    const current = await fixture();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const cameraPreview = vi
+      .fn()
+      .mockResolvedValueOnce({
+        capturedAt: "2026-08-10T12:00:00.000Z",
+        mediaType: "image/jpeg" as const,
+        bytes,
+      })
+      .mockResolvedValueOnce(undefined);
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      backgroundShipmentScanner: {
+        cameraPreview,
+      } as unknown as BackgroundShipmentScanner,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/shipment-scanner/camera-frame`,
+    );
+    const missing = await fetch(
+      `${server.url}/api/shipment-scanner/camera-frame`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("X-Camera-Frame-At")).toBe(
+      "2026-08-10T12:00:00.000Z",
+    );
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({
+      message: "No background camera frame is available.",
+    });
+    expect(cameraPreview).toHaveBeenCalledTimes(2);
   });
 
   it("streams concrete repricing progress before the completed preview", async () => {

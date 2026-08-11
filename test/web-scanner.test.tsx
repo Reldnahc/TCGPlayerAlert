@@ -33,6 +33,7 @@ describe("shipment scanner", () => {
                 deviceId: "synthetic-camera",
                 consensus: { tagId: null, matchingReads: 0, requiredReads: 0 },
                 lastFrameAt: "2026-08-09T12:00:01.000Z",
+                previewFrameAt: "2026-08-09T12:00:01.000Z",
               },
             }),
           );
@@ -49,6 +50,12 @@ describe("shipment scanner", () => {
     expect(await screen.findByText("Automatic shipping")).toBeTruthy();
     expect(await screen.findByText("Watching the basket")).toBeTruthy();
     expect(screen.getByText("Synthetic Camera")).toBeTruthy();
+    const preview = screen.getByRole("img", {
+      name: "Live basket camera preview",
+    });
+    expect(preview.getAttribute("src")).toBe(
+      "/api/shipment-scanner/camera-frame?frame=2026-08-09T12%3A00%3A01.000Z",
+    );
     expect(screen.queryByRole("button", { name: "Start camera" })).toBeNull();
     expect(document.querySelector("video")).toBeNull();
     expect(

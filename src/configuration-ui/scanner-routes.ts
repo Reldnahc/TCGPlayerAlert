@@ -8,6 +8,7 @@ import {
   objectValue,
   readJsonBody,
   safeText,
+  sendBytes,
   sendJson,
   withRequestAbort,
 } from "./http.js";
@@ -16,6 +17,29 @@ export const handleShipmentScannerRoute: ConfigurationRouteHandler = async (
   context,
 ) => {
   const { request, response, url } = context;
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/shipment-scanner/camera-frame"
+  ) {
+    if (context.backgroundShipmentScanner === undefined) {
+      sendJson(response, 503, {
+        message:
+          "Background camera preview is available while the service is running.",
+      });
+      return true;
+    }
+    const preview = await context.backgroundShipmentScanner.cameraPreview();
+    if (preview === undefined) {
+      sendJson(response, 404, {
+        message: "No background camera frame is available.",
+      });
+      return true;
+    }
+    response.setHeader("Content-Disposition", "inline");
+    response.setHeader("X-Camera-Frame-At", preview.capturedAt);
+    sendBytes(response, 200, preview.mediaType, preview.bytes);
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/shipment-scanner") {
     if (!requireScanner(context)) return true;
     sendJson(

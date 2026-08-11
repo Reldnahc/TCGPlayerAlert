@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import type { ShipmentTagDetector } from "./background-april-tag-detector.js";
 import type { CameraCaptureAdapter, CameraFrame } from "./camera-capture.js";
+import { encodeCameraPreviewFrame } from "./camera-preview.js";
 import type { ShipmentScannerConfig } from "./config.js";
 import { safeErrorCode } from "./errors.js";
 import type { Logger } from "./logger.js";
@@ -19,6 +20,7 @@ const SETTINGS_REFRESH_MILLISECONDS = 1_000;
 const CAMERA_RETRY_MILLISECONDS = 5_000;
 const READY_TAG_REFRESH_MILLISECONDS = 5_000;
 const CAMERA_REARM_EMPTY_FRAMES = 5;
+const CAMERA_PREVIEW_REFRESH_MILLISECONDS = 1_000;
 
 export type BackgroundCameraState =
   | "disabled"
@@ -35,6 +37,7 @@ export interface BackgroundCameraStatus {
   readonly consensus: ShipmentTagConsensus;
   readonly latchedTagId?: number | undefined;
   readonly lastFrameAt?: string;
+  readonly previewFrameAt?: string | undefined;
   readonly lastDetectionAt?: string;
   readonly lastResultAt?: string;
   readonly lastResult?: ShipmentScanResult;
@@ -43,6 +46,12 @@ export interface BackgroundCameraStatus {
 
 export interface ManagedShipmentScannerStatus extends ShipmentScannerStatus {
   readonly backgroundCamera: BackgroundCameraStatus;
+}
+
+export interface BackgroundCameraPreview {
+  readonly capturedAt: string;
+  readonly mediaType: "image/jpeg";
+  readonly bytes: Uint8Array;
 }
 
 export interface ShipmentTagResolver {
@@ -82,6 +91,7 @@ export interface BackgroundShipmentScannerOptions {
   readonly logger: Logger;
   readonly cue?: ShipmentScanCue;
   readonly now?: () => Date;
+  readonly previewEncoder?: (frame: CameraFrame) => Promise<Uint8Array>;
 }
 
 interface ActiveCapture {
@@ -98,12 +108,19 @@ export class BackgroundShipmentScanner {
   private readonly logger: Logger;
   private readonly cue: ShipmentScanCue;
   private readonly now: () => Date;
+  private readonly previewEncoder: (frame: CameraFrame) => Promise<Uint8Array>;
   private active: ActiveCapture | undefined;
   private retryAfter = 0;
   private knownTagIds = new Set<number>();
   private knownTagIdsFetchedAt = 0;
   private emptyFrames = 0;
   private soundEnabled = false;
+  private previewSampledAt = 0;
+  private previewSource:
+    { readonly capturedAt: string; readonly frame: CameraFrame } | undefined;
+  private previewEncoding:
+    | { readonly capturedAt: string; readonly promise: Promise<Uint8Array> }
+    | undefined;
   private statusValue: BackgroundCameraStatus = {
     state: "disabled",
     deviceId: "",
@@ -118,6 +135,7 @@ export class BackgroundShipmentScanner {
     this.logger = options.logger;
     this.cue = options.cue ?? new HostShipmentScanCue();
     this.now = options.now ?? (() => new Date());
+    this.previewEncoder = options.previewEncoder ?? encodeCameraPreviewFrame;
   }
 
   async run(signal: AbortSignal): Promise<void> {
@@ -157,6 +175,29 @@ export class BackgroundShipmentScanner {
     };
   }
 
+  async cameraPreview(): Promise<BackgroundCameraPreview | undefined> {
+    const source = this.previewSource;
+    if (source === undefined) return undefined;
+    let encoding = this.previewEncoding;
+    if (encoding?.capturedAt !== source.capturedAt) {
+      encoding = {
+        capturedAt: source.capturedAt,
+        promise: this.previewEncoder(source.frame),
+      };
+      this.previewEncoding = encoding;
+    }
+    try {
+      return {
+        capturedAt: source.capturedAt,
+        mediaType: "image/jpeg",
+        bytes: await encoding.promise,
+      };
+    } catch (error) {
+      if (this.previewEncoding === encoding) this.previewEncoding = undefined;
+      throw error;
+    }
+  }
+
   async markShipped(
     tagId: number,
     orderNumber: string,
@@ -183,12 +224,14 @@ export class BackgroundShipmentScanner {
     const key = `${enabled ? "on" : "off"}\0${settings.camera.deviceId}`;
     if (!enabled) {
       await this.stopCapture();
+      this.clearPreview();
       this.statusValue = {
         ...this.statusValue,
         state: "disabled",
         deviceId: settings.camera.deviceId,
         consensus: emptyShipmentTagConsensus(),
         latchedTagId: undefined,
+        previewFrameAt: undefined,
         issue: undefined,
       };
       return;
@@ -208,21 +251,25 @@ export class BackgroundShipmentScanner {
     const abort = () => controller.abort();
     parentSignal.addEventListener("abort", abort, { once: true });
     this.emptyFrames = 0;
+    this.clearPreview();
     this.statusValue = {
       ...this.statusValue,
       state: "starting",
       deviceId,
       consensus: emptyShipmentTagConsensus(),
       latchedTagId: undefined,
+      previewFrameAt: undefined,
       issue: undefined,
     };
     const promise = this.consumeFrames(deviceId, controller.signal)
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        this.clearPreview();
         this.retryAfter = this.now().getTime() + CAMERA_RETRY_MILLISECONDS;
         this.statusValue = {
           ...this.statusValue,
           state: "error",
+          previewFrameAt: undefined,
           issue:
             "The selected camera could not keep running. Check the device and camera permission.",
         };
@@ -261,13 +308,18 @@ export class BackgroundShipmentScanner {
     frame: CameraFrame,
     signal: AbortSignal,
   ): Promise<void> {
+    const capturedAt = this.now();
+    this.capturePreview(frame, capturedAt);
     this.statusValue = {
       ...this.statusValue,
       state:
         this.statusValue.state === "waiting-for-review"
           ? "waiting-for-review"
           : "running",
-      lastFrameAt: this.now().toISOString(),
+      lastFrameAt: capturedAt.toISOString(),
+      ...(this.previewSource === undefined
+        ? {}
+        : { previewFrameAt: this.previewSource.capturedAt }),
       issue: undefined,
     };
     if (this.statusValue.state === "waiting-for-review") return;
@@ -376,10 +428,40 @@ export class BackgroundShipmentScanner {
 
   private async stopCapture(): Promise<void> {
     const active = this.active;
-    if (active === undefined) return;
+    if (active === undefined) {
+      this.clearPreview();
+      return;
+    }
     this.active = undefined;
     active.controller.abort();
     await active.promise;
+    this.clearPreview();
+  }
+
+  private capturePreview(frame: CameraFrame, capturedAt: Date): void {
+    const timestamp = capturedAt.getTime();
+    if (
+      this.previewSource !== undefined &&
+      timestamp - this.previewSampledAt < CAMERA_PREVIEW_REFRESH_MILLISECONDS
+    ) {
+      return;
+    }
+    this.previewSampledAt = timestamp;
+    this.previewSource = {
+      capturedAt: capturedAt.toISOString(),
+      frame: {
+        width: frame.width,
+        height: frame.height,
+        grayscale: Uint8Array.from(frame.grayscale),
+      },
+    };
+    this.previewEncoding = undefined;
+  }
+
+  private clearPreview(): void {
+    this.previewSampledAt = 0;
+    this.previewSource = undefined;
+    this.previewEncoding = undefined;
   }
 }
 

@@ -89,6 +89,44 @@ describe("background shipment scanner", () => {
     controller.abort();
     await running;
   });
+
+  it("publishes one cached in-memory preview without giving camera ownership to the browser", async () => {
+    const previewEncoder = vi.fn(() =>
+      Promise.resolve(new Uint8Array([0xff, 0xd8, 0xff, 0xd9])),
+    );
+    const scanner = new BackgroundShipmentScanner({
+      settings: () => Promise.resolve(settings),
+      camera: new SyntheticCamera(1),
+      detector: new SyntheticDetector(7),
+      scanner: resolver(vi.fn()),
+      logger,
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+      previewEncoder,
+    });
+    const controller = new AbortController();
+    const running = scanner.run(controller.signal);
+
+    await waitUntil(() => scanner.cameraStatus().previewFrameAt !== undefined);
+    const [first, second] = await Promise.all([
+      scanner.cameraPreview(),
+      scanner.cameraPreview(),
+    ]);
+
+    expect(scanner.cameraStatus().previewFrameAt).toBe(
+      "2026-08-10T12:00:00.000Z",
+    );
+    expect(first).toEqual({
+      capturedAt: "2026-08-10T12:00:00.000Z",
+      mediaType: "image/jpeg",
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+    });
+    expect(second).toEqual(first);
+    expect(previewEncoder).toHaveBeenCalledOnce();
+
+    controller.abort();
+    await running;
+    expect(await scanner.cameraPreview()).toBeUndefined();
+  });
 });
 
 class SyntheticCamera implements CameraCaptureAdapter {

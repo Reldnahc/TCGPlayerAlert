@@ -15,7 +15,8 @@ permissions and lifecycle behavior.
 
 The camera implementation must remain replaceable, avoid adding seller API
 traffic, preserve the validated five-read and five-empty-frame behavior, and
-never retain parcel images or customer data.
+never persist parcel images or customer data. Any operator preview must retain
+only the newest bounded in-memory sample for the shortest useful interval.
 
 ## Decision
 
@@ -57,10 +58,15 @@ therefore the seller API.
 
 Automatic mode completes the existing guarded shipment mutation with no open
 browser. Review mode pauses background detection after an exact match until the
-operator approves it in Scanner. The Scanner page polls only the local scanner
-status once per second and displays the last in-memory result. The manual image
-upload remains browser-owned as a diagnostic fallback and uses the same server
-resolution endpoint.
+operator approves it in Scanner. The Scanner page polls the local scanner
+status once per second and displays the last in-memory result. While that page
+is open, it may also request the latest service-owned camera preview through a
+no-cache loopback endpoint. Sample at most one preview frame per second, copy it
+in memory, downsample it within 640 by 480, and encode it as a grayscale JPEG
+only when requested. Overwrite the prior sample and encoded bytes; never write
+either to disk or logs. Preview reads do not open the camera, alter detection,
+or invoke the seller API. The manual image upload remains browser-owned as a
+diagnostic fallback and uses the same server resolution endpoint.
 
 Move scan cues to a host adapter. Windows uses an explicit hidden PowerShell
 process to play built-in system sounds; other platforms receive a terminal bell
@@ -73,7 +79,9 @@ fallback. Cue failure never changes shipment behavior.
   two surfaces cannot compete for the same webcam.
 - New and migrated installations do not open a camera until the operator saves
   the explicit background-camera setting.
-- Camera frames create no TCGplayer traffic and never cross the loopback API.
+- Camera frames create no TCGplayer traffic. Only the bounded, transient
+  Scanner-page preview may cross the loopback API; detection continues to use
+  the original service-owned grayscale stream.
 - Review mode intentionally stops accepting the next parcel until the current
   exact match is handled; automatic mode is fully unattended after opt-in.
 - Native media artifacts materially increase installation size and require

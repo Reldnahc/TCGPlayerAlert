@@ -61,11 +61,39 @@
   box-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--success) 20%, transparent);
 }
+.camera-stage--service.has-preview {
+  padding: 0;
+  background: #111718;
+}
+.camera-stage__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .camera-stage > div {
   display: grid;
   max-width: 420px;
   gap: 6px;
   text-align: center;
+}
+.camera-stage.has-preview .camera-stage__status {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  max-width: calc(100% - 24px);
+  padding: 9px 12px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: var(--radius-sm);
+  color: rgb(255 255 255 / 82%);
+  background: rgb(8 13 14 / 78%);
+  backdrop-filter: blur(5px);
+  text-align: left;
+}
+.camera-stage.has-preview .camera-stage__status strong,
+.camera-stage.has-preview .camera-stage__status span:last-child {
+  color: #fff;
 }
 .camera-stage > div strong {
   color: var(--text);

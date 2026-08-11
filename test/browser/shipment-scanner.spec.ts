@@ -17,6 +17,22 @@ test("the built Scanner detects an AprilTag and resolves its ready order", async
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Scan lab" })).toHaveCount(0);
   await expect(page.getByText("Review before shipping")).toBeVisible();
+  const cameraPreview = page.getByRole("img", {
+    name: "Live basket camera preview",
+  });
+  await expect(cameraPreview).toBeVisible();
+  await expect
+    .poll(() =>
+      cameraPreview.evaluate((image) => {
+        const width = Reflect.get(image, "naturalWidth") as unknown;
+        return typeof width === "number" ? width : 0;
+      }),
+    )
+    .toBe(640);
+  expect(await cameraPreview.getAttribute("src")).toContain(
+    "/api/shipment-scanner/camera-frame",
+  );
+  await expect(page.locator("video")).toHaveCount(0);
   await expect(
     page
       .getByLabel("Shipment scanner status")

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { createCanvas } from "@napi-rs/canvas";
 import {
   ConfigurationService,
   InternalJobStore,
@@ -696,12 +697,61 @@ const discordWebhook = {
   },
   sendTest: () => Promise.resolve(),
 };
+const previewCameraFrame = (() => {
+  const canvas = createCanvas(640, 360);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#d8dcda";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = "#707775";
+  context.lineWidth = 8;
+  context.strokeRect(86, 54, 468, 252);
+  context.fillStyle = "#f7f7f5";
+  context.fillRect(205, 118, 230, 124);
+  context.fillStyle = "#252827";
+  context.font = "bold 22px sans-serif";
+  context.fillText("BASKET CAMERA PREVIEW", 169, 92);
+  context.font = "18px sans-serif";
+  context.fillText("Synthetic outgoing parcel", 220, 170);
+  context.fillText("Backend camera remains active", 205, 207);
+  return canvas.toBuffer("image/jpeg", 72);
+})();
+const backgroundShipmentScanner = {
+  status: () =>
+    Promise.resolve({
+      enabled: true,
+      automaticallyMarkShipped: false,
+      soundEnabled: false,
+      readyOrderCount: 2,
+      readyTagIds: orders
+        .filter((order) => order.canMarkShipped)
+        .map((order) => shipmentTagId(order.orderNumber)),
+      conflictingTagCount: 0,
+      reviewRequiredCount: 0,
+      snapshotFetchedAt: now,
+      backgroundCamera: {
+        state: "running",
+        deviceId: "synthetic-camera",
+        consensus: { tagId: null, matchingReads: 0, requiredReads: 0 },
+        lastFrameAt: now,
+        previewFrameAt: now,
+      },
+    }),
+  cameraPreview: () =>
+    Promise.resolve({
+      capturedAt: now,
+      mediaType: "image/jpeg",
+      bytes: previewCameraFrame,
+    }),
+  markShipped: (tagId, orderNumber) =>
+    Promise.resolve({ state: "already-processed", tagId, orderNumber }),
+};
 const server = await startConfigurationUi({
   configPath,
   port: Number(process.env.PREVIEW_PORT ?? 47839),
   service,
   sessionManager,
   discordWebhook,
+  backgroundShipmentScanner,
   inventoryService,
   inventoryQueue,
   inventoryWorkerRunning: false,
