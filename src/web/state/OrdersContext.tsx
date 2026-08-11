@@ -14,6 +14,8 @@ import { useAuthentication } from "./AuthenticationContext.js";
 
 type Scope = "all" | "ready-to-ship";
 
+const AUTOMATIC_RECONCILIATION_RETRY_MILLISECONDS = 30_000;
+
 interface OrdersContextValue {
   readonly lists: Readonly<Record<Scope, OrderList | null>>;
   readonly loading: Readonly<Record<Scope, boolean>>;
@@ -44,6 +46,10 @@ function readyList(
   };
 }
 
+function readyOrderNumbers(list: OrderList): ReadonlySet<string> {
+  return new Set(list.orders.map((order) => order.orderNumber));
+}
+
 export function OrdersProvider({
   children,
 }: {
@@ -60,6 +66,10 @@ export function OrdersProvider({
   });
   const listsRef = useRef(lists);
   const loadingRef = useRef(loading);
+  const readyOrderNumbersRef = useRef<ReadonlySet<string>>();
+  const allOrderReconciliationsRef = useRef(new Set<string>());
+  const automaticReconciliationRetryAtRef = useRef(0);
+  const refreshAllOrdersRef = useRef<() => Promise<void>>();
   listsRef.current = lists;
   loadingRef.current = loading;
   const [errors, setErrors] = useState<Readonly<Record<Scope, string>>>({
@@ -75,6 +85,9 @@ export function OrdersProvider({
     const emptyLists = { all: null, "ready-to-ship": null } as const;
     const idle = { all: false, "ready-to-ship": false } as const;
     shipmentReconciliationsRef.current.clear();
+    readyOrderNumbersRef.current = undefined;
+    allOrderReconciliationsRef.current.clear();
+    automaticReconciliationRetryAtRef.current = 0;
     listsRef.current = emptyLists;
     loadingRef.current = idle;
     setLists(emptyLists);
@@ -133,6 +146,36 @@ export function OrdersProvider({
     });
   }, []);
 
+  const acceptReadyOrderList = useCallback(
+    (result: OrderList) => {
+      const previousOrderNumbers = readyOrderNumbersRef.current;
+      const nextOrderNumbers = readyOrderNumbers(result);
+      readyOrderNumbersRef.current = nextOrderNumbers;
+      acceptOrderList("ready-to-ship", result);
+
+      let changed = false;
+      if (previousOrderNumbers !== undefined && listsRef.current.all !== null) {
+        for (const orderNumber of previousOrderNumbers) {
+          if (!nextOrderNumbers.has(orderNumber)) {
+            allOrderReconciliationsRef.current.add(orderNumber);
+            changed = true;
+          }
+        }
+        for (const orderNumber of nextOrderNumbers) {
+          if (!previousOrderNumbers.has(orderNumber)) {
+            allOrderReconciliationsRef.current.add(orderNumber);
+            changed = true;
+          }
+        }
+      }
+      if (changed) automaticReconciliationRetryAtRef.current = 0;
+      if (allOrderReconciliationsRef.current.size > 0) {
+        void refreshAllOrdersRef.current?.();
+      }
+    },
+    [acceptOrderList],
+  );
+
   const load = useCallback(
     async (scope: Scope, force = false, refreshLoaded = false) => {
       if (!connected) return;
@@ -148,7 +191,27 @@ export function OrdersProvider({
             ? (await uiApi.readyOrders()).snapshot
             : await uiApi.orders(force);
         if (result === null) return;
-        acceptOrderList(scope, result);
+        if (scope === "ready-to-ship") {
+          acceptReadyOrderList(result);
+        } else {
+          acceptOrderList(scope, result);
+          const readyOrderNumbers = readyOrderNumbersRef.current;
+          for (const orderNumber of allOrderReconciliationsRef.current) {
+            const order = result.orders.find(
+              (candidate) => candidate.orderNumber === orderNumber,
+            );
+            const expectedReady = readyOrderNumbers?.has(orderNumber) === true;
+            if (
+              (expectedReady && order?.canMarkShipped === true) ||
+              (!expectedReady && order?.canMarkShipped !== true)
+            ) {
+              allOrderReconciliationsRef.current.delete(orderNumber);
+            }
+          }
+          if (allOrderReconciliationsRef.current.size === 0) {
+            automaticReconciliationRetryAtRef.current = 0;
+          }
+        }
       } catch (cause) {
         if (
           cause instanceof UiApiError &&
@@ -166,8 +229,18 @@ export function OrdersProvider({
         setLoading(finished);
       }
     },
-    [acceptOrderList, connected],
+    [acceptOrderList, acceptReadyOrderList, connected],
   );
+
+  refreshAllOrdersRef.current = async () => {
+    if (allOrderReconciliationsRef.current.size === 0) return;
+    if (Date.now() < automaticReconciliationRetryAtRef.current) return;
+    await load("all", true);
+    if (allOrderReconciliationsRef.current.size > 0) {
+      automaticReconciliationRetryAtRef.current =
+        Date.now() + AUTOMATIC_RECONCILIATION_RETRY_MILLISECONDS;
+    }
+  };
 
   const synchronizeReadyOrders = useCallback(async () => {
     if (!connected || loadingRef.current["ready-to-ship"]) return;
@@ -178,7 +251,7 @@ export function OrdersProvider({
     setErrors((current) => ({ ...current, [scope]: "" }));
     try {
       const result = await uiApi.synchronizeReadyOrders();
-      acceptOrderList(scope, result);
+      acceptReadyOrderList(result);
     } catch (cause) {
       if (
         cause instanceof UiApiError &&
@@ -195,7 +268,7 @@ export function OrdersProvider({
       loadingRef.current = finished;
       setLoading(finished);
     }
-  }, [acceptOrderList, connected]);
+  }, [acceptReadyOrderList, connected]);
 
   const value = useMemo(
     () => ({

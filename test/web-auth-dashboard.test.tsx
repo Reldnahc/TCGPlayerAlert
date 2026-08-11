@@ -291,6 +291,102 @@ describe("authentication and dashboard", () => {
     ).toBe(false);
   });
 
+  it("refreshes all orders after the scanner changes the local ready snapshot", async () => {
+    window.location.hash = "orders";
+    let readyReads = 0;
+    let allReads = 0;
+    let snapshotTick: (() => void) | undefined;
+    const realSetInterval = window.setInterval.bind(window);
+    vi.spyOn(window, "setInterval").mockImplementation(
+      (handler, timeout): NodeJS.Timeout => {
+        if (timeout === 5_000 && typeof handler === "function") {
+          snapshotTick = handler;
+          return realSetInterval(
+            () => undefined,
+            60_000,
+          ) as unknown as NodeJS.Timeout;
+        }
+        return realSetInterval(handler, timeout) as unknown as NodeJS.Timeout;
+      },
+    );
+    const readyOrder = {
+      orderNumber: "SYNTHETIC-SCANNER-SHIPMENT",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 10,
+      shippingAmount: 1.49,
+      totalAmount: 11.49,
+    };
+    const shippedOrder = {
+      ...readyOrder,
+      status: "Shipped",
+      statusCode: "Shipped",
+      canMarkShipped: false,
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders?status=ready-to-ship") {
+          readyReads += 1;
+          return Promise.resolve(
+            json({
+              snapshot: {
+                orders: readyReads === 1 ? [readyOrder] : [],
+                fetchedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
+              },
+            }),
+          );
+        }
+        if (path === "/api/orders?" || path === "/api/orders?refresh=1") {
+          allReads += 1;
+          return Promise.resolve(
+            json({
+              orders: allReads === 1 ? [readyOrder] : [shippedOrder],
+              fetchedAt: `2026-08-07T12:1${String(allReads)}:00.000Z`,
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    const orderRow = () =>
+      screen.getByRole("link", { name: readyOrder.orderNumber }).closest("tr");
+    await screen.findByText("Ready to Ship");
+    await waitFor(() => expect(readyReads).toBe(1));
+    await waitFor(() => expect(allReads).toBe(1));
+    await waitFor(() => expect(snapshotTick).toBeDefined());
+
+    await act(async () => {
+      snapshotTick?.();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(
+        within(orderRow() as HTMLElement).getByText("Shipped"),
+      ).toBeTruthy(),
+    );
+    expect(allReads).toBe(2);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/orders?refresh=1",
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      snapshotTick?.();
+      await Promise.resolve();
+    });
+    expect(allReads).toBe(2);
+  });
+
   it("starts fulfillment synchronization only after the operator selects Sync now", async () => {
     const synchronizedOrder = {
       orderNumber: "SYNTHETIC-EXPLICIT-SYNC",

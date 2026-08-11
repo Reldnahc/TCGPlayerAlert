@@ -15,6 +15,7 @@ import {
 } from "../components/ui.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { compactDate, money, normalizedTokens } from "../utils.js";
+import { useReadyOrderSnapshotPolling } from "../useReadyOrderSnapshotPolling.js";
 
 export function OrdersPage() {
   const { lists, loading, errors, load } = useOrders();
@@ -23,6 +24,7 @@ export function OrdersPage() {
   useEffect(() => {
     void load("all");
   }, [load]);
+  useReadyOrderSnapshotPolling();
   const orders = useMemo(() => {
     const tokens = normalizedTokens(query);
     return (

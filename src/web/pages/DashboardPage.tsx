@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { masterPullListUrl, uiApi } from "../api.js";
 import { OrderActions } from "../components/OrderActions.js";
 import { OrderNumberLink } from "../components/OrderNumberLink.js";
@@ -18,27 +18,19 @@ import { useAuthentication } from "../state/AuthenticationContext.js";
 import { useSettings } from "../state/SettingsContext.js";
 import { useToast } from "../state/ToastContext.js";
 import { compactDate, dateTime, errorMessage, money } from "../utils.js";
-
-const SNAPSHOT_REFRESH_MILLISECONDS = 5_000;
+import { useReadyOrderSnapshotPolling } from "../useReadyOrderSnapshotPolling.js";
 
 export function DashboardPage() {
   const { status: sellerConnection } = useAuthentication();
   const checkingConnection = sellerConnection === null;
   const connected = sellerConnection?.state === "connected";
   const { settings, update } = useSettings();
-  const { lists, loading, errors, load, synchronizeReadyOrders } = useOrders();
+  const { lists, loading, errors, synchronizeReadyOrders } = useOrders();
   const toast = useToast();
   const [address, setAddress] = useState("");
   const [printingAddress, setPrintingAddress] = useState(false);
   const list = lists["ready-to-ship"];
-  useEffect(() => {
-    if (!connected) return;
-    void load("ready-to-ship");
-    const timer = window.setInterval(() => {
-      void load("ready-to-ship", false, true);
-    }, SNAPSHOT_REFRESH_MILLISECONDS);
-    return () => window.clearInterval(timer);
-  }, [connected, load]);
+  useReadyOrderSnapshotPolling(connected);
   const totals = list?.orders.reduce(
     (result, order) => ({
       products: result.products + order.productAmount,
