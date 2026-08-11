@@ -42,7 +42,10 @@ import {
   TcgplayerReadyOrderSource,
   type ReadyOrderSource,
 } from "./ready-orders.js";
-import { createPlatformCredentialStore } from "./credential-store.js";
+import {
+  createPlatformCredentialStore,
+  createPlatformTextSecretStore,
+} from "./credential-store.js";
 import {
   environmentSellerCredentialAccess,
   type SellerCredentialAccess,
@@ -64,6 +67,13 @@ import {
   internalJobStatePath,
   InternalJobStore,
 } from "./internal-jobs/index.js";
+import {
+  DiscordWebhookManager,
+  JsonNotificationStateStore,
+  NotificationMonitor,
+  NotificationService,
+  type NotificationPublisher,
+} from "./notifications/index.js";
 
 export function createWorkflow(
   config: AppConfig,
@@ -324,6 +334,7 @@ export function createOrderManagementService(
   readyOrders?: ReadyOrderSource,
   credentials?: SellerCredentialAccess,
   sellerApi?: SellerApiRuntime,
+  notifications?: NotificationPublisher,
 ): OrderManagementService {
   const { access, client } = sellerResources(
     config,
@@ -349,6 +360,16 @@ export function createOrderManagementService(
       : {
           onShipmentAccepted: (orderNumber: string) =>
             readyOrders.remove(orderNumber),
+        }),
+    ...(notifications === undefined
+      ? {}
+      : {
+          onShipmentAttempt: (attempt) =>
+            notifications.publish({
+              type: "shipment-mark-attempt",
+              idempotencyKey: `shipment-mark-attempt:${randomUUID()}`,
+              ...attempt,
+            }),
         }),
     executePrint: async (orderNumber, actionType, signal) => {
       await executeConfiguredOrderPrint(
@@ -494,6 +515,7 @@ export async function createSellerSessionManager(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
   requests?: SellerRequestGovernor,
+  notifications?: NotificationPublisher,
 ): Promise<SellerSessionManager> {
   const stateDirectory = dirname(resolve(config.stateFile));
   const manager = new SellerSessionManager({
@@ -503,6 +525,16 @@ export async function createSellerSessionManager(
     environment,
     authCookieEnvironmentName: config.provider.authCookieEnv,
     sellerKeyEnvironmentName: config.provider.sellerKeyEnv,
+    ...(notifications === undefined
+      ? {}
+      : {
+          onExpired: (updatedAt: string) =>
+            notifications.publish({
+              type: "authentication-required",
+              idempotencyKey: `authentication-required:${updatedAt}`,
+              occurredAt: updatedAt,
+            }),
+        }),
     ...(requests === undefined
       ? {}
       : {
@@ -523,6 +555,7 @@ export async function createSellerSessionManager(
 export async function createSellerRuntime(
   config: AppConfig,
   environment: NodeJS.ProcessEnv = process.env,
+  notifications?: NotificationPublisher,
 ): Promise<{
   readonly sessionManager: SellerSessionManager;
   readonly sellerApi: SellerApiRuntime;
@@ -532,6 +565,7 @@ export async function createSellerRuntime(
     config,
     environment,
     requests,
+    notifications,
   );
   return {
     sessionManager,
@@ -540,6 +574,60 @@ export async function createSellerRuntime(
       requests,
     }),
   };
+}
+
+export interface NotificationRuntime {
+  readonly discordWebhook: DiscordWebhookManager;
+  readonly publisher: NotificationService;
+  readonly state: JsonNotificationStateStore;
+}
+
+export async function createNotificationRuntime(
+  config: AppConfig,
+  configPath: string,
+  logger: Logger,
+  environment: NodeJS.ProcessEnv = process.env,
+  fetch?: typeof globalThis.fetch,
+): Promise<NotificationRuntime> {
+  const stateDirectory = dirname(resolve(config.stateFile));
+  const discordWebhook = new DiscordWebhookManager({
+    store: createPlatformTextSecretStore(
+      resolve(stateDirectory, "discord-webhook.dpapi"),
+    ),
+    environment,
+    webhookUrlEnvironmentName: config.notifications.discord.webhookUrlEnv,
+    ...(fetch === undefined ? {} : { fetch }),
+  });
+  await discordWebhook.initialize();
+  const state = new JsonNotificationStateStore(
+    resolve(`${config.stateFile}.notifications.json`),
+  );
+  const publisher = new NotificationService({
+    settings: async () => (await loadConfig(configPath)).notifications.discord,
+    sink: discordWebhook,
+    state,
+    logger,
+  });
+  return { discordWebhook, publisher, state };
+}
+
+export function createNotificationMonitor(
+  configPath: string,
+  runtime: NotificationRuntime,
+  readyOrders: ReadyOrderSource,
+  orders: OrderManagementService,
+  messages: MessageManagementService,
+  logger: Logger,
+): NotificationMonitor {
+  return new NotificationMonitor({
+    settings: async () => (await loadConfig(configPath)).notifications.discord,
+    publisher: runtime.publisher,
+    state: runtime.state,
+    messages,
+    orders,
+    readyOrders,
+    logger,
+  });
 }
 
 function sellerResources(

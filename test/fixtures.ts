@@ -43,10 +43,22 @@ export const syntheticPackingSlip: FulfillmentDocument = {
 
 export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    version: 2,
+    version: 3,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     confirmBeforeMarkingShipped: true,
+    notifications: {
+      discord: {
+        enabled: false,
+        webhookUrlEnv: "DISCORD_WEBHOOK_URL",
+        events: {
+          authenticationRequired: true,
+          inboundMessage: true,
+          orderCanceled: true,
+          shipmentMarkAttempt: true,
+        },
+      },
+    },
     shipmentScanner: {
       enabled: false,
       automaticallyMarkShipped: false,

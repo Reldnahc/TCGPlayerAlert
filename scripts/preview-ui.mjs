@@ -679,11 +679,29 @@ const sessionManager = {
   renew: () => Promise.resolve(previewConnectionStatus),
   disconnect: () => Promise.resolve(previewConnectionStatus),
 };
+let previewDiscordConfigured = false;
+const discordWebhook = {
+  status: () => ({
+    configured: previewDiscordConfigured,
+    protectedStorage: true,
+    ...(previewDiscordConfigured ? { source: "protected" } : {}),
+  }),
+  connect: () => {
+    previewDiscordConfigured = true;
+    return Promise.resolve(discordWebhook.status());
+  },
+  disconnect: () => {
+    previewDiscordConfigured = false;
+    return Promise.resolve(discordWebhook.status());
+  },
+  sendTest: () => Promise.resolve(),
+};
 const server = await startConfigurationUi({
   configPath,
   port: Number(process.env.PREVIEW_PORT ?? 47839),
   service,
   sessionManager,
+  discordWebhook,
   inventoryService,
   inventoryQueue,
   inventoryWorkerRunning: false,

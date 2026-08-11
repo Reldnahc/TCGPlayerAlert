@@ -59,6 +59,7 @@ import {
 import { dispatchConfigurationRoute } from "./configuration-ui/router.js";
 import type { SellerRequestMetrics } from "./seller-api.js";
 import type { InternalJobStore } from "./internal-jobs/index.js";
+import type { DiscordWebhookRouteService } from "./configuration-ui/context.js";
 
 interface OutputSettingsBase {
   readonly actionId: string;
@@ -90,6 +91,17 @@ export interface ConfigurationUiSettings {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly notifications: {
+    readonly discord: {
+      readonly enabled: boolean;
+      readonly events: {
+        readonly authenticationRequired: boolean;
+        readonly inboundMessage: boolean;
+        readonly orderCanceled: boolean;
+        readonly shipmentMarkAttempt: boolean;
+      };
+    };
+  };
   readonly shipmentScanner: {
     readonly enabled: boolean;
     readonly automaticallyMarkShipped: boolean;
@@ -122,6 +134,7 @@ export interface ConfigurationUiUpdate {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly notifications: ConfigurationUiSettings["notifications"];
   readonly shipmentScanner: {
     readonly enabled: boolean;
     readonly automaticallyMarkShipped: boolean;
@@ -243,6 +256,12 @@ export class ConfigurationService {
       revision,
       pollIntervalMinutes: config.pollIntervalMinutes,
       confirmBeforeMarkingShipped: config.confirmBeforeMarkingShipped,
+      notifications: {
+        discord: {
+          enabled: config.notifications.discord.enabled,
+          events: config.notifications.discord.events,
+        },
+      },
       shipmentScanner: {
         enabled: config.shipmentScanner.enabled,
         automaticallyMarkShipped:
@@ -316,6 +335,7 @@ export interface StartConfigurationUiOptions {
   readonly sellerRequestMetrics?: () => SellerRequestMetrics;
   readonly internalJobs?: InternalJobStore;
   readonly internalJobRunnerRunning?: boolean;
+  readonly discordWebhook?: DiscordWebhookRouteService;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
 }
@@ -364,6 +384,7 @@ export async function startConfigurationUi(
     sellerRequestMetrics: options.sellerRequestMetrics,
     internalJobs: options.internalJobs,
     internalJobRunnerRunning: options.internalJobRunnerRunning === true,
+    discordWebhook: options.discordWebhook,
   };
   const server = createServer((request, response) => {
     void handleRequest(request, response, runtime, webAssets);
@@ -465,6 +486,33 @@ function parseUiUpdate(
   const confirmBeforeMarkingShipped = source?.confirmBeforeMarkingShipped;
   if (typeof confirmBeforeMarkingShipped !== "boolean") {
     issues.push("Mark-shipped confirmation must be true or false.");
+  }
+  const notifications = objectValue(source?.notifications);
+  const discordNotifications = objectValue(notifications?.discord);
+  const discordEvents = objectValue(discordNotifications?.events);
+  const discordEnabled = discordNotifications?.enabled;
+  const authenticationRequired = discordEvents?.authenticationRequired;
+  const inboundMessage = discordEvents?.inboundMessage;
+  const orderCanceled = discordEvents?.orderCanceled;
+  const shipmentMarkAttempt = discordEvents?.shipmentMarkAttempt;
+  if (typeof discordEnabled !== "boolean") {
+    issues.push("Discord notifications must be enabled or disabled.");
+  }
+  if (typeof authenticationRequired !== "boolean") {
+    issues.push(
+      "Session-expiration notifications must be enabled or disabled.",
+    );
+  }
+  if (typeof inboundMessage !== "boolean") {
+    issues.push("Message notifications must be enabled or disabled.");
+  }
+  if (typeof orderCanceled !== "boolean") {
+    issues.push(
+      "Order-cancellation notifications must be enabled or disabled.",
+    );
+  }
+  if (typeof shipmentMarkAttempt !== "boolean") {
+    issues.push("Shipment-attempt notifications must be enabled or disabled.");
   }
   const shipmentScanner = objectValue(source?.shipmentScanner);
   const shipmentScannerEnabled = shipmentScanner?.enabled;
@@ -642,6 +690,17 @@ function parseUiUpdate(
     revision: revision as string,
     pollIntervalMinutes: Number(pollIntervalMinutes),
     confirmBeforeMarkingShipped: confirmBeforeMarkingShipped as boolean,
+    notifications: {
+      discord: {
+        enabled: discordEnabled as boolean,
+        events: {
+          authenticationRequired: authenticationRequired as boolean,
+          inboundMessage: inboundMessage as boolean,
+          orderCanceled: orderCanceled as boolean,
+          shipmentMarkAttempt: shipmentMarkAttempt as boolean,
+        },
+      },
+    },
     shipmentScanner: {
       enabled: shipmentScannerEnabled as boolean,
       automaticallyMarkShipped: automaticallyMarkShipped as boolean,
@@ -1032,6 +1091,13 @@ function applyUpdate(
     ...config,
     pollIntervalMinutes: update.pollIntervalMinutes,
     confirmBeforeMarkingShipped: update.confirmBeforeMarkingShipped,
+    notifications: {
+      discord: {
+        ...config.notifications.discord,
+        enabled: update.notifications.discord.enabled,
+        events: update.notifications.discord.events,
+      },
+    },
     shipmentScanner: {
       ...config.shipmentScanner,
       enabled: update.shipmentScanner.enabled,

@@ -14,7 +14,7 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(2);
+    expect(config.version).toBe(3);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.shipmentScanner).toEqual({
@@ -107,6 +107,16 @@ describe("application configuration", () => {
       omitLineValues: ["US", "USA"],
       page: { fontSize: 14 },
     });
+    expect(config.notifications.discord).toEqual({
+      enabled: false,
+      webhookUrlEnv: "DISCORD_WEBHOOK_URL",
+      events: {
+        authenticationRequired: true,
+        inboundMessage: true,
+        orderCanceled: true,
+        shipmentMarkAttempt: true,
+      },
+    });
   });
 
   it("migrates version-one configuration without mutating its source", async () => {
@@ -118,9 +128,23 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(2);
+    expect(config.version).toBe(3);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(value.version).toBe(1);
+  });
+
+  it("migrates version-two configuration with notifications safely disabled", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    value.version = 2;
+    delete value.notifications;
+
+    const config = parseConfig(value);
+
+    expect(config.version).toBe(3);
+    expect(config.notifications.discord.enabled).toBe(false);
+    expect(value.notifications).toBeUndefined();
   });
 
   it("keeps shipment scanning safely disabled for older configuration files", async () => {
@@ -478,6 +502,8 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    value.version = 2;
+    delete value.notifications;
     delete value.confirmBeforeMarkingShipped;
     delete value.inventoryAdditionQueue;
     const shipmentScanner = value.shipmentScanner as {
@@ -500,11 +526,28 @@ describe("application configuration", () => {
     }
   });
 
+  it("rejects version-three files that omit notification settings", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    delete value.notifications;
+
+    try {
+      parseConfig(value);
+      throw new Error("Expected configuration validation to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect((error as ConfigurationError).issues).toContain(
+        "config.notifications is required in configuration version 3.",
+      );
+    }
+  });
+
   it("rejects configuration from a newer unsupported schema", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
-    value.version = 3;
+    value.version = 4;
 
     expect(() => parseConfig(value)).toThrow(
       expect.objectContaining({

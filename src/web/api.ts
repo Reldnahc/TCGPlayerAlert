@@ -11,6 +11,8 @@ import type {
   JobScheduleResponse,
   ScheduledListing,
   DeletedResponse,
+  DiscordWebhookStatus,
+  DiscordWebhookTestResult,
   MessagesPage,
   MessageMutationResult,
   MarkAllMessagesReadResult,
@@ -52,6 +54,8 @@ import {
   jobRunResponseDecoder,
   jobScheduleResponseDecoder,
   deletedResponseDecoder,
+  discordWebhookStatusDecoder,
+  discordWebhookTestDecoder,
   markAllMessagesReadDecoder,
   masterPullListDecoder,
   pullListRowDecoder,
@@ -305,6 +309,25 @@ export const uiApi = {
     }),
   disconnectSeller: (): Promise<SellerConnectionStatus> =>
     requestJson("/api/auth/disconnect", sellerConnectionDecoder, {
+      method: "POST",
+      body: "{}",
+    }),
+  discordWebhook: (): Promise<DiscordWebhookStatus> =>
+    requestJson("/api/notifications/discord", discordWebhookStatusDecoder),
+  connectDiscordWebhook: (webhookUrl: string): Promise<DiscordWebhookStatus> =>
+    requestJson(
+      "/api/notifications/discord/connect",
+      discordWebhookStatusDecoder,
+      { method: "POST", body: JSON.stringify({ webhookUrl }) },
+    ),
+  disconnectDiscordWebhook: (): Promise<DiscordWebhookStatus> =>
+    requestJson(
+      "/api/notifications/discord/disconnect",
+      discordWebhookStatusDecoder,
+      { method: "POST", body: "{}" },
+    ),
+  testDiscordWebhook: (): Promise<DiscordWebhookTestResult> =>
+    requestJson("/api/notifications/discord/test", discordWebhookTestDecoder, {
       method: "POST",
       body: "{}",
     }),

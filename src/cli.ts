@@ -13,6 +13,8 @@ import {
   createInventoryAdditionService,
   createInternalJobStore,
   createOrderManagementService,
+  createNotificationMonitor,
+  createNotificationRuntime,
   createFeedbackManagementService,
   createMessageManagementService,
   createPaymentManagementService,
@@ -69,7 +71,16 @@ try {
     );
   } else if (command === "sync") {
     const config = await loadConfig(configPath);
-    const { sessionManager, sellerApi } = await createSellerRuntime(config);
+    const notifications = await createNotificationRuntime(
+      config,
+      configPath,
+      jsonLogger,
+    );
+    const { sessionManager, sellerApi } = await createSellerRuntime(
+      config,
+      process.env,
+      notifications.publisher,
+    );
     const workflow = createWorkflow(
       config,
       jsonLogger,
@@ -98,7 +109,16 @@ try {
     );
   } else if (command === "configure") {
     const config = await loadConfig(configPath);
-    const { sessionManager, sellerApi } = await createSellerRuntime(config);
+    const notifications = await createNotificationRuntime(
+      config,
+      configPath,
+      jsonLogger,
+    );
+    const { sessionManager, sellerApi } = await createSellerRuntime(
+      config,
+      process.env,
+      notifications.publisher,
+    );
     const priceQueue = createPriceUpdateQueue(config);
     const inventoryQueue = createInventoryAdditionQueue(config);
     const repricingService = createRepricingService(
@@ -118,6 +138,21 @@ try {
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
+    const orderService = createOrderManagementService(
+      config,
+      configPath,
+      process.env,
+      undefined,
+      sessionManager,
+      sellerApi,
+      notifications.publisher,
+    );
+    const messageService = createMessageManagementService(
+      config,
+      process.env,
+      sessionManager,
+      sellerApi,
+    );
     const ui = await startConfigurationUi({
       configPath,
       port: uiPort,
@@ -126,14 +161,7 @@ try {
       inventoryQueue,
       inventoryService,
       internalJobs,
-      orderService: createOrderManagementService(
-        config,
-        configPath,
-        process.env,
-        undefined,
-        sessionManager,
-        sellerApi,
-      ),
+      orderService,
       paymentService: createPaymentManagementService(
         config,
         process.env,
@@ -146,13 +174,9 @@ try {
         sessionManager,
         sellerApi,
       ),
-      messageService: createMessageManagementService(
-        config,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
+      messageService,
       sessionManager,
+      discordWebhook: notifications.discordWebhook,
       sellerRequestMetrics: sellerApi.requests.snapshot,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
@@ -165,8 +189,16 @@ try {
     }
   } else if (command === "start") {
     const initialConfig = await loadConfig(configPath);
-    const { sessionManager, sellerApi } =
-      await createSellerRuntime(initialConfig);
+    const notifications = await createNotificationRuntime(
+      initialConfig,
+      configPath,
+      jsonLogger,
+    );
+    const { sessionManager, sellerApi } = await createSellerRuntime(
+      initialConfig,
+      process.env,
+      notifications.publisher,
+    );
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -199,6 +231,21 @@ try {
       readyOrders,
       sessionManager,
       sellerApi,
+      notifications.publisher,
+    );
+    const messageService = createMessageManagementService(
+      initialConfig,
+      process.env,
+      sessionManager,
+      sellerApi,
+    );
+    const notificationMonitor = createNotificationMonitor(
+      configPath,
+      notifications,
+      readyOrders,
+      orderService,
+      messageService,
+      jsonLogger,
     );
     const shipmentScannerService = createShipmentScannerService(
       initialConfig,
@@ -302,13 +349,9 @@ try {
         sessionManager,
         sellerApi,
       ),
-      messageService: createMessageManagementService(
-        initialConfig,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
+      messageService,
       sessionManager,
+      discordWebhook: notifications.discordWebhook,
       sellerRequestMetrics: sellerApi.requests.snapshot,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
@@ -356,6 +399,13 @@ try {
               errorCode: safeErrorCode(error),
             });
           }
+          await notificationMonitor
+            .run(controller.signal)
+            .catch((error: unknown) => {
+              jsonLogger.error("notification.monitor-failed", {
+                errorCode: safeErrorCode(error),
+              });
+            });
         }
         const config = await loadConfig(configPath);
         await wait(config.pollIntervalMinutes * 60_000, controller.signal);

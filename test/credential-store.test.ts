@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ProtectedFileCredentialStore,
+  ProtectedFileTextSecretStore,
   WindowsDpapiProtector,
   type CredentialProtector,
 } from "../src/index.js";
@@ -48,6 +49,26 @@ describe("ProtectedFileCredentialStore", () => {
     await expect(store.load()).rejects.toMatchObject({
       code: "PERSISTENCE_ERROR",
     });
+  });
+});
+
+describe("ProtectedFileTextSecretStore", () => {
+  it("round trips and removes a text secret without writing plaintext", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "tcgplayer-alert-text-secret-"),
+    );
+    const path = join(directory, "discord.protected");
+    const store = new ProtectedFileTextSecretStore(path, xorProtector);
+
+    await store.save("synthetic-webhook-secret");
+
+    expect((await readFile(path)).toString("utf8")).not.toContain(
+      "synthetic-webhook-secret",
+    );
+    await expect(store.load()).resolves.toBe("synthetic-webhook-secret");
+
+    await store.save(undefined);
+    await expect(store.load()).resolves.toBeUndefined();
   });
 });
 

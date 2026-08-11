@@ -16,6 +16,7 @@ import type { BackgroundShipmentScanner } from "../background-shipment-scanner.j
 import type { FeedbackManagementService } from "../feedback-management.js";
 import type { SellerRequestMetrics } from "../seller-api.js";
 import type { InternalJobStore } from "../internal-jobs/index.js";
+import type { DiscordWebhookStatus } from "../notifications/index.js";
 
 export interface ConfigurationRouteService {
   read(): Promise<unknown>;
@@ -32,6 +33,13 @@ export type ConfigurationRouteAddressLabelPrint = (
   lines: readonly string[],
   signal?: AbortSignal,
 ) => Promise<void>;
+
+export interface DiscordWebhookRouteService {
+  status(): DiscordWebhookStatus;
+  connect(webhookUrl: string): Promise<DiscordWebhookStatus>;
+  disconnect(): Promise<DiscordWebhookStatus>;
+  sendTest(signal?: AbortSignal): Promise<void>;
+}
 
 export interface ConfigurationRouteContext {
   readonly request: IncomingMessage;
@@ -58,6 +66,7 @@ export interface ConfigurationRouteContext {
   readonly sellerRequestMetrics: (() => SellerRequestMetrics) | undefined;
   readonly internalJobs: InternalJobStore | undefined;
   readonly internalJobRunnerRunning: boolean;
+  readonly discordWebhook: DiscordWebhookRouteService | undefined;
 }
 
 export type ConfigurationRouteHandler = (

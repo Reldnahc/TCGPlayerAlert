@@ -10,10 +10,12 @@ import { handleShipmentScannerRoute } from "./scanner-routes.js";
 import { handleSettingsRoute } from "./settings-routes.js";
 import { handleProviderRoute } from "./provider-routes.js";
 import { handleInternalJobRoute } from "./internal-job-routes.js";
+import { handleNotificationRoute } from "./notification-routes.js";
 
 const ROUTE_HANDLERS: readonly ConfigurationRouteHandler[] = [
   handleSettingsRoute,
   handleAuthenticationRoute,
+  handleNotificationRoute,
   handleProviderRoute,
   handleShipmentScannerRoute,
   handleSellerAccountRoute,

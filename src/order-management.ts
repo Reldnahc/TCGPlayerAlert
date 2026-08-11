@@ -8,7 +8,7 @@ import {
   type SellerOrderRefundOptions,
   type TcgplayerSellerClient,
 } from "tcgplayer-private-api";
-import { ApplicationError } from "./errors.js";
+import { ApplicationError, safeErrorCode } from "./errors.js";
 import type {
   PulledOrderLineProgress,
   PullListProgressState,
@@ -123,6 +123,12 @@ export interface OrderManagementServiceOptions {
     signal?: AbortSignal,
   ) => Promise<void>;
   readonly onShipmentAccepted?: (orderNumber: string) => void;
+  readonly onShipmentAttempt?: (attempt: {
+    readonly orderNumber: string;
+    readonly outcome: "applied" | "already-applied" | "failed";
+    readonly errorCode?: string;
+    readonly occurredAt: string;
+  }) => void | Promise<void>;
 }
 
 interface CachedOrders {
@@ -167,6 +173,8 @@ export class OrderManagementService {
   private readonly executePrint?: OrderManagementServiceOptions["executePrint"];
   private readonly onShipmentAccepted:
     OrderManagementServiceOptions["onShipmentAccepted"] | undefined;
+  private readonly onShipmentAttempt:
+    OrderManagementServiceOptions["onShipmentAttempt"] | undefined;
   private readonly cache = new Map<OrderListScope, CachedOrders>();
   private readonly detailCache = new Map<string, CachedOrderDetail>();
   private pullListCache: CachedPullList | undefined;
@@ -207,6 +215,7 @@ export class OrderManagementService {
     this.now = options.now ?? (() => new Date());
     this.executePrint = options.executePrint;
     this.onShipmentAccepted = options.onShipmentAccepted;
+    this.onShipmentAttempt = options.onShipmentAttempt;
   }
 
   async listOrders(
@@ -788,32 +797,61 @@ export class OrderManagementService {
     const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
     this.clearOrderCaches();
-    const result = await this.client.markOrdersShipped(
-      { sellerKey, orderNumbers: [normalized] },
-      signal === undefined ? undefined : { signal },
-    );
-    const failure = result.errors.find(
-      (error) => error.orderNumber === normalized,
-    );
-    if (failure !== undefined) {
-      throw new ApplicationError(
-        "PROVIDER_ERROR",
-        failure.message ?? "TCGplayer did not mark the order shipped.",
+    try {
+      const result = await this.client.markOrdersShipped(
+        { sellerKey, orderNumbers: [normalized] },
+        signal === undefined ? undefined : { signal },
       );
-    }
-    const outcome = result.alreadyShippedOrderNumbers.includes(normalized)
-      ? "already-applied"
-      : result.updatedOrderNumbers.includes(normalized)
-        ? "applied"
-        : undefined;
-    if (outcome === undefined) {
-      throw new ApplicationError(
-        "PROVIDER_ERROR",
-        "TCGplayer returned an unrecognized shipment result.",
+      const failure = result.errors.find(
+        (error) => error.orderNumber === normalized,
       );
+      if (failure !== undefined) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          failure.message ?? "TCGplayer did not mark the order shipped.",
+        );
+      }
+      const outcome = result.alreadyShippedOrderNumbers.includes(normalized)
+        ? "already-applied"
+        : result.updatedOrderNumbers.includes(normalized)
+          ? "applied"
+          : undefined;
+      if (outcome === undefined) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "TCGplayer returned an unrecognized shipment result.",
+        );
+      }
+      this.onShipmentAccepted?.(normalized);
+      this.notifyShipmentAttempt({
+        orderNumber: normalized,
+        outcome,
+        occurredAt: this.now().toISOString(),
+      });
+      return { orderNumber: normalized, outcome };
+    } catch (error) {
+      this.notifyShipmentAttempt({
+        orderNumber: normalized,
+        outcome: "failed",
+        errorCode: safeErrorCode(error),
+        occurredAt: this.now().toISOString(),
+      });
+      throw error;
     }
-    this.onShipmentAccepted?.(normalized);
-    return { orderNumber: normalized, outcome };
+  }
+
+  private notifyShipmentAttempt(
+    attempt: Parameters<
+      NonNullable<OrderManagementServiceOptions["onShipmentAttempt"]>
+    >[0],
+  ): void {
+    try {
+      void Promise.resolve(this.onShipmentAttempt?.(attempt)).catch(
+        () => undefined,
+      );
+    } catch {
+      // Notification failures cannot change the fulfillment mutation result.
+    }
   }
 
   async refundOrder(

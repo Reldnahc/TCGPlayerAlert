@@ -9,6 +9,8 @@ import type {
   JobRunResponse,
   JobScheduleResponse,
   DeletedResponse,
+  DiscordWebhookStatus,
+  DiscordWebhookTestResult,
   MasterPullList,
   MarkAllMessagesReadResult,
   MessageMutationResult,
@@ -153,6 +155,17 @@ export const settingsDecoder: Decoder<Settings> = object({
   revision: text,
   pollIntervalMinutes: nonNegativeInteger,
   confirmBeforeMarkingShipped: boolean,
+  notifications: object({
+    discord: object({
+      enabled: boolean,
+      events: object({
+        authenticationRequired: boolean,
+        inboundMessage: boolean,
+        orderCanceled: boolean,
+        shipmentMarkAttempt: boolean,
+      }),
+    }),
+  }),
   shipmentScanner: object({
     enabled: boolean,
     automaticallyMarkShipped: boolean,
@@ -194,6 +207,16 @@ export const sellerPairingDecoder: Decoder<SellerPairingChallenge> = object({
   expiresAt: isoDateTime,
   port: nonNegativeInteger,
 });
+
+export const discordWebhookStatusDecoder: Decoder<DiscordWebhookStatus> =
+  object({
+    configured: boolean,
+    source: optional(enumeration("protected", "environment")),
+    protectedStorage: boolean,
+  });
+
+export const discordWebhookTestDecoder: Decoder<DiscordWebhookTestResult> =
+  object({ delivered: boolean });
 
 export const orderSummaryDecoder = object({
   orderNumber: text,

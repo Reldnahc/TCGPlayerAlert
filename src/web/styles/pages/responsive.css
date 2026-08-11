@@ -100,6 +100,13 @@
   .settings-workbench {
     grid-template-columns: 170px minmax(0, 1fr);
   }
+  .discord-connection,
+  .notification-grid {
+    grid-template-columns: 1fr;
+  }
+  .discord-connection__actions {
+    flex-wrap: wrap;
+  }
   .form-grid--4,
   .form-grid--3,
   .rarity-grid,

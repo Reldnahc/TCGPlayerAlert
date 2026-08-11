@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-08-10
 
+The version-two target recorded here is historical. ADR 0030 advances the
+canonical schema to version 3 through the ordered migration required by this
+decision.
+
 ## Context
 
 The local JSON configuration remained labeled version 1 while new settings were

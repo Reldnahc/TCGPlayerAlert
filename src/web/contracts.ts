@@ -140,3 +140,13 @@ export interface SellerPairingChallenge {
   readonly expiresAt: string;
   readonly port: number;
 }
+
+export interface DiscordWebhookStatus {
+  readonly configured: boolean;
+  readonly source?: "protected" | "environment";
+  readonly protectedStorage: boolean;
+}
+
+export interface DiscordWebhookTestResult {
+  readonly delivered: boolean;
+}

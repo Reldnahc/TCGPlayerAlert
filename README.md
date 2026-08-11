@@ -16,6 +16,7 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 - Internal schedules can release exact Add Cards selections later or build a fresh inventory repricing run. Repricing defaults to review-only; guarded automatic mutation must be enabled per schedule.
 - Addresses and document bytes remain in memory and temporary print files only; they are not stored in workflow state or logs.
 - Interrupted or ambiguous print submissions become `review-required` and are never retried automatically.
+- Discord notifications are disabled by default. When enabled, message alerts omit subjects and bodies, and the webhook URL stays in Windows protected storage or the environment.
 
 ## Requirements
 
@@ -54,10 +55,11 @@ Copy-Item .env.example .env.local
 Copy-Item config/local.example.json config/local.json
 ```
 
-The current configuration schema is version 2. Existing version-one files are
-migrated safely in memory and are rewritten as a complete version-two document
-the next time Settings is saved; validation and startup never rewrite the file
-on their own.
+The current configuration schema is version 3. Existing version-one and
+version-two files are migrated safely in memory and are rewritten as a complete
+version-three document the next time Settings is saved; validation and startup
+never rewrite the file on their own. Discord notifications remain disabled
+during migration.
 
 The environment file may remain blank when using the browser connector.
 
@@ -145,6 +147,28 @@ code connects or expires.
 
 `npm run configure` remains available when only the console is needed without
 the scheduled poller or queue workers.
+
+### Discord notifications
+
+Open **Settings → Notifications**, paste a webhook for a private Discord
+channel, select **Save webhook**, and send the synthetic test. On Windows the
+URL is encrypted for the current account with DPAPI and is never returned to
+the browser after it is saved. `DISCORD_WEBHOOK_URL` is available as an
+environment-only fallback.
+
+After the test succeeds, enable the master switch and choose the desired event
+types. The long-running `npm start` process can report seller-session expiry,
+new unread message activity, a confirmed TCGplayer cancellation of a previously
+ready order, and every app-initiated mark-shipped outcome. The first enabled
+observation establishes a baseline rather than replaying existing unread
+messages or old order changes. Message alerts contain only the unread count and
+a Seller Portal link; subjects and bodies stay local.
+
+The cancellation observer reuses the scheduled ready-order snapshot and makes
+one exact confirmation request only when an order disappears from that queue.
+The message observer runs at the existing order polling cadence. No notification
+polling occurs while the master switch is disabled, and opening the web console
+does not trigger notification checks.
 
 For UI development without seller credentials, live API calls, or printer output, run `npm run preview:web`. It starts the same compiled console on `http://127.0.0.1:47839` with sanitized in-memory orders, order details, payments, feedback, messages, catalog results, inventory, and jobs.
 

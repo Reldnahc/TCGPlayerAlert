@@ -213,6 +213,12 @@ function service(
       actionType: "print-address-label" | "print-packing-slip",
     ) => Promise<void>;
     readonly onShipmentAccepted?: (orderNumber: string) => void;
+    readonly onShipmentAttempt?: (attempt: {
+      readonly orderNumber: string;
+      readonly outcome: "applied" | "already-applied" | "failed";
+      readonly errorCode?: string;
+      readonly occurredAt: string;
+    }) => void | Promise<void>;
     readonly pullListProgressStore?: PullListProgressStore;
   } = {},
 ) {
@@ -648,6 +654,32 @@ describe("order management", () => {
 
     await orders.markShipped(firstOrder.orderNumber);
     expect(onShipmentAccepted).toHaveBeenCalledWith(firstOrder.orderNumber);
+  });
+
+  it("reports successful and failed mark-shipped attempts without changing their result", async () => {
+    const fakeClient = client();
+    const onShipmentAttempt = vi.fn();
+    const orders = service(fakeClient, { onShipmentAttempt });
+
+    await orders.markShipped(firstOrder.orderNumber);
+    expect(onShipmentAttempt).toHaveBeenLastCalledWith({
+      orderNumber: firstOrder.orderNumber,
+      outcome: "applied",
+      occurredAt: "2026-08-04T12:00:00.000Z",
+    });
+
+    fakeClient.markOrdersShipped.mockRejectedValueOnce(
+      Object.assign(new Error("synthetic failure"), { code: "PROVIDER_ERROR" }),
+    );
+    await expect(orders.markShipped(firstOrder.orderNumber)).rejects.toThrow(
+      "synthetic failure",
+    );
+    expect(onShipmentAttempt).toHaveBeenLastCalledWith({
+      orderNumber: firstOrder.orderNumber,
+      outcome: "failed",
+      errorCode: "PROVIDER_ERROR",
+      occurredAt: "2026-08-04T12:00:00.000Z",
+    });
   });
 
   it("downloads packing slips and performs explicit fulfillment actions", async () => {

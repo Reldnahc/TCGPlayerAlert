@@ -6,6 +6,7 @@ import {
   type GamePricingModuleConfig,
 } from "./game-pricing.js";
 import type { SparseMarketFallback } from "./repricing.js";
+import type { DiscordNotificationSettings } from "./notifications/contracts.js";
 
 export type RuleField =
   | "order.status"
@@ -156,7 +157,7 @@ export interface RepricingProfileConfig {
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
-export const CURRENT_CONFIG_VERSION = 2 as const;
+export const CURRENT_CONFIG_VERSION = 3 as const;
 
 export interface AppConfig {
   readonly version: typeof CURRENT_CONFIG_VERSION;
@@ -174,6 +175,9 @@ export interface AppConfig {
   readonly defaultMerchandiseProfileId: string;
   readonly repricingProfiles: readonly RepricingProfileConfig[];
   readonly defaultRepricingProfileId: string;
+  readonly notifications: {
+    readonly discord: DiscordNotificationSettings;
+  };
   readonly provider: {
     readonly type: "tcgplayer";
     readonly authCookieEnv: string;
@@ -405,6 +409,17 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
       supportWindowPercent: 5,
     },
   ],
+};
+
+const DEFAULT_DISCORD_NOTIFICATIONS: DiscordNotificationSettings = {
+  enabled: false,
+  webhookUrlEnv: "DISCORD_WEBHOOK_URL",
+  events: {
+    authenticationRequired: true,
+    inboundMessage: true,
+    orderCanceled: true,
+    shipmentMarkAttempt: true,
+  },
 };
 
 const SELL_NOW_REPRICING_PROFILE: RepricingProfileConfig = {
@@ -710,15 +725,19 @@ function requireField(
   key: string,
   path: string,
   issues: string[],
+  version: 2 | 3,
 ): void {
   if (source?.[key] === undefined) {
-    issues.push(`${path}.${key} is required in configuration version 2.`);
+    issues.push(
+      `${path}.${key} is required in configuration version ${String(version)}.`,
+    );
   }
 }
 
 function validateVersionTwoShape(
   root: UnknownRecord | undefined,
   issues: string[],
+  version: 2 | 3,
 ): void {
   for (const key of [
     "pricingProfileDefaultsVersion",
@@ -730,7 +749,7 @@ function validateVersionTwoShape(
     "repricingProfiles",
     "defaultRepricingProfileId",
   ]) {
-    requireField(root, key, "config", issues);
+    requireField(root, key, "config", issues, version);
   }
   if (root?.dryRun !== undefined) {
     issues.push(
@@ -740,11 +759,29 @@ function validateVersionTwoShape(
 
   const shipmentScanner = record(root?.shipmentScanner);
   if (shipmentScanner !== undefined) {
-    requireField(shipmentScanner, "camera", "config.shipmentScanner", issues);
+    requireField(
+      shipmentScanner,
+      "camera",
+      "config.shipmentScanner",
+      issues,
+      version,
+    );
     const camera = record(shipmentScanner.camera);
     if (camera !== undefined) {
-      requireField(camera, "enabled", "config.shipmentScanner.camera", issues);
-      requireField(camera, "deviceId", "config.shipmentScanner.camera", issues);
+      requireField(
+        camera,
+        "enabled",
+        "config.shipmentScanner.camera",
+        issues,
+        version,
+      );
+      requireField(
+        camera,
+        "deviceId",
+        "config.shipmentScanner.camera",
+        issues,
+        version,
+      );
     }
   }
 
@@ -752,9 +789,9 @@ function validateVersionTwoShape(
     for (const [index, value] of root.merchandiseProfiles.entries()) {
       const profile = record(value);
       const path = `config.merchandiseProfiles[${String(index)}]`;
-      requireField(profile, "defaultCondition", path, issues);
-      requireField(profile, "defaultPrinting", path, issues);
-      requireField(profile, "pricingProfileId", path, issues);
+      requireField(profile, "defaultCondition", path, issues, version);
+      requireField(profile, "defaultPrinting", path, issues, version);
+      requireField(profile, "pricingProfileId", path, issues, version);
     }
   }
 
@@ -762,16 +799,22 @@ function validateVersionTwoShape(
     for (const [profileIndex, value] of root.repricingProfiles.entries()) {
       const profile = record(value);
       const profilePath = `config.repricingProfiles[${String(profileIndex)}]`;
-      requireField(profile, "sparseMarketFallback", profilePath, issues);
-      requireField(profile, "gamePricingModules", profilePath, issues);
+      requireField(
+        profile,
+        "sparseMarketFallback",
+        profilePath,
+        issues,
+        version,
+      );
+      requireField(profile, "gamePricingModules", profilePath, issues, version);
       if (!Array.isArray(profile?.ranges)) continue;
       for (const [rangeIndex, rangeValue] of profile.ranges.entries()) {
         const range = record(rangeValue);
         const rangePath = `${profilePath}.ranges[${String(rangeIndex)}]`;
-        requireField(range, "minimumListings", rangePath, issues);
-        requireField(range, "supportMode", rangePath, issues);
-        requireField(range, "minimumSellerSupport", rangePath, issues);
-        requireField(range, "supportWindowPercent", rangePath, issues);
+        requireField(range, "minimumListings", rangePath, issues, version);
+        requireField(range, "supportMode", rangePath, issues, version);
+        requireField(range, "minimumSellerSupport", rangePath, issues, version);
+        requireField(range, "supportWindowPercent", rangePath, issues, version);
       }
     }
   }
@@ -780,10 +823,32 @@ function validateVersionTwoShape(
   for (const [actionId, value] of Object.entries(actions ?? {})) {
     const action = record(value);
     const path = `config.actions.${actionId}`;
-    requireField(action, "enabled", path, issues);
+    requireField(action, "enabled", path, issues, version);
     if (action?.type === "print-address-label") {
-      requireField(action, "omitLineValues", path, issues);
+      requireField(action, "omitLineValues", path, issues, version);
     }
+  }
+}
+
+function validateVersionThreeShape(
+  root: UnknownRecord | undefined,
+  issues: string[],
+): void {
+  requireField(root, "notifications", "config", issues, 3);
+  const notifications = record(root?.notifications);
+  requireField(notifications, "discord", "config.notifications", issues, 3);
+  const discord = record(notifications?.discord);
+  for (const key of ["enabled", "webhookUrlEnv", "events"]) {
+    requireField(discord, key, "config.notifications.discord", issues, 3);
+  }
+  const events = record(discord?.events);
+  for (const key of [
+    "authenticationRequired",
+    "inboundMessage",
+    "orderCanceled",
+    "shipmentMarkAttempt",
+  ]) {
+    requireField(events, key, "config.notifications.discord.events", issues, 3);
   }
 }
 
@@ -793,13 +858,16 @@ export function parseConfig(value: unknown): AppConfig {
   if (root === undefined) issues.push("config must be an object.");
   const sourceVersion = root?.version;
   const isVersionOne = sourceVersion === 1;
-  const isVersionTwo = sourceVersion === CURRENT_CONFIG_VERSION;
-  if (!isVersionOne && !isVersionTwo) {
+  const isVersionTwo = sourceVersion === 2;
+  const isVersionThree = sourceVersion === CURRENT_CONFIG_VERSION;
+  if (!isVersionOne && !isVersionTwo && !isVersionThree) {
     issues.push(
-      `config.version must be 1 or ${String(CURRENT_CONFIG_VERSION)}; newer versions require an application update.`,
+      `config.version must be 1, 2, or ${String(CURRENT_CONFIG_VERSION)}; newer versions require an application update.`,
     );
   }
-  if (isVersionTwo) validateVersionTwoShape(root, issues);
+  if (isVersionTwo) validateVersionTwoShape(root, issues, 2);
+  if (isVersionThree) validateVersionTwoShape(root, issues, 3);
+  if (isVersionThree) validateVersionThreeShape(root, issues);
   const disableLegacySideEffects = isVersionOne && root?.dryRun === true;
   if (
     root?.pricingProfileDefaultsVersion !== undefined &&
@@ -819,6 +887,9 @@ export function parseConfig(value: unknown): AppConfig {
   const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
   const shipmentScanner = record(root?.shipmentScanner);
   const shipmentScannerCamera = record(shipmentScanner?.camera);
+  const notifications = record(root?.notifications);
+  const discordNotifications = record(notifications?.discord);
+  const discordEvents = record(discordNotifications?.events);
   const legacyRepricingProfileValues = root?.repricingProfiles;
   const firstLegacyRepricingProfile = Array.isArray(
     legacyRepricingProfileValues,
@@ -1301,6 +1372,52 @@ export function parseConfig(value: unknown): AppConfig {
     1000,
     issues,
   );
+  const discordNotificationConfig: DiscordNotificationSettings =
+    discordNotifications === undefined
+      ? DEFAULT_DISCORD_NOTIFICATIONS
+      : {
+          enabled: booleanValue(
+            discordNotifications,
+            "enabled",
+            "config.notifications.discord",
+            issues,
+          ),
+          webhookUrlEnv: text(
+            discordNotifications,
+            "webhookUrlEnv",
+            "config.notifications.discord",
+            issues,
+          ),
+          events:
+            discordEvents === undefined
+              ? DEFAULT_DISCORD_NOTIFICATIONS.events
+              : {
+                  authenticationRequired: booleanValue(
+                    discordEvents,
+                    "authenticationRequired",
+                    "config.notifications.discord.events",
+                    issues,
+                  ),
+                  inboundMessage: booleanValue(
+                    discordEvents,
+                    "inboundMessage",
+                    "config.notifications.discord.events",
+                    issues,
+                  ),
+                  orderCanceled: booleanValue(
+                    discordEvents,
+                    "orderCanceled",
+                    "config.notifications.discord.events",
+                    issues,
+                  ),
+                  shipmentMarkAttempt: booleanValue(
+                    discordEvents,
+                    "shipmentMarkAttempt",
+                    "config.notifications.discord.events",
+                    issues,
+                  ),
+                },
+        };
   const priceUpdateQueueConfig: PriceUpdateQueueConfig = {
     enabled: booleanValue(
       priceUpdateQueue,
@@ -1446,6 +1563,7 @@ export function parseConfig(value: unknown): AppConfig {
     defaultMerchandiseProfileId,
     repricingProfiles,
     defaultRepricingProfileId,
+    notifications: { discord: discordNotificationConfig },
     provider: {
       type: "tcgplayer",
       authCookieEnv,

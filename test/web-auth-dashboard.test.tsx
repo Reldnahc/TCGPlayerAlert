@@ -15,6 +15,47 @@ import {
 afterEach(resetWebUiTest);
 
 describe("authentication and dashboard", () => {
+  it("configures Discord notifications without retaining the webhook in the browser", async () => {
+    const fetchMock = vi.fn(baseFetch);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await screen.findByText("disconnected");
+    const webhook = screen.getByLabelText(/Webhook URL/u);
+    if (!(webhook instanceof HTMLInputElement)) {
+      throw new Error("Expected the Discord webhook input.");
+    }
+    const secret =
+      "https://discord.com/api/webhooks/12345/abcdefghijklmnopqrstuvwxyz012345";
+    await user.type(webhook, secret);
+    await user.click(screen.getByRole("button", { name: "Save webhook" }));
+
+    expect(
+      await screen.findByText("Discord webhook saved securely."),
+    ).toBeTruthy();
+    expect(webhook.value).toBe("");
+    expect(document.body.textContent).not.toContain(secret);
+    await user.click(screen.getByRole("button", { name: "Send test" }));
+    expect(
+      await screen.findByText("Test notification delivered."),
+    ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /^Enable Discord notifications/u,
+      }),
+    );
+    expect(screen.getByText("Unsaved configuration changes")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/notifications/discord/connect",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("keeps seller requests idle while disconnected", async () => {
     const requestedPaths: string[] = [];
     const intervalSpy = vi.spyOn(window, "setInterval");

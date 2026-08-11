@@ -43,6 +43,7 @@ export interface SellerSessionManagerOptions {
   readonly now?: () => Date;
   readonly randomBytes?: (size: number) => Uint8Array;
   readonly validateSession?: (authCookie: string) => Promise<string>;
+  readonly onExpired?: (updatedAt: string) => void | Promise<void>;
 }
 
 export interface SellerSessionService {
@@ -270,7 +271,9 @@ export class SellerSessionManager
     if (current.connectorToken === undefined) {
       this.active = undefined;
       this.expired = undefined;
-      this.stateUpdatedAt = this.now().toISOString();
+      const updatedAt = this.now().toISOString();
+      this.stateUpdatedAt = updatedAt;
+      this.notifyExpired(updatedAt);
       return;
     }
     const expired: ExpiredSession = {
@@ -287,6 +290,17 @@ export class SellerSessionManager
       )
       .catch(() => undefined);
     await this.persistence;
+    this.notifyExpired(expired.updatedAt);
+  }
+
+  private notifyExpired(updatedAt: string): void {
+    try {
+      void Promise.resolve(this.options.onExpired?.(updatedAt)).catch(
+        () => undefined,
+      );
+    } catch {
+      // Notification failures must never change authentication state.
+    }
   }
 
   private async getSession(): Promise<TcgplayerSession> {

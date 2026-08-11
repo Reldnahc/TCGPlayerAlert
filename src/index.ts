@@ -101,10 +101,13 @@ export type * from "./shipment-tag-consensus.js";
 export type * from "./april-tag.js";
 export {
   createPlatformCredentialStore,
+  createPlatformTextSecretStore,
   ProtectedFileCredentialStore,
+  ProtectedFileTextSecretStore,
   WindowsDpapiProtector,
 } from "./credential-store.js";
 export type * from "./credential-store.js";
+export * from "./notifications/index.js";
 export { SellerSessionManager } from "./seller-session.js";
 export type * from "./seller-session.js";
 export type * from "./seller-credentials.js";

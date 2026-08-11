@@ -7,6 +7,17 @@ export const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
   confirmBeforeMarkingShipped: true,
+  notifications: {
+    discord: {
+      enabled: false,
+      events: {
+        authenticationRequired: true,
+        inboundMessage: true,
+        orderCanceled: true,
+        shipmentMarkAttempt: true,
+      },
+    },
+  },
   shipmentScanner: {
     enabled: false,
     automaticallyMarkShipped: false,
@@ -130,6 +141,24 @@ export function baseFetch(
     );
   }
   if (path === "/api/settings") return Promise.resolve(json(settings));
+  if (path === "/api/notifications/discord") {
+    return Promise.resolve(json({ configured: false, protectedStorage: true }));
+  }
+  if (path === "/api/notifications/discord/connect") {
+    return Promise.resolve(
+      json({
+        configured: true,
+        source: "protected",
+        protectedStorage: true,
+      }),
+    );
+  }
+  if (path === "/api/notifications/discord/disconnect") {
+    return Promise.resolve(json({ configured: false, protectedStorage: true }));
+  }
+  if (path === "/api/notifications/discord/test") {
+    return Promise.resolve(json({ delivered: true }));
+  }
   if (path === "/api/shipment-scanner") {
     return Promise.resolve(
       json({

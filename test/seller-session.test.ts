@@ -26,6 +26,7 @@ function manager(
   options: {
     readonly environment?: NodeJS.ProcessEnv;
     readonly sellerKey?: string;
+    readonly onExpired?: (updatedAt: string) => void | Promise<void>;
   } = {},
 ) {
   let randomCall = 0;
@@ -36,6 +37,9 @@ function manager(
     sellerKeyEnvironmentName: "SYNTHETIC_SELLER_KEY",
     now: () => NOW,
     randomBytes: (size) => new Uint8Array(size).fill(++randomCall),
+    ...(options.onExpired === undefined
+      ? {}
+      : { onExpired: options.onExpired }),
     validateSession: vi
       .fn<(authCookie: string) => Promise<string>>()
       .mockResolvedValue(options.sellerKey ?? "synthetic-seller"),
@@ -132,7 +136,8 @@ describe("SellerSessionManager", () => {
 
   it("expires a rejected browser session while retaining automatic renewal", async () => {
     const store = new MemoryCredentialStore();
-    const session = manager(store);
+    const onExpired = vi.fn();
+    const session = manager(store, { onExpired });
     await session.initialize();
     const challenge = session.startPairing();
     await session.connect(challenge.pairingCode, {
@@ -153,6 +158,10 @@ describe("SellerSessionManager", () => {
       sellerKey: "synthetic-seller",
     });
     expect(store.value).not.toHaveProperty("authCookie");
+    expect(onExpired).toHaveBeenCalledOnce();
+
+    await session.markExpired();
+    expect(onExpired).toHaveBeenCalledOnce();
   });
 
   it("persists an explicit disconnect instead of reactivating environment credentials", async () => {

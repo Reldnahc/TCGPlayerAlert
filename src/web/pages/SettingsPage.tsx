@@ -5,12 +5,14 @@ import { MerchandiseProfiles } from "./settings/MerchandiseProfiles.js";
 import { PricingProfiles } from "./settings/PricingProfiles.js";
 import { PrintingSettings } from "./settings/PrintingSettings.js";
 import { SellerConnectionCard } from "../components/SellerConnectionCard.js";
+import { DiscordNotifications } from "./settings/DiscordNotifications.js";
 
 type SettingsSection =
   | "general"
   | "pricing"
   | "merchandise"
   | "printing"
+  | "notifications"
   | "scanning"
   | "processing";
 const sections: readonly {
@@ -21,6 +23,7 @@ const sections: readonly {
   { id: "pricing", label: "Pricing" },
   { id: "merchandise", label: "Merchandise" },
   { id: "printing", label: "Printing" },
+  { id: "notifications", label: "Notifications" },
   { id: "scanning", label: "Scanning" },
   { id: "processing", label: "Processing" },
 ];
@@ -102,6 +105,11 @@ export function SettingsPage() {
             />
           ) : section === "printing" ? (
             <PrintingSettings
+              settings={settings}
+              onChange={(next) => update(() => next)}
+            />
+          ) : section === "notifications" ? (
+            <DiscordNotifications
               settings={settings}
               onChange={(next) => update(() => next)}
             />

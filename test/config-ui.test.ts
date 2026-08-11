@@ -93,6 +93,7 @@ describe("configuration UI", () => {
       },
       priceUpdateQueue: { enabled: true, delaySeconds: 0 },
       inventoryAdditionQueue: { enabled: true, delaySeconds: 0 },
+      notifications: initial.notifications,
       merchandiseProfiles: [
         {
           ...merchandise,
@@ -171,7 +172,7 @@ describe("configuration UI", () => {
       await readFile(current.path, "utf8"),
     ) as Record<string, unknown>;
 
-    expect(afterSave.version).toBe(2);
+    expect(afterSave.version).toBe(3);
     expect(afterSave.confirmBeforeMarkingShipped).toBe(true);
   });
 
@@ -233,6 +234,76 @@ describe("configuration UI", () => {
     expect(new Uint8Array(await wasm.arrayBuffer()).subarray(0, 4)).toEqual(
       new Uint8Array([0, 97, 115, 109]),
     );
+  });
+
+  it("manages and tests the Discord webhook without returning its secret", async () => {
+    const current = await fixture();
+    let configured = false;
+    const connect = vi.fn((webhookUrl: string) => {
+      expect(webhookUrl).toContain("discord.com/api/webhooks");
+      configured = true;
+      return Promise.resolve({
+        configured: true,
+        source: "protected" as const,
+        protectedStorage: true,
+      });
+    });
+    const disconnect = vi.fn(() => {
+      configured = false;
+      return Promise.resolve({ configured: false, protectedStorage: true });
+    });
+    const sendTest = vi.fn(() => Promise.resolve());
+    const discordWebhook = {
+      status: () => ({ configured, protectedStorage: true }),
+      connect,
+      disconnect,
+      sendTest,
+    };
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      discordWebhook,
+    });
+    const mutationHeaders = {
+      "content-type": "application/json",
+      origin: server.url,
+    };
+    const secret =
+      "https://discord.com/api/webhooks/12345/abcdefghijklmnopqrstuvwxyz012345";
+
+    const initial = await fetch(`${server.url}/api/notifications/discord`);
+    const connected = await fetch(
+      `${server.url}/api/notifications/discord/connect`,
+      {
+        method: "POST",
+        headers: mutationHeaders,
+        body: JSON.stringify({ webhookUrl: secret }),
+      },
+    );
+    const tested = await fetch(`${server.url}/api/notifications/discord/test`, {
+      method: "POST",
+      headers: mutationHeaders,
+      body: "{}",
+    });
+    const removed = await fetch(
+      `${server.url}/api/notifications/discord/disconnect`,
+      { method: "POST", headers: mutationHeaders, body: "{}" },
+    );
+
+    expect(await initial.json()).toEqual({
+      configured: false,
+      protectedStorage: true,
+    });
+    expect(JSON.stringify(await connected.json())).not.toContain(secret);
+    expect(await tested.json()).toEqual({ delivered: true });
+    expect(await removed.json()).toEqual({
+      configured: false,
+      protectedStorage: true,
+    });
+    expect(connect).toHaveBeenCalledWith(secret);
+    expect(sendTest).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it("serves aggregate seller request metrics without request targets", async () => {

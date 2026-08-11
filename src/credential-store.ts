@@ -41,6 +41,12 @@ export interface SellerCredentialStore {
   save(value: StoredSellerSession): Promise<void>;
 }
 
+export interface TextSecretStore {
+  readonly available: boolean;
+  load(): Promise<string | undefined>;
+  save(value: string | undefined): Promise<void>;
+}
+
 export class ProtectedFileCredentialStore implements SellerCredentialStore {
   readonly available = true;
   private readonly path: string;
@@ -153,6 +159,113 @@ export function createPlatformCredentialStore(
   return new ProtectedFileCredentialStore(path, new WindowsDpapiProtector());
 }
 
+export class ProtectedFileTextSecretStore implements TextSecretStore {
+  readonly available = true;
+  private readonly path: string;
+  private operations: Promise<void> = Promise.resolve();
+
+  constructor(
+    path: string,
+    private readonly protector: CredentialProtector,
+  ) {
+    this.path = resolve(path);
+  }
+
+  load(): Promise<string | undefined> {
+    return this.exclusive(async () => {
+      let protectedBytes: Uint8Array;
+      try {
+        protectedBytes = await readFile(this.path);
+      } catch (error) {
+        if (hasCode(error, "ENOENT")) return undefined;
+        throw persistenceError("Unable to read the protected secret.", error);
+      }
+      if (
+        protectedBytes.length === 0 ||
+        protectedBytes.length > MAX_PROTECTED_BYTES
+      ) {
+        throw persistenceError("The protected secret has an invalid size.");
+      }
+      try {
+        const plaintext = await this.protector.unprotect(protectedBytes);
+        const value = Buffer.from(plaintext).toString("utf8");
+        if (
+          plaintext.length === 0 ||
+          plaintext.length > MAX_PROTECTED_BYTES ||
+          Buffer.byteLength(value, "utf8") !== plaintext.length
+        ) {
+          throw new Error("Invalid plaintext size");
+        }
+        return value;
+      } catch (error) {
+        if (error instanceof ApplicationError) throw error;
+        throw persistenceError(
+          "The protected secret could not be decrypted or validated.",
+          error,
+        );
+      }
+    });
+  }
+
+  save(value: string | undefined): Promise<void> {
+    return this.exclusive(async () => {
+      if (value === undefined) {
+        await unlink(this.path).catch((error: unknown) => {
+          if (!hasCode(error, "ENOENT")) {
+            throw persistenceError(
+              "Unable to remove the protected secret.",
+              error,
+            );
+          }
+        });
+        return;
+      }
+      const plaintext = Buffer.from(value, "utf8");
+      if (plaintext.length === 0 || plaintext.length > MAX_PROTECTED_BYTES) {
+        throw persistenceError("The secret has an invalid size.");
+      }
+      let protectedBytes: Uint8Array;
+      try {
+        protectedBytes = await this.protector.protect(plaintext);
+      } catch (error) {
+        throw persistenceError("Unable to protect the secret.", error);
+      }
+      if (
+        protectedBytes.length === 0 ||
+        protectedBytes.length > MAX_PROTECTED_BYTES
+      ) {
+        throw persistenceError("The protected secret has an invalid size.");
+      }
+      await mkdir(dirname(this.path), { recursive: true });
+      const temporaryPath = `${this.path}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporaryPath, protectedBytes, {
+          flag: "wx",
+          mode: 0o600,
+        });
+        await rename(temporaryPath, this.path);
+      } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw persistenceError("Unable to save the protected secret.", error);
+      }
+    });
+  }
+
+  private exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operations.then(operation, operation);
+    this.operations = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+}
+
+export function createPlatformTextSecretStore(path: string): TextSecretStore {
+  if (process.platform !== "win32") return new UnavailableTextSecretStore();
+  return new ProtectedFileTextSecretStore(path, new WindowsDpapiProtector());
+}
+
 class UnavailableCredentialStore implements SellerCredentialStore {
   readonly available = false;
 
@@ -165,6 +278,23 @@ class UnavailableCredentialStore implements SellerCredentialStore {
       new ApplicationError(
         "CONFIGURATION_ERROR",
         "Protected seller credential storage is not available on this operating system.",
+      ),
+    );
+  }
+}
+
+class UnavailableTextSecretStore implements TextSecretStore {
+  readonly available = false;
+
+  load(): Promise<undefined> {
+    return Promise.resolve(undefined);
+  }
+
+  save(): Promise<void> {
+    return Promise.reject(
+      new ApplicationError(
+        "CONFIGURATION_ERROR",
+        "Protected secret storage is not available on this operating system.",
       ),
     );
   }
