@@ -49,6 +49,17 @@ function product(ownListing: MarketplaceListing): MarketplaceProduct {
   };
 }
 
+function getSkuMarketPrices(input: {
+  readonly productConditionIds: readonly number[];
+}) {
+  return Promise.resolve({
+    prices: input.productConditionIds.map((productConditionId) => ({
+      productConditionId,
+      marketPrice: 2.5,
+    })),
+  });
+}
+
 const rules: RepricingRules = {
   minimumPrice: 0.5,
   conditionPolicy: "same-or-better",
@@ -794,6 +805,139 @@ describe("smart repricing", () => {
     expect(row.reason).toContain("higher of market and lowest fallback");
   });
 
+  it("uses the exact condition and printing SKU market price for fallbacks", () => {
+    const ownListing = listing({
+      productConditionId: 9003,
+      printing: "Foil",
+      price: 18.47,
+      shippingPrice: 1.49,
+    });
+    const ownProduct = { ...product(ownListing), marketPrice: 0.82 };
+    const row = calculateRepricingRow(
+      { product: ownProduct, listing: ownListing },
+      [
+        listing({
+          listingId: 2,
+          productConditionId: 9003,
+          printing: "Foil",
+          sellerKey: "seller-a",
+          price: 3.21,
+          shippingPrice: 1.49,
+        }),
+        listing({
+          listingId: 3,
+          productConditionId: 9003,
+          printing: "Foil",
+          sellerKey: "seller-b",
+          price: 7,
+          shippingPrice: 1.49,
+        }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        sparseMarketFallback: "higher-of-market-and-lowest",
+        ranges: [
+          {
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-exact-foil-market",
+      { exactSkuMarketPriceResolved: true, exactSkuMarketPrice: 17.25 },
+    );
+
+    expect(row).toMatchObject({
+      status: "ready",
+      marketPrice: 17.25,
+      marketPriceScope: "exact-sku",
+      proposedPrice: 17.25,
+      pricingSource: "market",
+      queueable: true,
+    });
+  });
+
+  it("holds an unsupported seller band when the profile requires review", () => {
+    const ownListing = listing({ price: 18.47, shippingPrice: 1.49 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [
+        listing({
+          listingId: 2,
+          sellerKey: "seller-a",
+          price: 3.21,
+          shippingPrice: 1.49,
+        }),
+        listing({
+          listingId: 3,
+          sellerKey: "seller-b",
+          price: 7,
+          shippingPrice: 1.49,
+        }),
+      ],
+      sellerKey,
+      {
+        ...rules,
+        unsupportedSellerBandAction: "wait",
+        sparseMarketFallback: "higher-of-market-and-lowest",
+        ranges: [
+          {
+            minimumListings: 2,
+            priceSource: "lowest",
+            percentage: 100,
+            gapThresholdPercent: 3,
+            gapAction: "use-next",
+            supportMode: "cluster",
+            minimumSellerSupport: 2,
+            supportWindowPercent: 5,
+          },
+        ],
+      },
+      "row-wait-for-band",
+      { exactSkuMarketPriceResolved: true, exactSkuMarketPrice: 17.25 },
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 18.47,
+      queueable: false,
+    });
+    expect(row.sparseMarketFallbackApplied).toBeUndefined();
+    expect(row.reason).toContain("No price band within 5%");
+  });
+
+  it("requires review when a decrease exceeds both profile guard thresholds", () => {
+    const ownListing = listing({ price: 18.47 });
+    const row = calculateRepricingRow(
+      { product: product(ownListing), listing: ownListing },
+      [listing({ listingId: 2, sellerKey: "seller-a", price: 3.21 })],
+      sellerKey,
+      {
+        ...rules,
+        priceBasis: "item",
+        automaticDecreaseGuard: true,
+        automaticDecreaseThresholdPercent: 25,
+        automaticDecreaseThresholdAmount: 0.5,
+      },
+      "row-decrease-guard",
+    );
+
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 3.21,
+      automaticDecreaseGuardApplied: true,
+      queueable: false,
+    });
+    expect(row.reason).toContain("82.6% ($15.26)");
+  });
+
   it("does not lower an existing listing from market price when seller details remain truncated", () => {
     const ownListing = listing({ price: 70 });
     const row = calculateRepricingRow(
@@ -1026,10 +1170,12 @@ describe("smart repricing", () => {
       totalProducts: 1,
       products: [product(competitor)],
     });
+    const getSkuMarketPricesForPreview = vi.fn(getSkuMarketPrices);
     const searchMarketplaceProductListings = vi.fn();
     let nextId = 0;
     const service = new RepricingService({
       client: {
+        getSkuMarketPrices: getSkuMarketPricesForPreview,
         listSellerInventory,
         searchMarketplaceProducts,
         searchMarketplaceProductListings,
@@ -1096,6 +1242,13 @@ describe("smart repricing", () => {
           detail: "Loading marketplace comparison batches",
         },
         {
+          phase: "market-prices",
+          completed: 1,
+          total: 1,
+          unit: "batches",
+          detail: "Loading exact SKU market prices",
+        },
+        {
           phase: "finalizing",
           completed: 1,
           total: 1,
@@ -1113,6 +1266,13 @@ describe("smart repricing", () => {
       }),
     ]);
     expect(row).toMatchObject({ removable: true });
+    expect(row).toMatchObject({
+      marketPrice: 2.5,
+      marketPriceScope: "exact-sku",
+    });
+    expect(getSkuMarketPricesForPreview).toHaveBeenCalledWith({
+      productConditionIds: [1003],
+    });
     expect(removal).toEqual(
       expect.objectContaining({
         productConditionId: 1003,
@@ -1197,6 +1357,7 @@ describe("smart repricing", () => {
     });
     const service = new RepricingService({
       client: {
+        getSkuMarketPrices,
         listSellerInventory: ({ channelId }) =>
           Promise.resolve(channelId === 0 ? [ownProduct] : []),
         searchMarketplaceProducts,
@@ -1275,6 +1436,7 @@ describe("smart repricing", () => {
       .mockRejectedValue(new Error("Synthetic exact-listing failure"));
     const service = new RepricingService({
       client: {
+        getSkuMarketPrices,
         listSellerInventory: ({ channelId }) =>
           Promise.resolve(channelId === 0 ? [product(ownListing)] : []),
         searchMarketplaceProducts: ({ channelId }) =>
@@ -1335,8 +1497,15 @@ describe("smart repricing", () => {
     const productsById = new Map(
       ownProducts.map((candidate) => [candidate.productId, candidate]),
     );
+    const getSkuMarketPricesForBatch = vi.fn(
+      (input: { readonly productConditionIds: readonly number[] }) => {
+        expect(input.productConditionIds.length).toBeLessThanOrEqual(24);
+        return getSkuMarketPrices(input);
+      },
+    );
     const service = new RepricingService({
       client: {
+        getSkuMarketPrices: getSkuMarketPricesForBatch,
         listSellerInventory: (input) =>
           Promise.resolve(input.channelId === 0 ? ownProducts : []),
         searchMarketplaceProducts: (input) => {
@@ -1373,6 +1542,7 @@ describe("smart repricing", () => {
     expect(preview.rows).toHaveLength(1200);
     expect(preview.counts.ready).toBe(1200);
     expect(updates).toHaveLength(1200);
+    expect(getSkuMarketPricesForBatch).toHaveBeenCalledTimes(50);
   });
 
   it("does not offer automatic removal when the SKU has secondary inventory", async () => {
@@ -1385,6 +1555,7 @@ describe("smart repricing", () => {
     });
     const service = new RepricingService({
       client: {
+        getSkuMarketPrices,
         listSellerInventory: (input: { readonly channelId?: number }) =>
           Promise.resolve([
             product(input.channelId === 1 ? secondaryListing : ownListing),
@@ -1506,7 +1677,11 @@ describe("smart repricing", () => {
       },
     );
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory,
+        searchMarketplaceProducts,
+      },
       sellerKey,
       now: () => new Date("2026-08-05T12:00:00.000Z"),
     });
@@ -1672,7 +1847,11 @@ describe("smart repricing", () => {
       },
     );
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory,
+        searchMarketplaceProducts,
+      },
       sellerKey,
       now: () => new Date("2026-08-06T17:00:00.000Z"),
     });
@@ -1814,7 +1993,11 @@ describe("smart repricing", () => {
       },
     );
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory,
+        searchMarketplaceProducts,
+      },
       sellerKey,
       now: () => new Date("2026-08-06T20:00:00.000Z"),
     });
@@ -1873,8 +2056,13 @@ describe("smart repricing", () => {
       totalProducts: 1,
       products: [product(competitor)],
     });
+    const getSkuMarketPricesForCache = vi.fn(getSkuMarketPrices);
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        getSkuMarketPrices: getSkuMarketPricesForCache,
+        listSellerInventory,
+        searchMarketplaceProducts,
+      },
       sellerKey,
       now: () => new Date("2026-08-05T12:00:00.000Z"),
     });
@@ -1892,6 +2080,7 @@ describe("smart repricing", () => {
     });
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);
+    expect(getSkuMarketPricesForCache).toHaveBeenCalledTimes(1);
 
     const row = second.rows[0];
     if (row === undefined) throw new Error("Missing cached preview row");
@@ -1901,6 +2090,7 @@ describe("smart repricing", () => {
     expect(afterQueue.marketplaceSnapshot.source).toBe("fresh");
     expect(listSellerInventory).toHaveBeenCalledTimes(4);
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(getSkuMarketPricesForCache).toHaveBeenCalledTimes(1);
   });
 
   it("reloads an expired or explicitly refreshed marketplace snapshot", async () => {
@@ -1924,7 +2114,11 @@ describe("smart repricing", () => {
     });
     let now = new Date("2026-08-05T12:00:00.000Z");
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory,
+        searchMarketplaceProducts,
+      },
       sellerKey,
       now: () => now,
       marketplaceCacheLifetimeMs: 180_000,
@@ -1963,7 +2157,11 @@ describe("smart repricing", () => {
       products: [product(competitor)],
     });
     const service = new RepricingService({
-      client: { listSellerInventory, searchMarketplaceProducts },
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory,
+        searchMarketplaceProducts,
+      },
       sellerKey,
       now: () => new Date("2026-08-05T12:00:00.000Z"),
     });

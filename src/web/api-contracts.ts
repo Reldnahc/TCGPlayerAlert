@@ -108,6 +108,10 @@ const repricingProfile = object({
   priceBasis: enumeration("item", "delivered"),
   adjustmentCents: integer,
   allowPriceIncreases: boolean,
+  unsupportedSellerBandAction: enumeration("wait", "fallback"),
+  automaticDecreaseGuard: boolean,
+  automaticDecreaseThresholdPercent: number,
+  automaticDecreaseThresholdAmount: number,
   sparseMarketFallback: enumeration(
     "skip",
     "higher-of-market-and-lowest",
@@ -649,6 +653,10 @@ const repricingRulesDecoder: Decoder<PricingRules> = object({
   priceBasis: enumeration("item", "delivered"),
   adjustmentCents: integer,
   allowPriceIncreases: boolean,
+  unsupportedSellerBandAction: optional(enumeration("wait", "fallback")),
+  automaticDecreaseGuard: optional(boolean),
+  automaticDecreaseThresholdPercent: optional(number),
+  automaticDecreaseThresholdAmount: optional(number),
   sparseMarketFallback: optional(
     enumeration(
       "skip",
@@ -714,6 +722,10 @@ export const additionPreviewDecoder: Decoder<AdditionPreview> = object({
     priceBasis: enumeration("item", "delivered"),
     adjustmentCents: integer,
     allowPriceIncreases: boolean,
+    unsupportedSellerBandAction: optional(enumeration("wait", "fallback")),
+    automaticDecreaseGuard: optional(boolean),
+    automaticDecreaseThresholdPercent: optional(number),
+    automaticDecreaseThresholdAmount: optional(number),
     sparseMarketFallback: optional(
       enumeration(
         "skip",
@@ -1014,6 +1026,7 @@ const repricingRow = object({
   competitorPricingShipping: optional(number),
   competitorCondition: optional(text),
   marketPrice: optional(number),
+  marketPriceScope: optional(enumeration("product", "exact-sku")),
   lowestPrice: optional(number),
   lowestShipping: optional(number),
   nextLowestPrice: optional(number),
@@ -1047,6 +1060,7 @@ const repricingRow = object({
   minimumApplied: boolean,
   effectiveMinimumPrice: optional(number),
   minimumPriceSource: optional(text),
+  automaticDecreaseGuardApplied: optional(boolean),
   status: enumeration("ready", "unchanged", "skipped"),
   reason: text,
   queueable: boolean,

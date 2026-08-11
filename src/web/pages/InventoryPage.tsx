@@ -174,7 +174,7 @@ export function InventoryPage() {
     const filtered =
       preview?.rows.filter(
         (row) =>
-          (!proposedOnly || row.queueable) &&
+          (!proposedOnly || row.proposedPrice !== row.currentPrice) &&
           tokens.every((token) => searchText(row).includes(token)),
       ) ?? [];
     if (changeSort === "none") return filtered;
@@ -194,6 +194,9 @@ export function InventoryPage() {
   const visibleReady = visibleRows.filter(
     (row) => row.queueable && !removals.has(row.id),
   );
+  const proposedCount =
+    preview?.rows.filter((row) => row.proposedPrice !== row.currentPrice)
+      .length ?? 0;
   const selectedVisible = visibleReady.filter((row) => selected.has(row.id));
 
   function chooseProfile(id: string) {
@@ -217,6 +220,13 @@ export function InventoryPage() {
           priceBasis: activeProfile.priceBasis,
           adjustmentCents: activeProfile.adjustmentCents,
           allowPriceIncreases: activeProfile.allowPriceIncreases,
+          unsupportedSellerBandAction:
+            activeProfile.unsupportedSellerBandAction,
+          automaticDecreaseGuard: activeProfile.automaticDecreaseGuard,
+          automaticDecreaseThresholdPercent:
+            activeProfile.automaticDecreaseThresholdPercent,
+          automaticDecreaseThresholdAmount:
+            activeProfile.automaticDecreaseThresholdAmount,
           sparseMarketFallback: activeProfile.sparseMarketFallback,
           gamePricingModules: activeProfile.gamePricingModules,
           ranges: activeProfile.ranges,
@@ -410,7 +420,7 @@ export function InventoryPage() {
                   aria-pressed={proposedOnly}
                   onClick={() => setProposedOnly(true)}
                 >
-                  Proposed changes ({String(preview.counts.ready)})
+                  Proposed changes ({String(proposedCount)})
                 </button>
               </div>
               <span class="muted">
@@ -460,7 +470,12 @@ export function InventoryPage() {
                       <th>Card / printing</th>
                       <th>Condition</th>
                       <th class="align-right">Current</th>
-                      <th class="align-right">Market</th>
+                      <th
+                        class="align-right"
+                        title="Market price for the exact condition, printing, and language SKU"
+                      >
+                        SKU market
+                      </th>
                       <th class="align-right">Proposed</th>
                       <th class="align-right" aria-sort={changeSort}>
                         <button
@@ -540,9 +555,17 @@ export function InventoryPage() {
                             {money(row.currentPrice)}
                           </td>
                           <td class="align-right numeric">
-                            {row.marketPrice === undefined
-                              ? "—"
-                              : money(row.marketPrice)}
+                            <span
+                              title={
+                                row.marketPriceScope === "exact-sku"
+                                  ? `${row.condition} ${row.printing} ${row.language} market price`
+                                  : undefined
+                              }
+                            >
+                              {row.marketPrice === undefined
+                                ? "—"
+                                : money(row.marketPrice)}
+                            </span>
                           </td>
                           <td class="align-right">
                             <strong

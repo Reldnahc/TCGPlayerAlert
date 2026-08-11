@@ -9,6 +9,7 @@ import type {
   RepricingRules,
   RepricingSupportMode,
   SparseMarketFallback,
+  UnsupportedSellerBandAction,
 } from "./contracts.js";
 
 export function objectValue(
@@ -54,6 +55,41 @@ export function parseRepricingRules(value: unknown): RepricingRules {
   if (typeof source?.allowPriceIncreases !== "boolean") {
     issues.push("Allow-price-increases must be true or false.");
   }
+  const unsupportedSellerBandAction =
+    source?.unsupportedSellerBandAction ?? "fallback";
+  if (
+    unsupportedSellerBandAction !== "wait" &&
+    unsupportedSellerBandAction !== "fallback"
+  ) {
+    issues.push("Unsupported-seller-band action is invalid.");
+  }
+  const automaticDecreaseGuard = source?.automaticDecreaseGuard ?? false;
+  if (typeof automaticDecreaseGuard !== "boolean") {
+    issues.push("Automatic-decrease guard must be true or false.");
+  }
+  const automaticDecreaseThresholdPercent =
+    source?.automaticDecreaseThresholdPercent ?? 25;
+  if (
+    typeof automaticDecreaseThresholdPercent !== "number" ||
+    !Number.isFinite(automaticDecreaseThresholdPercent) ||
+    automaticDecreaseThresholdPercent < 0.1 ||
+    automaticDecreaseThresholdPercent > 100
+  ) {
+    issues.push("Automatic-decrease percentage must be between 0.1 and 100.");
+  }
+  const automaticDecreaseThresholdAmount =
+    source?.automaticDecreaseThresholdAmount ?? 0.5;
+  if (
+    typeof automaticDecreaseThresholdAmount !== "number" ||
+    !Number.isFinite(automaticDecreaseThresholdAmount) ||
+    automaticDecreaseThresholdAmount < 0.01 ||
+    automaticDecreaseThresholdAmount > 1_000_000 ||
+    !hasAtMostTwoDecimals(automaticDecreaseThresholdAmount)
+  ) {
+    issues.push(
+      "Automatic-decrease amount must be $0.01-$1,000,000 with at most two decimals.",
+    );
+  }
   const sparseMarketFallback = source?.sparseMarketFallback ?? "skip";
   if (
     sparseMarketFallback !== "skip" &&
@@ -76,6 +112,13 @@ export function parseRepricingRules(value: unknown): RepricingRules {
     priceBasis: priceBasis as RepricingPriceBasis,
     adjustmentCents: Number(adjustmentCents),
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
+    unsupportedSellerBandAction:
+      unsupportedSellerBandAction as UnsupportedSellerBandAction,
+    automaticDecreaseGuard: automaticDecreaseGuard as boolean,
+    automaticDecreaseThresholdPercent: Number(
+      automaticDecreaseThresholdPercent,
+    ),
+    automaticDecreaseThresholdAmount: Number(automaticDecreaseThresholdAmount),
     sparseMarketFallback: sparseMarketFallback as SparseMarketFallback,
     gamePricingModules,
     ranges,

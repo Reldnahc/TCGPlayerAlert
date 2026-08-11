@@ -194,6 +194,7 @@ function pricingProgress(value: unknown): PricingProgress {
   const detail = source?.detail;
   if (
     (phase !== "inventory" &&
+      phase !== "market-prices" &&
       phase !== "comparisons" &&
       phase !== "exact-comparisons" &&
       phase !== "finalizing") ||

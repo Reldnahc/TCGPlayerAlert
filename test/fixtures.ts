@@ -105,6 +105,10 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         priceBasis: "delivered",
         adjustmentCents: 0,
         allowPriceIncreases: false,
+        unsupportedSellerBandAction: "wait",
+        automaticDecreaseGuard: true,
+        automaticDecreaseThresholdPercent: 25,
+        automaticDecreaseThresholdAmount: 0.5,
         sparseMarketFallback: "higher-of-market-and-lowest",
         gamePricingModules: [],
         ranges: [
@@ -172,6 +176,10 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         priceBasis: "delivered",
         adjustmentCents: 1,
         allowPriceIncreases: true,
+        unsupportedSellerBandAction: "fallback",
+        automaticDecreaseGuard: false,
+        automaticDecreaseThresholdPercent: 25,
+        automaticDecreaseThresholdAmount: 0.5,
         sparseMarketFallback: "lowest-then-market",
         gamePricingModules: [],
         ranges: [

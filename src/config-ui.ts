@@ -810,6 +810,16 @@ function parseRepricingProfileUpdate(
   if (typeof source?.allowPriceIncreases !== "boolean") {
     issues.push(`${path} requires a price-increase setting.`);
   }
+  const unsupportedSellerBandAction = source?.unsupportedSellerBandAction;
+  if (
+    unsupportedSellerBandAction !== "wait" &&
+    unsupportedSellerBandAction !== "fallback"
+  ) {
+    issues.push(`${path} has an invalid unsupported-band action.`);
+  }
+  if (typeof source?.automaticDecreaseGuard !== "boolean") {
+    issues.push(`${path} requires an automatic-decrease guard setting.`);
+  }
   const sparseMarketFallback = source?.sparseMarketFallback;
   if (
     sparseMarketFallback !== "skip" &&
@@ -943,6 +953,23 @@ function parseRepricingProfileUpdate(
       issues,
     ),
     allowPriceIncreases: source?.allowPriceIncreases as boolean,
+    unsupportedSellerBandAction:
+      unsupportedSellerBandAction as RepricingProfileConfig["unsupportedSellerBandAction"],
+    automaticDecreaseGuard: source?.automaticDecreaseGuard as boolean,
+    automaticDecreaseThresholdPercent: boundedNumber(
+      source?.automaticDecreaseThresholdPercent,
+      0.1,
+      100,
+      `${path} automatic-decrease percentage`,
+      issues,
+    ),
+    automaticDecreaseThresholdAmount: boundedNumber(
+      source?.automaticDecreaseThresholdAmount,
+      0.01,
+      1_000_000,
+      `${path} automatic-decrease amount`,
+      issues,
+    ),
     sparseMarketFallback:
       sparseMarketFallback as RepricingProfileConfig["sparseMarketFallback"],
     gamePricingModules: parseGamePricingModules(

@@ -42,6 +42,10 @@ describe("application configuration", () => {
     expect(config.defaultRepricingProfileId).toBe("match-lowest");
     expect(config.repricingProfiles[0]).toMatchObject({
       name: "Smart conservative",
+      unsupportedSellerBandAction: "wait",
+      automaticDecreaseGuard: true,
+      automaticDecreaseThresholdPercent: 25,
+      automaticDecreaseThresholdAmount: 0.5,
       sparseMarketFallback: "higher-of-market-and-lowest",
       gamePricingModules: [],
       ranges: [
@@ -90,6 +94,8 @@ describe("application configuration", () => {
       name: "Sell now",
       adjustmentCents: 1,
       allowPriceIncreases: true,
+      unsupportedSellerBandAction: "fallback",
+      automaticDecreaseGuard: false,
       sparseMarketFallback: "lowest-then-market",
       gamePricingModules: [],
       ranges: [
@@ -116,6 +122,35 @@ describe("application configuration", () => {
         orderCanceled: true,
         shipmentMarkAttempt: true,
       },
+    });
+  });
+
+  it("safely upgrades saved starter profiles with the new decrease protections", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      repricingProfiles: Record<string, unknown>[];
+    };
+    for (const profile of value.repricingProfiles) {
+      delete profile.unsupportedSellerBandAction;
+      delete profile.automaticDecreaseGuard;
+      delete profile.automaticDecreaseThresholdPercent;
+      delete profile.automaticDecreaseThresholdAmount;
+    }
+
+    const profiles = parseConfig(value).repricingProfiles;
+
+    expect(profiles[0]).toMatchObject({
+      id: "match-lowest",
+      unsupportedSellerBandAction: "wait",
+      automaticDecreaseGuard: true,
+      automaticDecreaseThresholdPercent: 25,
+      automaticDecreaseThresholdAmount: 0.5,
+    });
+    expect(profiles[1]).toMatchObject({
+      id: "sell-now",
+      unsupportedSellerBandAction: "fallback",
+      automaticDecreaseGuard: false,
     });
   });
 

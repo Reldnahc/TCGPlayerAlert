@@ -24,6 +24,8 @@ export interface SellerListingContext {
 export interface RepricingComparisonEvidence {
   readonly reportedQualifyingListings?: number;
   readonly incomplete?: boolean;
+  readonly exactSkuMarketPriceResolved?: boolean;
+  readonly exactSkuMarketPrice?: number;
 }
 export function allowedConditions(
   condition: string,
@@ -259,8 +261,16 @@ export function calculateRepricingRow(
   const sellerListings = cheapestListingsBySeller(candidates);
   const lowestBasis =
     lowest === undefined ? undefined : listingBasis(lowest, rules.priceBasis);
+  const marketPriceValue = evidence.exactSkuMarketPriceResolved
+    ? evidence.exactSkuMarketPrice
+    : own.product.marketPrice;
   const marketPrice =
-    own.product.marketPrice > 0 ? own.product.marketPrice : undefined;
+    marketPriceValue !== undefined && marketPriceValue > 0
+      ? marketPriceValue
+      : undefined;
+  const marketPriceScope = evidence.exactSkuMarketPriceResolved
+    ? ("exact-sku" as const)
+    : ("product" as const);
   // The exact filtered marketplace comparison is a better value-tier signal
   // than the product-level market figure carried by the inventory response.
   const rangeReference = lowestBasis ?? marketPrice;
@@ -306,11 +316,18 @@ export function calculateRepricingRow(
     supportMode === "cluster" &&
     range.gapAction !== "follow-lowest" &&
     supportedCluster === undefined;
+  const unsupportedSellerBandAction =
+    rules.unsupportedSellerBandAction ?? "fallback";
   const selectedSourceUnavailable =
     (range.priceSource === "lowest" && lowest === undefined) ||
     (range.priceSource === "market" && marketPrice === undefined);
+  const waitForUnsupportedSellerBand =
+    unsupportedSellerBand && unsupportedSellerBandAction === "wait";
   const sparseMarketFallbackRequired =
-    insufficientListings || unsupportedSellerBand || selectedSourceUnavailable;
+    !waitForUnsupportedSellerBand &&
+    (insufficientListings ||
+      unsupportedSellerBand ||
+      selectedSourceUnavailable);
   const lowestEquivalentItemPrice =
     lowest === undefined || lowestBasis === undefined
       ? undefined
@@ -336,7 +353,7 @@ export function calculateRepricingRow(
     (supportMode === "adjacent" || gapPercent > 0) &&
     gapPercent >= range.gapThresholdPercent;
   const rangeDetails = {
-    ...(marketPrice === undefined ? {} : { marketPrice }),
+    ...(marketPrice === undefined ? {} : { marketPrice, marketPriceScope }),
     ...(lowest === undefined
       ? {}
       : {
@@ -382,17 +399,6 @@ export function calculateRepricingRow(
       ? {}
       : { rangeMaximumPrice: range.maximumPrice }),
   };
-  if (insufficientListings && !sparseMarketFallbackApplied) {
-    return {
-      ...base,
-      ...rangeDetails,
-      proposedPrice: own.listing.price,
-      minimumApplied: false,
-      status: "skipped",
-      reason: `Found ${String(qualifyingListingCount)} qualifying listing${qualifyingListingCount === 1 ? "" : "s"}; this value range requires at least ${String(minimumListings)}.`,
-      queueable: false,
-    };
-  }
   if (unsupportedSellerBand && !sparseMarketFallbackApplied) {
     return {
       ...base,
@@ -401,6 +407,17 @@ export function calculateRepricingRow(
       minimumApplied: false,
       status: "skipped",
       reason: `No price band within ${String(supportWindowPercent)}% has support from ${String(minimumSellerSupport)} distinct sellers.`,
+      queueable: false,
+    };
+  }
+  if (insufficientListings && !sparseMarketFallbackApplied) {
+    return {
+      ...base,
+      ...rangeDetails,
+      proposedPrice: own.listing.price,
+      minimumApplied: false,
+      status: "skipped",
+      reason: `Found ${String(qualifyingListingCount)} qualifying listing${qualifyingListingCount === 1 ? "" : "s"}; this value range requires at least ${String(minimumListings)}.`,
       queueable: false,
     };
   }
@@ -566,6 +583,25 @@ export function calculateRepricingRow(
     competitorPricingShipping !== undefined && referenceListing !== undefined
       ? `${strategy} Sub-$5 marketplace shipping is normalized to $${competitorPricingShipping.toFixed(2)} for pricing.`
       : strategy;
+  const decreaseAmount = roundCurrency(own.listing.price - target);
+  const decreasePercent =
+    own.listing.price <= 0 ? 0 : (decreaseAmount / own.listing.price) * 100;
+  if (
+    rules.automaticDecreaseGuard === true &&
+    target < own.listing.price &&
+    decreasePercent > (rules.automaticDecreaseThresholdPercent ?? 25) &&
+    decreaseAmount > (rules.automaticDecreaseThresholdAmount ?? 0.5)
+  ) {
+    return {
+      ...base,
+      ...comparison,
+      proposedPrice: target,
+      automaticDecreaseGuardApplied: true,
+      status: "skipped",
+      reason: `The calculated target of $${target.toFixed(2)} is ${decreasePercent.toFixed(1)}% ($${decreaseAmount.toFixed(2)}) below the current price, exceeding this profile's automatic-decrease review guard. ${strategyReason}`,
+      queueable: false,
+    };
+  }
   if (target === own.listing.price) {
     return {
       ...base,

@@ -47,6 +47,10 @@ export const settings: Settings = {
       priceBasis: "delivered",
       adjustmentCents: 0,
       allowPriceIncreases: true,
+      unsupportedSellerBandAction: "wait",
+      automaticDecreaseGuard: true,
+      automaticDecreaseThresholdPercent: 25,
+      automaticDecreaseThresholdAmount: 0.5,
       sparseMarketFallback: "higher-of-market-and-lowest",
       gamePricingModules: [],
       ranges: [

@@ -111,6 +111,12 @@ export class RepricingService {
       options.onProgress,
       options.signal,
     );
+    await this.marketplace.prepareSkuMarketPrices(
+      snapshot,
+      comparableSellerListings,
+      options.onProgress,
+      options.signal,
+    );
     options.onProgress?.({
       phase: "finalizing",
       completed: 0,
@@ -155,20 +161,32 @@ export class RepricingService {
                     comparisonRecoveryKey(context, conditions),
                   );
             const sample = recoveredSample ?? emptyComparisonSample();
+            const exactSkuMarketPrice = snapshot.skuMarketPrices.get(
+              context.listing.productConditionId,
+            );
             const calculated = calculateRepricingRow(
               context,
               sample.listings,
               sellerKey,
               rules,
               this.id(),
-              recoveredSample === undefined
-                ? {}
-                : comparisonEvidence(
-                    context,
-                    conditions ?? [],
-                    sample,
-                    sellerConditionCounts,
+              {
+                ...(recoveredSample === undefined
+                  ? {}
+                  : comparisonEvidence(
+                      context,
+                      conditions ?? [],
+                      sample,
+                      sellerConditionCounts,
+                    )),
+                exactSkuMarketPriceResolved:
+                  snapshot.resolvedSkuMarketPrices.has(
+                    context.listing.productConditionId,
                   ),
+                ...(exactSkuMarketPrice === undefined
+                  ? {}
+                  : { exactSkuMarketPrice }),
+              },
             );
             if (
               conditions !== undefined &&

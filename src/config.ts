@@ -5,7 +5,10 @@ import {
   parseGamePricingModules,
   type GamePricingModuleConfig,
 } from "./game-pricing.js";
-import type { SparseMarketFallback } from "./repricing.js";
+import type {
+  SparseMarketFallback,
+  UnsupportedSellerBandAction,
+} from "./repricing.js";
 import type { DiscordNotificationSettings } from "./notifications/contracts.js";
 
 export type RuleField =
@@ -152,6 +155,10 @@ export interface RepricingProfileConfig {
   readonly priceBasis: "item" | "delivered";
   readonly adjustmentCents: number;
   readonly allowPriceIncreases: boolean;
+  readonly unsupportedSellerBandAction: UnsupportedSellerBandAction;
+  readonly automaticDecreaseGuard: boolean;
+  readonly automaticDecreaseThresholdPercent: number;
+  readonly automaticDecreaseThresholdAmount: number;
   readonly sparseMarketFallback: SparseMarketFallback;
   readonly gamePricingModules: readonly GamePricingModuleConfig[];
   readonly ranges: readonly RepricingRangeConfig[];
@@ -351,6 +358,10 @@ const DEFAULT_REPRICING_PROFILE: RepricingProfileConfig = {
   priceBasis: "delivered",
   adjustmentCents: 0,
   allowPriceIncreases: false,
+  unsupportedSellerBandAction: "wait",
+  automaticDecreaseGuard: true,
+  automaticDecreaseThresholdPercent: 25,
+  automaticDecreaseThresholdAmount: 0.5,
   sparseMarketFallback: "higher-of-market-and-lowest",
   gamePricingModules: [],
   ranges: [
@@ -430,6 +441,10 @@ const SELL_NOW_REPRICING_PROFILE: RepricingProfileConfig = {
   priceBasis: "delivered",
   adjustmentCents: 1,
   allowPriceIncreases: true,
+  unsupportedSellerBandAction: "fallback",
+  automaticDecreaseGuard: false,
+  automaticDecreaseThresholdPercent: 25,
+  automaticDecreaseThresholdAmount: 0.5,
   sparseMarketFallback: "lowest-then-market",
   gamePricingModules: [],
   ranges: [
@@ -521,6 +536,25 @@ function parseRepricingProfile(
   ) {
     issues.push(`${path}.sparseMarketFallback is invalid.`);
   }
+  const unsupportedSellerBandAction =
+    source?.unsupportedSellerBandAction ??
+    (source?.id === DEFAULT_REPRICING_PROFILE.id ? "wait" : "fallback");
+  if (
+    unsupportedSellerBandAction !== "wait" &&
+    unsupportedSellerBandAction !== "fallback"
+  ) {
+    issues.push(`${path}.unsupportedSellerBandAction is invalid.`);
+  }
+  const profileSource = {
+    ...source,
+    automaticDecreaseGuard:
+      source?.automaticDecreaseGuard ??
+      source?.id === DEFAULT_REPRICING_PROFILE.id,
+    automaticDecreaseThresholdPercent:
+      source?.automaticDecreaseThresholdPercent ?? 25,
+    automaticDecreaseThresholdAmount:
+      source?.automaticDecreaseThresholdAmount ?? 0.5,
+  };
   const rangeValues = source?.ranges;
   if (!Array.isArray(rangeValues)) {
     issues.push(`${path}.ranges must be an array.`);
@@ -575,6 +609,30 @@ function parseRepricingProfile(
       source,
       "allowPriceIncreases",
       path,
+      issues,
+    ),
+    unsupportedSellerBandAction:
+      unsupportedSellerBandAction as UnsupportedSellerBandAction,
+    automaticDecreaseGuard: booleanValue(
+      profileSource,
+      "automaticDecreaseGuard",
+      path,
+      issues,
+    ),
+    automaticDecreaseThresholdPercent: numberValue(
+      profileSource,
+      "automaticDecreaseThresholdPercent",
+      path,
+      0.1,
+      100,
+      issues,
+    ),
+    automaticDecreaseThresholdAmount: numberValue(
+      profileSource,
+      "automaticDecreaseThresholdAmount",
+      path,
+      0.01,
+      1_000_000,
       issues,
     ),
     sparseMarketFallback: sparseMarketFallback as SparseMarketFallback,

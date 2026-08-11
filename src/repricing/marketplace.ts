@@ -21,7 +21,7 @@ import {
 
 export type RepricingMarketplaceClient = Pick<
   TcgplayerSellerClient,
-  "listSellerInventory" | "searchMarketplaceProducts"
+  "getSkuMarketPrices" | "listSellerInventory" | "searchMarketplaceProducts"
 > &
   Partial<Pick<TcgplayerSellerClient, "searchMarketplaceProductListings">>;
 
@@ -30,6 +30,8 @@ export interface MarketplaceSnapshot {
   readonly secondaryInventory: readonly MarketplaceProduct[];
   readonly comparisonRecoveries: Map<string, MarketplaceComparisonSample>;
   readonly exactComparisonFailures: Set<string>;
+  readonly skuMarketPrices: Map<number, number>;
+  readonly resolvedSkuMarketPrices: Set<number>;
   readonly capturedAt: Date;
   readonly expiresAt: Date;
 }
@@ -197,6 +199,11 @@ export class RepricingMarketplace {
     MarketplaceSnapshot,
     Promise<void>
   >();
+  private skuMarketPriceLoad: Promise<void> | undefined;
+  private readonly skuMarketPriceCache = new Map<
+    number,
+    { readonly marketPrice?: number; readonly expiresAt: number }
+  >();
 
   constructor(options: {
     readonly client: RepricingMarketplaceClient;
@@ -238,6 +245,62 @@ export class RepricingMarketplace {
       onProgress,
       signal,
     );
+  }
+
+  async prepareSkuMarketPrices(
+    snapshot: MarketplaceSnapshot,
+    contexts: readonly SellerListingContext[],
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const productConditionIds = [
+      ...new Set(contexts.map((context) => context.listing.productConditionId)),
+    ];
+    const now = this.now().getTime();
+    for (const productConditionId of productConditionIds) {
+      if (snapshot.resolvedSkuMarketPrices.has(productConditionId)) continue;
+      const cached = this.skuMarketPriceCache.get(productConditionId);
+      if (cached === undefined || cached.expiresAt <= now) continue;
+      snapshot.resolvedSkuMarketPrices.add(productConditionId);
+      if (cached.marketPrice !== undefined) {
+        snapshot.skuMarketPrices.set(productConditionId, cached.marketPrice);
+      }
+    }
+    const missing = productConditionIds.filter(
+      (productConditionId) =>
+        !snapshot.resolvedSkuMarketPrices.has(productConditionId),
+    );
+    if (missing.length === 0) {
+      onProgress?.({
+        phase: "market-prices",
+        completed: productConditionIds.length,
+        total: productConditionIds.length,
+        unit: "listings",
+        detail: "Using cached exact SKU market prices",
+      });
+      return;
+    }
+    if (this.skuMarketPriceLoad !== undefined) {
+      await this.skuMarketPriceLoad;
+      return this.prepareSkuMarketPrices(
+        snapshot,
+        contexts,
+        onProgress,
+        signal,
+      );
+    }
+    const load = this.loadSkuMarketPrices(
+      snapshot,
+      missing,
+      onProgress,
+      signal,
+    );
+    this.skuMarketPriceLoad = load;
+    try {
+      await load;
+    } finally {
+      if (this.skuMarketPriceLoad === load) this.skuMarketPriceLoad = undefined;
+    }
   }
   async snapshot(
     forceRefresh: boolean,
@@ -341,9 +404,65 @@ export class RepricingMarketplace {
       secondaryInventory,
       comparisonRecoveries: new Map(),
       exactComparisonFailures: new Set(),
+      skuMarketPrices: new Map(),
+      resolvedSkuMarketPrices: new Set(),
       capturedAt,
       expiresAt: new Date(capturedAt.getTime() + this.cacheLifetimeMs),
     };
+  }
+
+  private async loadSkuMarketPrices(
+    snapshot: MarketplaceSnapshot,
+    productConditionIds: readonly number[],
+    onProgress?: (progress: RepricingProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const batches = chunks(productConditionIds, 24);
+    let completed = 0;
+    onProgress?.({
+      phase: "market-prices",
+      completed,
+      total: batches.length,
+      unit: "batches",
+      detail: "Loading exact SKU market prices",
+    });
+    for (const batch of batches) {
+      const result =
+        signal === undefined
+          ? await this.client.getSkuMarketPrices({
+              productConditionIds: batch,
+            })
+          : await this.client.getSkuMarketPrices(
+              { productConditionIds: batch },
+              { signal },
+            );
+      const returned = new Map(
+        result.prices.map((price) => [
+          price.productConditionId,
+          price.marketPrice,
+        ]),
+      );
+      const expiresAt = this.now().getTime() + this.cacheLifetimeMs;
+      for (const productConditionId of batch) {
+        const marketPrice = returned.get(productConditionId);
+        snapshot.resolvedSkuMarketPrices.add(productConditionId);
+        if (marketPrice !== undefined) {
+          snapshot.skuMarketPrices.set(productConditionId, marketPrice);
+        }
+        this.skuMarketPriceCache.set(productConditionId, {
+          ...(marketPrice === undefined ? {} : { marketPrice }),
+          expiresAt,
+        });
+      }
+      completed += 1;
+      onProgress?.({
+        phase: "market-prices",
+        completed,
+        total: batches.length,
+        unit: "batches",
+        detail: "Loading exact SKU market prices",
+      });
+    }
   }
 
   private async recoverSparseComparisons(

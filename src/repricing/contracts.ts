@@ -13,6 +13,7 @@ export type RepricingPriceBasis = "item" | "delivered";
 export type RepricingPriceSource = "lowest" | "market";
 export type RepricingGapAction = "follow-lowest" | "use-next" | "skip";
 export type RepricingSupportMode = "adjacent" | "cluster";
+export type UnsupportedSellerBandAction = "wait" | "fallback";
 export type SparseMarketFallback =
   | "skip"
   | "higher-of-market-and-lowest"
@@ -39,6 +40,12 @@ export interface RepricingRules {
   /** Zero matches the competitor; one undercuts by one cent. */
   readonly adjustmentCents: number;
   readonly allowPriceIncreases: boolean;
+  /** Missing preserves the pre-policy behavior for programmatic consumers. */
+  readonly unsupportedSellerBandAction?: UnsupportedSellerBandAction;
+  /** Missing disables the independent automatic-decrease review guard. */
+  readonly automaticDecreaseGuard?: boolean;
+  readonly automaticDecreaseThresholdPercent?: number;
+  readonly automaticDecreaseThresholdAmount?: number;
   /** Missing preserves the pre-fallback behavior for programmatic consumers. */
   readonly sparseMarketFallback?: SparseMarketFallback;
   /** Missing preserves profiles saved before game-specific modules. */
@@ -68,6 +75,7 @@ export interface RepricingPreviewRow {
   readonly competitorPricingShipping?: number;
   readonly competitorCondition?: string;
   readonly marketPrice?: number;
+  readonly marketPriceScope?: "product" | "exact-sku";
   readonly lowestPrice?: number;
   readonly lowestShipping?: number;
   readonly nextLowestPrice?: number;
@@ -94,6 +102,7 @@ export interface RepricingPreviewRow {
   readonly minimumApplied: boolean;
   readonly effectiveMinimumPrice?: number;
   readonly minimumPriceSource?: string;
+  readonly automaticDecreaseGuardApplied?: boolean;
   readonly status: RepricingRowStatus;
   readonly reason: string;
   readonly queueable: boolean;
@@ -121,7 +130,11 @@ export interface RepricingPreview {
 }
 
 export type RepricingProgressPhase =
-  "inventory" | "comparisons" | "exact-comparisons" | "finalizing";
+  | "inventory"
+  | "market-prices"
+  | "comparisons"
+  | "exact-comparisons"
+  | "finalizing";
 
 export interface RepricingProgress {
   readonly phase: RepricingProgressPhase;

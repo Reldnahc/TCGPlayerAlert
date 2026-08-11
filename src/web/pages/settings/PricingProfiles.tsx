@@ -246,6 +246,21 @@ export function PricingProfiles({
                 <option value="lowest-then-market">Lowest, then market</option>
               </select>
             </Field>
+            <Field label="No supported seller band">
+              <select
+                value={profile.unsupportedSellerBandAction}
+                onChange={(event) =>
+                  updateProfile({
+                    ...profile,
+                    unsupportedSellerBandAction: event.currentTarget
+                      .value as PricingProfile["unsupportedSellerBandAction"],
+                  })
+                }
+              >
+                <option value="wait">Wait for review</option>
+                <option value="fallback">Use sparse fallback</option>
+              </select>
+            </Field>
             <Toggle
               label="Allow price increases"
               checked={profile.allowPriceIncreases}
@@ -253,6 +268,52 @@ export function PricingProfiles({
                 updateProfile({ ...profile, allowPriceIncreases: checked })
               }
             />
+            <Toggle
+              label="Review large decreases"
+              checked={profile.automaticDecreaseGuard}
+              onChange={(checked) =>
+                updateProfile({
+                  ...profile,
+                  automaticDecreaseGuard: checked,
+                })
+              }
+            />
+            <Field label="Review over (%)">
+              <input
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.1"
+                disabled={!profile.automaticDecreaseGuard}
+                value={profile.automaticDecreaseThresholdPercent}
+                onInput={(event) =>
+                  updateProfile({
+                    ...profile,
+                    automaticDecreaseThresholdPercent: Number(
+                      event.currentTarget.value,
+                    ),
+                  })
+                }
+              />
+            </Field>
+            <Field label="And over ($)">
+              <input
+                type="number"
+                min="0.01"
+                max="1000000"
+                step="0.01"
+                disabled={!profile.automaticDecreaseGuard}
+                value={profile.automaticDecreaseThresholdAmount}
+                onInput={(event) =>
+                  updateProfile({
+                    ...profile,
+                    automaticDecreaseThresholdAmount: Number(
+                      event.currentTarget.value,
+                    ),
+                  })
+                }
+              />
+            </Field>
           </div>
         </section>
         <MagicRarityEditor profile={profile} onChange={updateProfile} />
