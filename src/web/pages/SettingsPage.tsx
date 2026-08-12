@@ -90,6 +90,34 @@ export function SettingsPage() {
                       }))
                     }
                   />
+                  <Toggle
+                    label="Group lands as Land"
+                    description="Show provider-identified lands in a Land group instead of Colorless"
+                    checked={settings.masterPullList.groupLands}
+                    onChange={(checked) =>
+                      update((current) => ({
+                        ...current,
+                        masterPullList: {
+                          ...current.masterPullList,
+                          groupLands: checked,
+                        },
+                      }))
+                    }
+                  />
+                  <Toggle
+                    label="Group color pairs as Multicolored"
+                    description="Combine cards with two or more colors into one Multicolored group"
+                    checked={settings.masterPullList.groupMulticolored}
+                    onChange={(checked) =>
+                      update((current) => ({
+                        ...current,
+                        masterPullList: {
+                          ...current.masterPullList,
+                          groupMulticolored: checked,
+                        },
+                      }))
+                    }
+                  />
                 </div>
               </section>
             </>

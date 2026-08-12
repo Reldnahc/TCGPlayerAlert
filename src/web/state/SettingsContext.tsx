@@ -28,6 +28,7 @@ export function settingsUpdate(settings: Settings): SettingsUpdate {
     revision: settings.revision,
     pollIntervalMinutes: settings.pollIntervalMinutes,
     confirmBeforeMarkingShipped: settings.confirmBeforeMarkingShipped,
+    masterPullList: settings.masterPullList,
     notifications: settings.notifications,
     shipmentScanner: settings.shipmentScanner,
     priceUpdateQueue: settings.priceUpdateQueue,

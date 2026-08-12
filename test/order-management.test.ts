@@ -209,6 +209,10 @@ function service(
     readonly liveMode?: () => Promise<boolean>;
     readonly pageSize?: number;
     readonly maximumPages?: number;
+    readonly pullListGrouping?: () => Promise<{
+      readonly groupLands: boolean;
+      readonly groupMulticolored: boolean;
+    }>;
     readonly executePrint?: (
       orderNumber: string,
       actionType: "print-address-label" | "print-packing-slip",
@@ -472,7 +476,11 @@ describe("order management", () => {
       ],
     });
 
-    const result = await service(fakeClient).getMasterPullList();
+    let grouping = { groupLands: true, groupMulticolored: true };
+    const orders = service(fakeClient, {
+      pullListGrouping: () => Promise.resolve(grouping),
+    });
+    const result = await orders.getMasterPullList();
     const colorsByProduct = Object.fromEntries(
       result.rows.map((row) => [row.productName, row.metadata[0]?.values]),
     );
@@ -483,6 +491,18 @@ describe("order management", () => {
       "Synthetic Artifact": ["Colorless"],
     });
     expect(fakeClient.getOrder).not.toHaveBeenCalled();
+
+    grouping = { groupLands: false, groupMulticolored: false };
+    const ungrouped = await orders.getMasterPullList();
+    expect(
+      Object.fromEntries(
+        ungrouped.rows.map((row) => [row.productName, row.metadata[0]?.values]),
+      ),
+    ).toEqual({
+      "Synthetic Forest": ["Colorless"],
+      "Synthetic Pair": ["Blue", "Red"],
+      "Synthetic Artifact": ["Colorless"],
+    });
   });
 
   it("persists pull progress per order allocation without another provider request", async () => {

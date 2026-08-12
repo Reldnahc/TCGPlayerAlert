@@ -159,6 +159,10 @@ export const settingsDecoder: Decoder<Settings> = object({
   revision: text,
   pollIntervalMinutes: nonNegativeInteger,
   confirmBeforeMarkingShipped: boolean,
+  masterPullList: object({
+    groupLands: boolean,
+    groupMulticolored: boolean,
+  }),
   notifications: object({
     discord: object({
       enabled: boolean,

@@ -92,6 +92,11 @@ export interface ManagedMasterPullList {
   readonly metadataIssue?: string;
 }
 
+export interface PullListGroupingSettings {
+  readonly groupLands: boolean;
+  readonly groupMulticolored: boolean;
+}
+
 type OrderManagementClient = Pick<
   TcgplayerSellerClient,
   | "searchOrders"
@@ -115,6 +120,7 @@ export interface OrderManagementServiceOptions {
   readonly pageSize: number;
   readonly maximumPages: number;
   readonly timezoneOffsetMinutes: number;
+  readonly pullListGrouping?: () => Promise<PullListGroupingSettings>;
   readonly cacheMilliseconds?: number;
   readonly now?: () => Date;
   readonly executePrint?: (
@@ -154,6 +160,7 @@ interface CachedRefundOptions {
 interface CachedPullList {
   readonly expiresAt: number;
   readonly value: ManagedMasterPullList;
+  readonly groupingKey: string;
   readonly allocationsBySku: ReadonlyMap<
     string,
     readonly PullSheetOrderAllocation[]
@@ -168,6 +175,7 @@ export class OrderManagementService {
   private readonly pageSize: number;
   private readonly maximumPages: number;
   private readonly timezoneOffsetMinutes: number;
+  private readonly pullListGrouping: () => Promise<PullListGroupingSettings>;
   private readonly cacheMilliseconds: number;
   private readonly now: () => Date;
   private readonly executePrint?: OrderManagementServiceOptions["executePrint"];
@@ -206,6 +214,9 @@ export class OrderManagementService {
       1440,
       "Timezone offset",
     );
+    this.pullListGrouping =
+      options.pullListGrouping ??
+      (() => Promise.resolve({ groupLands: true, groupMulticolored: true }));
     this.cacheMilliseconds = boundedInteger(
       options.cacheMilliseconds ?? 30_000,
       0,
@@ -341,10 +352,13 @@ export class OrderManagementService {
   ): Promise<ManagedMasterPullList> {
     this.currentSellerKey();
     const now = this.now();
+    const grouping = await this.pullListGrouping();
+    const groupingKey = pullListGroupingKey(grouping);
     if (
       options.force !== true &&
       this.pullListCache !== undefined &&
-      this.pullListCache.expiresAt > now.getTime()
+      this.pullListCache.expiresAt > now.getTime() &&
+      this.pullListCache.groupingKey === groupingKey
     ) {
       return this.pullListCache.value;
     }
@@ -370,6 +384,7 @@ export class OrderManagementService {
         this.pullListCache = {
           expiresAt: now.getTime() + this.cacheMilliseconds,
           value,
+          groupingKey,
           allocationsBySku,
         };
         return value;
@@ -433,7 +448,7 @@ export class OrderManagementService {
         productId === undefined ? undefined : metadata.colors.get(productId);
       const cardTypes =
         productId === undefined ? undefined : metadata.cardTypes.get(productId);
-      const colorGroup = pullListColorGroup(colors, cardTypes);
+      const colorGroup = pullListColorGroup(colors, cardTypes, grouping);
       return {
         productLine: row.productLine,
         productName: row.productName,
@@ -488,6 +503,7 @@ export class OrderManagementService {
       this.pullListCache = {
         expiresAt: now.getTime() + this.cacheMilliseconds,
         value,
+        groupingKey,
         allocationsBySku,
       };
       return value;
@@ -974,8 +990,12 @@ function sameStringSet(
 function pullListColorGroup(
   colors: readonly string[] | undefined,
   cardTypes: readonly string[] | undefined,
+  grouping: PullListGroupingSettings,
 ): readonly string[] {
-  if (cardTypes?.some((cardType) => /\bland\b/iu.test(cardType))) {
+  if (
+    grouping.groupLands &&
+    cardTypes?.some((cardType) => /\bland\b/iu.test(cardType))
+  ) {
     return ["Land"];
   }
   const distinctColors = new Map<string, string>();
@@ -985,8 +1005,14 @@ function pullListColorGroup(
       distinctColors.set(trimmed.toLocaleLowerCase(), trimmed);
     }
   }
-  if (distinctColors.size >= 2) return ["Multicolored"];
+  if (grouping.groupMulticolored && distinctColors.size >= 2) {
+    return ["Multicolored"];
+  }
   return [...distinctColors.values()];
+}
+
+function pullListGroupingKey(grouping: PullListGroupingSettings): string {
+  return `${grouping.groupLands ? "land" : "color"}:${grouping.groupMulticolored ? "multi" : "colors"}`;
 }
 
 function samePullSheetProduct(

@@ -51,22 +51,31 @@ export function OrderActions({
     await run(
       "pirate",
       async () => {
-        const prepared = await uiApi.pirateShip(order.orderNumber);
-        try {
-          await navigator.clipboard.writeText(prepared.pasteAddress);
-        } catch {
-          const accepted = window.prompt(
-            "Copy this address, then select OK to open Pirate Ship.",
-            prepared.pasteAddress,
+        const externalTab = window.open("about:blank", "_blank");
+        if (externalTab === null) {
+          throw new Error(
+            "Allow pop-ups for this local app so Pirate Ship can open in a new tab.",
           );
-          if (accepted === null) throw new Error("Pirate Ship was not opened.");
         }
-        const opened = window.open(
-          prepared.url,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        if (opened === null) window.location.assign(prepared.url);
+        externalTab.opener = null;
+        try {
+          const prepared = await uiApi.pirateShip(order.orderNumber);
+          try {
+            await navigator.clipboard.writeText(prepared.pasteAddress);
+          } catch {
+            const accepted = window.prompt(
+              "Copy this address, then select OK to open Pirate Ship.",
+              prepared.pasteAddress,
+            );
+            if (accepted === null) {
+              throw new Error("Pirate Ship was not opened.");
+            }
+          }
+          externalTab.location.replace(prepared.url);
+        } catch (cause) {
+          externalTab.close();
+          throw cause;
+        }
       },
       "Address copied. Paste it into Pirate Ship.",
     );

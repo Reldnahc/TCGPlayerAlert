@@ -591,8 +591,17 @@ describe("authentication and dashboard", () => {
     const shipmentConfirmation = screen.getByRole("checkbox", {
       name: /Confirm before marking shipped/u,
     });
+    const landGrouping = screen.getByRole("checkbox", {
+      name: /Group lands as Land/u,
+    });
+    const multicolorGrouping = screen.getByRole("checkbox", {
+      name: /Group color pairs as Multicolored/u,
+    });
     expect((shipmentConfirmation as HTMLInputElement).checked).toBe(true);
+    expect((landGrouping as HTMLInputElement).checked).toBe(true);
+    expect((multicolorGrouping as HTMLInputElement).checked).toBe(true);
     await user.click(shipmentConfirmation);
+    await user.click(landGrouping);
     const interval = screen.getByRole("spinbutton");
     await user.clear(interval);
     await user.type(interval, "17");
@@ -616,6 +625,10 @@ describe("authentication and dashboard", () => {
     }
     expect(JSON.parse(settingsBody) as Record<string, unknown>).toMatchObject({
       confirmBeforeMarkingShipped: false,
+      masterPullList: {
+        groupLands: false,
+        groupMulticolored: true,
+      },
     });
   });
 

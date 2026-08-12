@@ -40,9 +40,12 @@ metadata enrichment must avoid one catalog request per row.
   details, then request marketplace metadata in sequential batches of at most
   24 exact product IDs through `tcgplayer-private-api` 0.17.0 or newer. Display
   any provider-identified card type containing `Land` as `Land`, regardless of
-  its technically colorless color metadata. Display products with two or more
-  distinct provider colors as `Multicolored`, preserve a single color as-is,
-  and omit color when none exists.
+  its technically colorless color metadata, when the corresponding operator
+  setting is enabled. When its independent setting is enabled, display products
+  with two or more distinct provider colors as `Multicolored`. Preserve the
+  provider colors when either grouping rule is disabled, preserve a single
+  color as-is, and omit color when none exists. Both grouping settings default
+  to enabled for migrated configurations.
 - Treat metadata as an enhancement. If its read fails, return the complete
   operational master list with a visible warning instead of failing the list.
 - Cache the assembled master list in server memory for 30 seconds. Refresh

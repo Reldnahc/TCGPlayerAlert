@@ -70,11 +70,16 @@ Copy-Item .env.example .env.local
 Copy-Item config/local.example.json config/local.json
 ```
 
-The current configuration schema is version 3. Existing version-one and
-version-two files are migrated safely in memory and are rewritten as a complete
-version-three document the next time Settings is saved; validation and startup
-never rewrite the file on their own. Discord notifications remain disabled
-during migration.
+The current configuration schema is version 4. Existing version-one,
+version-two, and version-three files are migrated safely in memory and are
+rewritten as a complete version-four document the next time Settings is saved;
+validation and startup never rewrite the file on their own. Discord
+notifications remain disabled during migration.
+
+The General settings independently control whether the master pull list groups
+provider-identified lands as **Land** and cards with two or more colors as
+**Multicolored**. Both settings default to enabled for existing installations,
+and changing either one takes effect the next time the pull list loads.
 
 The environment file may remain blank when using the browser connector.
 
@@ -205,7 +210,10 @@ The Dashboard can also print a pasted multiline address through the saved addres
 
 Scanner is the opt-in production AprilTag workflow. When shipment scanning is enabled, configured order-address labels receive a stable 14 mm `tag36h11` marker derived from a versioned hash of the order number; the marker contains no order or customer data. A separately enabled background-camera adapter belongs to the long-running app process, so closing the operator console does not stop capture or detection. Select the camera under **Settings → Scanning** and keep `npm start` running. The Scanner page shows a once-per-second grayscale preview copied from that backend stream; it never opens the camera itself. The preview is downsampled, served only through the no-cache loopback UI, overwritten in memory, and never saved or logged. After five matching camera reads, the server performs one fresh authoritative ready-to-ship search and requires exactly one matching order. Review mode pauses for an explicit shipment action; automatic mode marks the exact match shipped immediately without an open page. Zero matches, tag collisions, repeated successful scans, interrupted mutations, and uncertain seller responses never guess or retry. Mutation intent and outcomes are kept in `.data/shipment-scans.json` without buyer or address data. Scanner status, camera discovery, preview reads, and ordinary frames do not issue seller requests. Optional host-system success and failure sounds supplement the visual result.
 
-`Open in Pirate Ship` on an Orders row confirms the order belongs to the configured seller, briefly caches its address in memory, copies a multiline address to the clipboard, and opens Pirate Ship's Single Label page. Press `Ctrl+V` there to activate Pirate Ship's Paste Address field. If browser clipboard access is unavailable, the application shows the address in a manual-copy prompt instead. The address is never added to the Pirate Ship URL, application state, or logs.
+`Open in Pirate Ship` on an Orders row reserves a new browser tab, confirms the order belongs to the configured seller, briefly caches its address in memory, copies a multiline address to the clipboard, and navigates only that new tab to Pirate Ship's Single Label page. Press `Ctrl+V` there to activate Pirate Ship's Paste Address field. If browser clipboard access is unavailable, the application shows the address in a manual-copy prompt instead. If pop-ups are blocked, the local app stays open and asks the operator to allow them; it never replaces the local tab with Pirate Ship. The address is never added to the Pirate Ship URL, application state, or logs.
+
+All third-party destinations, including TCGplayer Seller Portal links, open in
+a new tab. Navigation within the local operator app stays in the current tab.
 
 Validate non-secret configuration without contacting TCGplayer or printing:
 

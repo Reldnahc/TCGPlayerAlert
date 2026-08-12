@@ -153,6 +153,11 @@ describe("order workspaces", () => {
         .getAttribute("href"),
     ).toBe("https://sellerportal.tcgplayer.com/orders/SYNTHETIC-ORDER-DETAIL");
     expect(
+      screen
+        .getByRole("link", { name: "Open in TCGplayer" })
+        .getAttribute("target"),
+    ).toBe("_blank");
+    expect(
       fetchMock.mock.calls.some(
         ([input]) =>
           requestPath(input) === "/api/orders/SYNTHETIC-ORDER-DETAIL",
@@ -203,6 +208,75 @@ describe("order workspaces", () => {
       reason: "Product - Inventory Issue",
       reasonText: "Synthetic refund",
     });
+  });
+
+  it("opens Pirate Ship in a new tab without replacing the local app", async () => {
+    window.location.hash = "orders";
+    const order = {
+      orderNumber: "SYNTHETIC-PIRATE-SHIP",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 12,
+      shippingAmount: 1.49,
+      totalAmount: 13.49,
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/orders?") {
+          return Promise.resolve(
+            json({
+              orders: [order],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        if (path === `/api/orders/${order.orderNumber}/pirate-ship`) {
+          return Promise.resolve(
+            json({
+              url: "https://ship.pirateship.com/ship/single",
+              pasteAddress:
+                "Synthetic Buyer\n123 Example Street\nExample City, IL 00000",
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const replace = vi.fn();
+    const close = vi.fn();
+    const externalTab = {
+      opener: window,
+      location: { replace },
+      close,
+    } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(externalTab);
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    render(<App />);
+
+    await screen.findByText(order.orderNumber);
+    await user.click(
+      screen.getByRole("button", { name: "More order actions" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Open in Pirate Ship" }),
+    );
+
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith(
+        "https://ship.pirateship.com/ship/single",
+      ),
+    );
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(externalTab.opener).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#orders");
   });
 
   it("displays and prints a master pull list with optional color metadata", async () => {

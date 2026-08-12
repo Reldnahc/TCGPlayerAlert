@@ -7,6 +7,7 @@ export const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
   confirmBeforeMarkingShipped: true,
+  masterPullList: { groupLands: true, groupMulticolored: true },
   notifications: {
     discord: {
       enabled: false,

@@ -86,6 +86,10 @@ describe("configuration UI", () => {
       revision: initial.revision,
       pollIntervalMinutes: 15,
       confirmBeforeMarkingShipped: false,
+      masterPullList: {
+        groupLands: false,
+        groupMulticolored: false,
+      },
       shipmentScanner: {
         enabled: true,
         automaticallyMarkShipped: false,
@@ -130,6 +134,10 @@ describe("configuration UI", () => {
     expect(config).toMatchObject({
       pollIntervalMinutes: 15,
       confirmBeforeMarkingShipped: false,
+      masterPullList: {
+        groupLands: false,
+        groupMulticolored: false,
+      },
       shipmentScanner: {
         enabled: true,
         automaticallyMarkShipped: false,
@@ -157,6 +165,7 @@ describe("configuration UI", () => {
     >;
     source.version = 1;
     delete source.confirmBeforeMarkingShipped;
+    delete source.masterPullList;
     await writeFile(current.path, `${JSON.stringify(source, null, 2)}\n`);
 
     const initial = await current.service.read();
@@ -167,14 +176,22 @@ describe("configuration UI", () => {
     expect(afterRead.version).toBe(1);
     expect(afterRead.confirmBeforeMarkingShipped).toBeUndefined();
     expect(initial.confirmBeforeMarkingShipped).toBe(true);
+    expect(initial.masterPullList).toEqual({
+      groupLands: true,
+      groupMulticolored: true,
+    });
 
     await current.service.save(initial);
     const afterSave = JSON.parse(
       await readFile(current.path, "utf8"),
     ) as Record<string, unknown>;
 
-    expect(afterSave.version).toBe(3);
+    expect(afterSave.version).toBe(4);
     expect(afterSave.confirmBeforeMarkingShipped).toBe(true);
+    expect(afterSave.masterPullList).toEqual({
+      groupLands: true,
+      groupMulticolored: true,
+    });
   });
 
   it("rejects stale revisions and dependent pricing-profile removal", async () => {

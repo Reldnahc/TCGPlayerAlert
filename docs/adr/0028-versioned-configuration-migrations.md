@@ -3,9 +3,11 @@
 - Status: Accepted
 - Date: 2026-08-10
 
-The version-two target recorded here is historical. ADR 0030 advances the
-canonical schema to version 3 through the ordered migration required by this
-decision.
+The version-two target recorded here is historical. ADR 0030 advanced the
+canonical schema to version 3. The master pull-list grouping settings advance
+the schema to version 4 through the same ordered migration: versions 1–3 load
+with land and multicolored grouping enabled, and the next successful Settings
+save writes both choices explicitly.
 
 ## Context
 

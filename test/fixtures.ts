@@ -43,10 +43,11 @@ export const syntheticPackingSlip: FulfillmentDocument = {
 
 export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    version: 3,
+    version: 4,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     confirmBeforeMarkingShipped: true,
+    masterPullList: { groupLands: true, groupMulticolored: true },
     notifications: {
       discord: {
         enabled: false,

@@ -91,6 +91,7 @@ export interface ConfigurationUiSettings {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly masterPullList: AppConfig["masterPullList"];
   readonly notifications: {
     readonly discord: {
       readonly enabled: boolean;
@@ -134,6 +135,7 @@ export interface ConfigurationUiUpdate {
   readonly revision: string;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly masterPullList: AppConfig["masterPullList"];
   readonly notifications: ConfigurationUiSettings["notifications"];
   readonly shipmentScanner: {
     readonly enabled: boolean;
@@ -256,6 +258,7 @@ export class ConfigurationService {
       revision,
       pollIntervalMinutes: config.pollIntervalMinutes,
       confirmBeforeMarkingShipped: config.confirmBeforeMarkingShipped,
+      masterPullList: config.masterPullList,
       notifications: {
         discord: {
           enabled: config.notifications.discord.enabled,
@@ -487,6 +490,15 @@ function parseUiUpdate(
   if (typeof confirmBeforeMarkingShipped !== "boolean") {
     issues.push("Mark-shipped confirmation must be true or false.");
   }
+  const masterPullList = objectValue(source?.masterPullList);
+  const groupLands = masterPullList?.groupLands;
+  const groupMulticolored = masterPullList?.groupMulticolored;
+  if (typeof groupLands !== "boolean") {
+    issues.push("Land grouping must be enabled or disabled.");
+  }
+  if (typeof groupMulticolored !== "boolean") {
+    issues.push("Multicolored grouping must be enabled or disabled.");
+  }
   const notifications = objectValue(source?.notifications);
   const discordNotifications = objectValue(notifications?.discord);
   const discordEvents = objectValue(discordNotifications?.events);
@@ -690,6 +702,10 @@ function parseUiUpdate(
     revision: revision as string,
     pollIntervalMinutes: Number(pollIntervalMinutes),
     confirmBeforeMarkingShipped: confirmBeforeMarkingShipped as boolean,
+    masterPullList: {
+      groupLands: groupLands as boolean,
+      groupMulticolored: groupMulticolored as boolean,
+    },
     notifications: {
       discord: {
         enabled: discordEnabled as boolean,
@@ -1118,6 +1134,7 @@ function applyUpdate(
     ...config,
     pollIntervalMinutes: update.pollIntervalMinutes,
     confirmBeforeMarkingShipped: update.confirmBeforeMarkingShipped,
+    masterPullList: update.masterPullList,
     notifications: {
       discord: {
         ...config.notifications.discord,

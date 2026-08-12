@@ -119,6 +119,11 @@ export interface ShipmentScannerConfig {
   readonly stateFile: string;
 }
 
+export interface MasterPullListConfig {
+  readonly groupLands: boolean;
+  readonly groupMulticolored: boolean;
+}
+
 export interface MerchandiseProfileConfig {
   readonly id: string;
   readonly name: string;
@@ -164,13 +169,14 @@ export interface RepricingProfileConfig {
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
-export const CURRENT_CONFIG_VERSION = 3 as const;
+export const CURRENT_CONFIG_VERSION = 4 as const;
 
 export interface AppConfig {
   readonly version: typeof CURRENT_CONFIG_VERSION;
   readonly pricingProfileDefaultsVersion: 1;
   readonly pollIntervalMinutes: number;
   readonly confirmBeforeMarkingShipped: boolean;
+  readonly masterPullList: MasterPullListConfig;
   readonly shipmentScanner: ShipmentScannerConfig;
   readonly actionMaximumAttempts: number;
   readonly stateFile: string;
@@ -783,7 +789,7 @@ function requireField(
   key: string,
   path: string,
   issues: string[],
-  version: 2 | 3,
+  version: 2 | 3 | 4,
 ): void {
   if (source?.[key] === undefined) {
     issues.push(
@@ -795,7 +801,7 @@ function requireField(
 function validateVersionTwoShape(
   root: UnknownRecord | undefined,
   issues: string[],
-  version: 2 | 3,
+  version: 2 | 3 | 4,
 ): void {
   for (const key of [
     "pricingProfileDefaultsVersion",
@@ -891,13 +897,20 @@ function validateVersionTwoShape(
 function validateVersionThreeShape(
   root: UnknownRecord | undefined,
   issues: string[],
+  version: 3 | 4,
 ): void {
-  requireField(root, "notifications", "config", issues, 3);
+  requireField(root, "notifications", "config", issues, version);
   const notifications = record(root?.notifications);
-  requireField(notifications, "discord", "config.notifications", issues, 3);
+  requireField(
+    notifications,
+    "discord",
+    "config.notifications",
+    issues,
+    version,
+  );
   const discord = record(notifications?.discord);
   for (const key of ["enabled", "webhookUrlEnv", "events"]) {
-    requireField(discord, key, "config.notifications.discord", issues, 3);
+    requireField(discord, key, "config.notifications.discord", issues, version);
   }
   const events = record(discord?.events);
   for (const key of [
@@ -906,7 +919,24 @@ function validateVersionThreeShape(
     "orderCanceled",
     "shipmentMarkAttempt",
   ]) {
-    requireField(events, key, "config.notifications.discord.events", issues, 3);
+    requireField(
+      events,
+      key,
+      "config.notifications.discord.events",
+      issues,
+      version,
+    );
+  }
+}
+
+function validateVersionFourShape(
+  root: UnknownRecord | undefined,
+  issues: string[],
+): void {
+  requireField(root, "masterPullList", "config", issues, 4);
+  const masterPullList = record(root?.masterPullList);
+  for (const key of ["groupLands", "groupMulticolored"]) {
+    requireField(masterPullList, key, "config.masterPullList", issues, 4);
   }
 }
 
@@ -917,15 +947,19 @@ export function parseConfig(value: unknown): AppConfig {
   const sourceVersion = root?.version;
   const isVersionOne = sourceVersion === 1;
   const isVersionTwo = sourceVersion === 2;
-  const isVersionThree = sourceVersion === CURRENT_CONFIG_VERSION;
-  if (!isVersionOne && !isVersionTwo && !isVersionThree) {
+  const isVersionThree = sourceVersion === 3;
+  const isVersionFour = sourceVersion === CURRENT_CONFIG_VERSION;
+  if (!isVersionOne && !isVersionTwo && !isVersionThree && !isVersionFour) {
     issues.push(
-      `config.version must be 1, 2, or ${String(CURRENT_CONFIG_VERSION)}; newer versions require an application update.`,
+      `config.version must be 1, 2, 3, or ${String(CURRENT_CONFIG_VERSION)}; newer versions require an application update.`,
     );
   }
   if (isVersionTwo) validateVersionTwoShape(root, issues, 2);
   if (isVersionThree) validateVersionTwoShape(root, issues, 3);
-  if (isVersionThree) validateVersionThreeShape(root, issues);
+  if (isVersionFour) validateVersionTwoShape(root, issues, 4);
+  if (isVersionThree) validateVersionThreeShape(root, issues, 3);
+  if (isVersionFour) validateVersionThreeShape(root, issues, 4);
+  if (isVersionFour) validateVersionFourShape(root, issues);
   const disableLegacySideEffects = isVersionOne && root?.dryRun === true;
   if (
     root?.pricingProfileDefaultsVersion !== undefined &&
@@ -944,6 +978,7 @@ export function parseConfig(value: unknown): AppConfig {
   }
   const inventoryAdditionQueue = record(root?.inventoryAdditionQueue);
   const shipmentScanner = record(root?.shipmentScanner);
+  const masterPullList = record(root?.masterPullList);
   const shipmentScannerCamera = record(shipmentScanner?.camera);
   const notifications = record(root?.notifications);
   const discordNotifications = record(notifications?.discord);
@@ -1316,6 +1351,23 @@ export function parseConfig(value: unknown): AppConfig {
     root?.confirmBeforeMarkingShipped === undefined
       ? true
       : booleanValue(root, "confirmBeforeMarkingShipped", "config", issues);
+  const masterPullListConfig: MasterPullListConfig =
+    masterPullList === undefined
+      ? { groupLands: true, groupMulticolored: true }
+      : {
+          groupLands: booleanValue(
+            masterPullList,
+            "groupLands",
+            "config.masterPullList",
+            issues,
+          ),
+          groupMulticolored: booleanValue(
+            masterPullList,
+            "groupMulticolored",
+            "config.masterPullList",
+            issues,
+          ),
+        };
   const shipmentScannerConfig: ShipmentScannerConfig =
     shipmentScanner === undefined
       ? {
@@ -1610,6 +1662,7 @@ export function parseConfig(value: unknown): AppConfig {
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
     confirmBeforeMarkingShipped,
+    masterPullList: masterPullListConfig,
     shipmentScanner: effectiveShipmentScannerConfig,
     actionMaximumAttempts,
     stateFile,

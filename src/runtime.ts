@@ -355,6 +355,7 @@ export function createOrderManagementService(
     pageSize: config.provider.pageSize,
     maximumPages: config.provider.maximumPages,
     timezoneOffsetMinutes,
+    pullListGrouping: async () => (await loadConfig(configPath)).masterPullList,
     ...(readyOrders === undefined
       ? {}
       : {

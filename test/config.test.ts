@@ -14,9 +14,13 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(3);
+    expect(config.version).toBe(4);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
+    expect(config.masterPullList).toEqual({
+      groupLands: true,
+      groupMulticolored: true,
+    });
     expect(config.shipmentScanner).toEqual({
       enabled: false,
       automaticallyMarkShipped: false,
@@ -160,11 +164,16 @@ describe("application configuration", () => {
     ) as Record<string, unknown>;
     markAsVersionOne(value);
     delete value.confirmBeforeMarkingShipped;
+    delete value.masterPullList;
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(3);
+    expect(config.version).toBe(4);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
+    expect(config.masterPullList).toEqual({
+      groupLands: true,
+      groupMulticolored: true,
+    });
     expect(value.version).toBe(1);
   });
 
@@ -174,12 +183,30 @@ describe("application configuration", () => {
     ) as Record<string, unknown>;
     value.version = 2;
     delete value.notifications;
+    delete value.masterPullList;
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(3);
+    expect(config.version).toBe(4);
     expect(config.notifications.discord.enabled).toBe(false);
     expect(value.notifications).toBeUndefined();
+  });
+
+  it("migrates version-three pull-list grouping settings to enabled", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    value.version = 3;
+    delete value.masterPullList;
+
+    const config = parseConfig(value);
+
+    expect(config.version).toBe(4);
+    expect(config.masterPullList).toEqual({
+      groupLands: true,
+      groupMulticolored: true,
+    });
+    expect(value.masterPullList).toBeUndefined();
   });
 
   it("keeps shipment scanning safely disabled for older configuration files", async () => {
@@ -565,6 +592,8 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    value.version = 3;
+    delete value.masterPullList;
     delete value.notifications;
 
     try {
@@ -578,11 +607,28 @@ describe("application configuration", () => {
     }
   });
 
+  it("rejects version-four files that omit pull-list settings", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    delete value.masterPullList;
+
+    try {
+      parseConfig(value);
+      throw new Error("Expected configuration validation to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect((error as ConfigurationError).issues).toContain(
+        "config.masterPullList is required in configuration version 4.",
+      );
+    }
+  });
+
   it("rejects configuration from a newer unsupported schema", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
-    value.version = 4;
+    value.version = 5;
 
     expect(() => parseConfig(value)).toThrow(
       expect.objectContaining({
