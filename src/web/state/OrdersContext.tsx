@@ -27,7 +27,10 @@ interface OrdersContextValue {
     refreshLoaded?: boolean,
   ) => Promise<void>;
   readonly synchronizeReadyOrders: () => Promise<void>;
-  readonly acknowledgeShipment: (orderNumber: string) => void;
+  readonly completeShipment: (
+    orderNumber: string,
+    scope: Scope,
+  ) => Promise<void>;
 }
 
 const OrdersContext = createContext<OrdersContextValue | null>(null);
@@ -42,6 +45,21 @@ function readyList(
       (order) =>
         order.canMarkShipped &&
         !shipmentsPendingReconciliation.has(order.orderNumber),
+    ),
+  };
+}
+
+function allOrdersList(
+  list: OrderList,
+  shipmentsPendingReconciliation: ReadonlySet<string>,
+): OrderList {
+  return {
+    ...list,
+    orders: list.orders.map((order) =>
+      shipmentsPendingReconciliation.has(order.orderNumber) &&
+      order.canMarkShipped
+        ? { ...order, canMarkShipped: false }
+        : order,
     ),
   };
 }
@@ -98,12 +116,20 @@ export function OrdersProvider({
 
   const acknowledgeShipment = useCallback((orderNumber: string) => {
     shipmentReconciliationsRef.current.add(orderNumber);
+    if (listsRef.current.all !== null) {
+      allOrderReconciliationsRef.current.add(orderNumber);
+      automaticReconciliationRetryAtRef.current = 0;
+    }
     setShipmentsPendingReconciliation(
       new Set(shipmentReconciliationsRef.current),
     );
     setLists((current) => {
       const next = {
         ...current,
+        all:
+          current.all === null
+            ? null
+            : allOrdersList(current.all, shipmentReconciliationsRef.current),
         "ready-to-ship":
           current["ready-to-ship"] === null
             ? null
@@ -119,13 +145,16 @@ export function OrdersProvider({
 
   const acceptOrderList = useCallback((scope: Scope, result: OrderList) => {
     let reconciliationsChanged = false;
-    for (const orderNumber of shipmentReconciliationsRef.current) {
-      const order = result.orders.find(
-        (candidate) => candidate.orderNumber === orderNumber,
-      );
-      if (order?.canMarkShipped !== true) {
-        shipmentReconciliationsRef.current.delete(orderNumber);
-        reconciliationsChanged = true;
+    if (scope === "all") {
+      for (const orderNumber of shipmentReconciliationsRef.current) {
+        const order = result.orders.find(
+          (candidate) => candidate.orderNumber === orderNumber,
+        );
+        if (order?.canMarkShipped !== true) {
+          shipmentReconciliationsRef.current.delete(orderNumber);
+          allOrderReconciliationsRef.current.delete(orderNumber);
+          reconciliationsChanged = true;
+        }
       }
     }
     if (reconciliationsChanged) {
@@ -139,7 +168,7 @@ export function OrdersProvider({
         [scope]:
           scope === "ready-to-ship"
             ? readyList(result, shipmentReconciliationsRef.current)
-            : result,
+            : allOrdersList(result, shipmentReconciliationsRef.current),
       };
       listsRef.current = next;
       return next;
@@ -197,6 +226,7 @@ export function OrdersProvider({
           acceptOrderList(scope, result);
           const readyOrderNumbers = readyOrderNumbersRef.current;
           for (const orderNumber of allOrderReconciliationsRef.current) {
+            if (shipmentReconciliationsRef.current.has(orderNumber)) continue;
             const order = result.orders.find(
               (candidate) => candidate.orderNumber === orderNumber,
             );
@@ -242,6 +272,18 @@ export function OrdersProvider({
     }
   };
 
+  const completeShipment = useCallback(
+    async (orderNumber: string, scope: Scope) => {
+      acknowledgeShipment(orderNumber);
+      const refreshes = [load(scope, true)];
+      if (scope !== "all" && listsRef.current.all !== null) {
+        refreshes.push(load("all", true));
+      }
+      await Promise.all(refreshes);
+    },
+    [acknowledgeShipment, load],
+  );
+
   const synchronizeReadyOrders = useCallback(async () => {
     if (!connected || loadingRef.current["ready-to-ship"]) return;
     const scope = "ready-to-ship" as const;
@@ -278,10 +320,10 @@ export function OrdersProvider({
       shipmentsPendingReconciliation,
       load,
       synchronizeReadyOrders,
-      acknowledgeShipment,
+      completeShipment,
     }),
     [
-      acknowledgeShipment,
+      completeShipment,
       errors,
       lists,
       load,

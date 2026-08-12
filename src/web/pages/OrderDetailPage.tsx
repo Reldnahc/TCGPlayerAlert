@@ -13,6 +13,7 @@ import {
 } from "../components/ui.js";
 import type { Order, OrderDetail, RefundOptions } from "../contracts.js";
 import { dateTime, errorMessage, money } from "../utils.js";
+import { useOrders } from "../state/OrdersContext.js";
 
 export function OrderDetailPage({
   orderNumber,
@@ -28,6 +29,9 @@ export function OrderDetailPage({
   );
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundError, setRefundError] = useState("");
+  const { shipmentsPendingReconciliation } = useOrders();
+  const shipmentPendingReconciliation =
+    shipmentsPendingReconciliation.has(orderNumber);
 
   const load = useCallback(
     async (force = false, signal?: AbortSignal) => {
@@ -154,13 +158,16 @@ export function OrderDetailPage({
                   <small>
                     {detail.shippingType} · {detail.orderFulfillment}
                   </small>
+                  {shipmentPendingReconciliation ? (
+                    <small>Shipment accepted · syncing TCGplayer status</small>
+                  ) : null}
                 </div>
               </div>
               <div class="order-detail-command-bar__actions">
                 <OrderActions
                   order={actionOrder}
                   scope="all"
-                  onChanged={() => void load(true)}
+                  onChanged={() => load(true)}
                 />
                 {detail.refundCapabilities.full ||
                 detail.refundCapabilities.partial ? (

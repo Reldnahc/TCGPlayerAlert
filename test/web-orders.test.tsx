@@ -279,6 +279,101 @@ describe("order workspaces", () => {
     expect(window.location.hash).toBe("#orders");
   });
 
+  it("keeps an accepted shipment non-actionable while provider status catches up", async () => {
+    window.location.hash = "orders";
+    const readyOrder = {
+      orderNumber: "SYNTHETIC-SYNCHRONOUS-SHIPMENT",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 12,
+      shippingAmount: 1.49,
+      totalAmount: 13.49,
+    };
+    const shippedOrder = {
+      ...readyOrder,
+      status: "Shipped - In Transit",
+      statusCode: "Shipped",
+      canMarkShipped: false,
+    };
+    let allOrderReads = 0;
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/settings") {
+          return Promise.resolve(
+            json({ ...settings, confirmBeforeMarkingShipped: false }),
+          );
+        }
+        if (
+          path === `/api/orders/${readyOrder.orderNumber}/mark-shipped` &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(
+            json({
+              orderNumber: readyOrder.orderNumber,
+              outcome: "applied",
+            }),
+          );
+        }
+        if (path === "/api/orders?" || path === "/api/orders?refresh=1") {
+          allOrderReads += 1;
+          return Promise.resolve(
+            json({
+              orders: allOrderReads < 3 ? [readyOrder] : [shippedOrder],
+              fetchedAt: `2026-08-07T12:0${String(allOrderReads)}:00.000Z`,
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const orderRow = () =>
+      screen
+        .getByRole("link", { name: readyOrder.orderNumber })
+        .closest("tr") as HTMLElement;
+    await screen.findByText(readyOrder.orderNumber);
+    await user.click(
+      within(orderRow()).getByRole("button", { name: "Mark shipped" }),
+    );
+
+    await waitFor(() => expect(allOrderReads).toBe(2));
+    expect(
+      within(orderRow()).getByText("Shipment accepted · syncing status"),
+    ).toBeTruthy();
+    expect(within(orderRow()).getByText("Ready to Ship")).toBeTruthy();
+    expect(
+      within(orderRow())
+        .getByRole("button", {
+          name: "Mark shipped",
+        })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() =>
+      expect(within(orderRow()).getByText(/Shipped\s+In Transit/)).toBeTruthy(),
+    );
+    expect(
+      within(orderRow()).queryByText("Shipment accepted · syncing status"),
+    ).toBeNull();
+    expect(
+      within(orderRow())
+        .getByRole("button", {
+          name: "Mark shipped",
+        })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
   it("displays and prints a master pull list with optional color metadata", async () => {
     window.location.hash = "orders/pull-list";
     const pullList = {

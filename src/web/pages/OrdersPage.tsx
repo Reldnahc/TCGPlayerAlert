@@ -18,7 +18,8 @@ import { compactDate, money, normalizedTokens } from "../utils.js";
 import { useReadyOrderSnapshotPolling } from "../useReadyOrderSnapshotPolling.js";
 
 export function OrdersPage() {
-  const { lists, loading, errors, load } = useOrders();
+  const { lists, loading, errors, load, shipmentsPendingReconciliation } =
+    useOrders();
   const [query, setQuery] = useState("");
   const list = lists.all;
   useEffect(() => {
@@ -126,7 +127,14 @@ export function OrdersPage() {
                     <td>{order.buyerName}</td>
                     <td>{compactDate(order.orderDate)}</td>
                     <td>
-                      <StatusBadge status={order.status} />
+                      <div class="order-status-cell">
+                        <StatusBadge status={order.status} />
+                        {shipmentsPendingReconciliation.has(
+                          order.orderNumber,
+                        ) ? (
+                          <small>Shipment accepted · syncing status</small>
+                        ) : null}
+                      </div>
                     </td>
                     <td>{order.shippingType}</td>
                     <td class="align-right numeric">

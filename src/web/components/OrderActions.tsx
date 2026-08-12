@@ -17,9 +17,9 @@ export function OrderActions({
   readonly order: Order;
   readonly scope: "all" | "ready-to-ship";
   readonly compact?: boolean;
-  readonly onChanged?: () => void;
+  readonly onChanged?: () => void | Promise<void>;
 }) {
-  const { acknowledgeShipment, load, shipmentsPendingReconciliation } =
+  const { completeShipment, load, shipmentsPendingReconciliation } =
     useOrders();
   const { settings } = useSettings();
   const toast = useToast();
@@ -93,7 +93,7 @@ export function OrderActions({
         await uiApi.addTracking(order.orderNumber, normalized);
         setTrackingOpen(false);
         setTrackingNumber("");
-        onChanged?.();
+        await onChanged?.();
       },
       "Tracking added.",
       true,
@@ -109,12 +109,11 @@ export function OrderActions({
     await run(
       "shipped",
       async () => {
-        await uiApi.markShipped(order.orderNumber);
-        acknowledgeShipment(order.orderNumber);
-        onChanged?.();
+        const result = await uiApi.markShipped(order.orderNumber);
+        await completeShipment(result.orderNumber, scope);
+        await onChanged?.();
       },
       "Order marked shipped.",
-      true,
     );
   }
 

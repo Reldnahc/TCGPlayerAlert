@@ -57,6 +57,15 @@
 .orders-col-actions {
   width: 225px;
 }
+.order-status-cell {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.order-status-cell small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
 .order-number-link {
   color: #075f8f;
   text-decoration: none;
