@@ -1,6 +1,7 @@
 node_modules/
 dist/
 artifacts/
+vendor/
 coverage/
 playwright-report/
 test-results/

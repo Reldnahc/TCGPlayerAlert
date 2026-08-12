@@ -5,7 +5,7 @@
   "description": "Local-first, configurable seller fulfillment automation service",
   "type": "module",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:web && npm run build:extension",
@@ -14,6 +14,8 @@
     "build:extension": "node scripts/generate-browser-extension-assets.mjs && node scripts/build-browser-extension.mjs",
     "lint:extension": "npm run build:extension && npx --yes web-ext@10.6.0 lint --source-dir dist/browser-extension/firefox --warnings-as-errors",
     "package:extension": "npm run lint:extension && node scripts/package-browser-extension.mjs",
+    "package:windows:stage": "npm run build && node scripts/package-windows-installer.mjs --stage-only",
+    "package:windows": "npm run build && node scripts/package-windows-installer.mjs",
     "capture:extension": "npm run build:extension && node scripts/capture-browser-extension-listing.mjs",
     "preview:web": "npm run build && node scripts/preview-ui.mjs",
     "format": "prettier --write .",
@@ -47,7 +49,7 @@
     "@preact/preset-vite": "2.10.6",
     "@testing-library/preact": "3.2.4",
     "@testing-library/user-event": "14.6.1",
-    "@types/node": "20.19.39",
+    "@types/node": "24.13.3",
     "eslint": "10.8.0",
     "jsdom": "27.0.1",
     "jszip": "3.10.1",

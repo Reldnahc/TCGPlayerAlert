@@ -18,9 +18,24 @@ This project is not affiliated with, endorsed by, or supported by TCGplayer. It 
 - Interrupted or ambiguous print submissions become `review-required` and are never retried automatically.
 - Discord notifications are disabled by default. When enabled, message alerts omit subjects and bodies, and the webhook URL stays in Windows protected storage or the environment.
 
+## Install on Windows
+
+End users can install the generated per-user Windows package and launch
+**TCGPlayerAlert** from the Start menu; they do not need Node.js, npm, Git, or a
+terminal. The shortcut runs the service in the background and opens the local
+operator console. Configuration and durable state live under
+`%LOCALAPPDATA%\TCGPlayerAlert` and survive application upgrades.
+
+Each launch checks the latest stable GitHub Release with a five-second timeout.
+Only a newer, exactly named installer with GitHub's matching SHA-256 asset
+digest is accepted. An offline, malformed, or unverifiable update is skipped
+and the installed version starts normally. See the
+[Windows installer guide](docs/WINDOWS_INSTALLER.md) for building, release
+publication, local paths, and disabling update checks.
+
 ## Requirements
 
-- Node.js 20.19 or newer
+- Node.js 24 or newer for source development (the Windows installer includes its own runtime)
 - An authorized TCGplayer seller account signed in through a supported browser
 - Windows PowerShell 5.1 and installed printer drivers for the initial Windows adapters
 

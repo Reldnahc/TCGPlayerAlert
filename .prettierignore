@@ -2,3 +2,5 @@ src/web/public/vendor/**
 test-results/**
 playwright-report/**
 browser-extension/icons/icon.svg
+installer/*.iss
+installer/*.vbs
