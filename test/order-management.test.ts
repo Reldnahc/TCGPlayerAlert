@@ -156,6 +156,7 @@ function client() {
             setName: "Synthetic Set",
             rarityName: "Rare",
             colors: ["Blue"],
+            cardTypes: ["Creature"],
             marketPrice: 6,
             totalListings: 1,
             listings: [],
@@ -392,6 +393,96 @@ describe("order management", () => {
       { productIds: [123], channelId: 0, offset: 0, limit: 1 },
       undefined,
     );
+  });
+
+  it("groups lands separately and collapses color pairs to multicolored", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    fakeClient.exportPullSheet.mockResolvedValue({
+      text: "synthetic pull sheet",
+      contentType: "text/csv",
+      fileName: "pull-sheet.csv",
+      orderNumbers: [firstOrder.orderNumber],
+      rows: [
+        {
+          ...pullSheetRow,
+          productName: "Synthetic Forest",
+          mainPhotoUrl:
+            "https://product-images.tcgplayer.com/fit-in/200x279/201.jpg",
+          skuId: "land-sku",
+        },
+        {
+          ...pullSheetRow,
+          productName: "Synthetic Pair",
+          mainPhotoUrl:
+            "https://product-images.tcgplayer.com/fit-in/200x279/202.jpg",
+          skuId: "pair-sku",
+        },
+        {
+          ...pullSheetRow,
+          productName: "Synthetic Artifact",
+          mainPhotoUrl:
+            "https://product-images.tcgplayer.com/fit-in/200x279/203.jpg",
+          skuId: "colorless-sku",
+        },
+      ],
+    });
+    fakeClient.searchMarketplaceProducts.mockResolvedValue({
+      totalProducts: 3,
+      products: [
+        {
+          productId: 201,
+          productName: "Synthetic Forest",
+          productLineName: "Magic: The Gathering",
+          setName: "Synthetic Set",
+          rarityName: "Land",
+          colors: ["Colorless"],
+          cardTypes: ["Land"],
+          marketPrice: 0.25,
+          totalListings: 1,
+          listings: [],
+        },
+        {
+          productId: 202,
+          productName: "Synthetic Pair",
+          productLineName: "Magic: The Gathering",
+          setName: "Synthetic Set",
+          rarityName: "Rare",
+          colors: ["Blue", "Red"],
+          cardTypes: ["Creature"],
+          marketPrice: 1,
+          totalListings: 1,
+          listings: [],
+        },
+        {
+          productId: 203,
+          productName: "Synthetic Artifact",
+          productLineName: "Magic: The Gathering",
+          setName: "Synthetic Set",
+          rarityName: "Rare",
+          colors: ["Colorless"],
+          cardTypes: ["Artifact"],
+          marketPrice: 1,
+          totalListings: 1,
+          listings: [],
+        },
+      ],
+    });
+
+    const result = await service(fakeClient).getMasterPullList();
+    const colorsByProduct = Object.fromEntries(
+      result.rows.map((row) => [row.productName, row.metadata[0]?.values]),
+    );
+
+    expect(colorsByProduct).toEqual({
+      "Synthetic Forest": ["Land"],
+      "Synthetic Pair": ["Multicolored"],
+      "Synthetic Artifact": ["Colorless"],
+    });
+    expect(fakeClient.getOrder).not.toHaveBeenCalled();
   });
 
   it("persists pull progress per order allocation without another provider request", async () => {

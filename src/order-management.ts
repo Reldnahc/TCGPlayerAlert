@@ -431,6 +431,9 @@ export class OrderManagementService {
       const productId = productIds.bySku.get(row.skuId);
       const colors =
         productId === undefined ? undefined : metadata.colors.get(productId);
+      const cardTypes =
+        productId === undefined ? undefined : metadata.cardTypes.get(productId);
+      const colorGroup = pullListColorGroup(colors, cardTypes);
       return {
         productLine: row.productLine,
         productName: row.productName,
@@ -445,9 +448,9 @@ export class OrderManagementService {
         orderQuantity: row.orderQuantity,
         ...(productId === undefined ? {} : { productId }),
         metadata:
-          colors === undefined || colors.length === 0
+          colorGroup.length === 0
             ? []
-            : [{ label: "Color", values: colors }],
+            : [{ label: "Color", values: colorGroup }],
         pulledQuantity: 0,
         remainingQuantity: row.orderQuantity,
         pulled: false,
@@ -644,9 +647,11 @@ export class OrderManagementService {
     signal?: AbortSignal,
   ): Promise<{
     readonly colors: ReadonlyMap<number, readonly string[]>;
+    readonly cardTypes: ReadonlyMap<number, readonly string[]>;
     readonly issue?: string;
   }> {
     const colors = new Map<number, readonly string[]>();
+    const cardTypes = new Map<number, readonly string[]>();
     try {
       for (let offset = 0; offset < productIds.length; offset += 24) {
         signal?.throwIfAborted();
@@ -663,14 +668,21 @@ export class OrderManagementService {
           ) {
             colors.set(product.productId, product.colors);
           }
+          if (
+            requested.has(product.productId) &&
+            product.cardTypes !== undefined
+          ) {
+            cardTypes.set(product.productId, product.cardTypes);
+          }
         }
       }
-      return { colors };
+      return { colors, cardTypes };
     } catch (cause) {
       signal?.throwIfAborted();
       void cause;
       return {
         colors,
+        cardTypes,
         issue: "Optional card metadata could not be loaded.",
       };
     }
@@ -957,6 +969,24 @@ function sameStringSet(
     actualValues.size === actual.length &&
     expected.every((value) => actualValues.has(value))
   );
+}
+
+function pullListColorGroup(
+  colors: readonly string[] | undefined,
+  cardTypes: readonly string[] | undefined,
+): readonly string[] {
+  if (cardTypes?.some((cardType) => /\bland\b/iu.test(cardType))) {
+    return ["Land"];
+  }
+  const distinctColors = new Map<string, string>();
+  for (const color of colors ?? []) {
+    const trimmed = color.trim();
+    if (trimmed.length > 0) {
+      distinctColors.set(trimmed.toLocaleLowerCase(), trimmed);
+    }
+  }
+  if (distinctColors.size >= 2) return ["Multicolored"];
+  return [...distinctColors.values()];
 }
 
 function samePullSheetProduct(

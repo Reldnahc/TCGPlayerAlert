@@ -38,8 +38,11 @@ metadata enrichment must avoid one catalog request per row.
   the export omits those URLs, read ready-order details sequentially only until
   every pull-sheet SKU that can be matched has a product ID. Reuse cached order
   details, then request marketplace metadata in sequential batches of at most
-  24 exact product IDs. Preserve provider-supplied colors and omit color when
-  none exists.
+  24 exact product IDs through `tcgplayer-private-api` 0.17.0 or newer. Display
+  any provider-identified card type containing `Land` as `Land`, regardless of
+  its technically colorless color metadata. Display products with two or more
+  distinct provider colors as `Multicolored`, preserve a single color as-is,
+  and omit color when none exists.
 - Treat metadata as an enhancement. If its read fails, return the complete
   operational master list with a visible warning instead of failing the list.
 - Cache the assembled master list in server memory for 30 seconds. Refresh
