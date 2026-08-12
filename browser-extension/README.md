@@ -35,28 +35,29 @@ application's DPAPI-protected credential remains stored; reinstalling the
 extension may require a new one-time pairing if Firefox cleared extension-local
 storage.
 
-## Firefox unlisted signing
+## Store submission packages
 
-The connector is prepared for private, self-distributed signing rather than a
-public AMO listing:
+Build and validate both upload archives:
 
-- It has a stable Gecko extension ID and requires Firefox 140 or newer.
-- It declares `authenticationInfo` as required data in the Firefox manifest.
-- Its [privacy policy](PRIVACY.md) explains the exact cookie, loopback
-  destination, renewal timing, storage, retention, and permissions.
-- The source is readable, dependency-free, and contains no remote code,
-  analytics, content scripts, or page inspection.
+```powershell
+npm run package:extension
+```
 
-Run `npm run build:extension` before packaging. The Firefox output includes the
-privacy policy in `dist/browser-extension/firefox`. When submitting the build
-to Mozilla as an unlisted add-on, use this public privacy-policy URL:
+This runs Mozilla's official add-on linter with warnings treated as errors, then
+creates the Chromium and Firefox ZIP files plus SHA-256 checksums under
+`artifacts/browser-extension`. Store listing copy, permission justifications,
+privacy-form answers, reviewer notes, asset paths, and the final checklist are
+in [SUBMISSION.md](SUBMISSION.md).
 
-`https://github.com/Reldnahc/TCGPlayerAlert/blob/main/browser-extension/PRIVACY.md`
+The Firefox package has a stable Gecko extension ID, requires Firefox 140 or
+newer, and declares `authenticationInfo` through Mozilla's built-in data
+collection consent system. The Chromium popup provides a prominent disclosure
+and explicit pairing action before transmitting the same authentication
+information. Both packages exclude private-browsing access, contain no remote
+code or page inspection, and use the public [privacy policy](PRIVACY.md).
 
-Mozilla signing is an external release step and requires the submitting
-operator's AMO account. The signed `.xpi` can then be installed permanently
-through Firefox's **Install Add-on From File** command without making the
-extension publicly searchable.
+Mozilla and Google submission, store-form entry, signing, and publication are
+external release steps performed through the operator's store accounts.
 
 ## Chromium-family development installation
 

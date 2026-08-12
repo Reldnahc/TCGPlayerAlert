@@ -13,13 +13,17 @@ form.addEventListener("submit", (event) => {
   void connect();
 });
 
-void loadStatus();
+void loadStatus().catch((cause) => {
+  setStatus(
+    cause instanceof Error ? cause.message : "The connector could not start.",
+  );
+});
 
 async function loadStatus() {
   const result = await sendMessage({ type: "connection-status" });
   paired = result?.paired === true;
   if (Number.isInteger(result?.port)) portInput.value = String(result.port);
-  button.textContent = paired ? "Refresh session" : "Connect browser";
+  button.textContent = paired ? "Refresh session" : "Connect and share session";
   codeInput.hidden = paired;
   document.querySelector('label[for="pairing-code"]').hidden = paired;
   hint.textContent = paired
@@ -78,7 +82,7 @@ function setBusy(busy) {
       : "Connecting…"
     : paired
       ? "Refresh session"
-      : "Connect browser";
+      : "Connect and share session";
 }
 
 function setStatus(message, tone = "danger") {

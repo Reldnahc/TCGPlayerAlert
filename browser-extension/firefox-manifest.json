@@ -4,6 +4,14 @@
   "version": "0.1.0",
   "description": "Pairs a signed-in TCGplayer seller session with the local TCGPlayerAlert application after an explicit click.",
   "homepage_url": "https://github.com/Reldnahc/TCGPlayerAlert",
+  "incognito": "not_allowed",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": ["cookies", "storage", "alarms"],
   "host_permissions": ["https://store.tcgplayer.com/*", "http://127.0.0.1/*"],
   "background": {
@@ -11,7 +19,11 @@
   },
   "action": {
     "default_title": "Connect TCGPlayerAlert",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "browser_specific_settings": {
     "gecko": {
@@ -20,6 +32,9 @@
       "data_collection_permissions": {
         "required": ["authenticationInfo"]
       }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   }
 }

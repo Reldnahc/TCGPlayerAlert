@@ -48,13 +48,28 @@
           />
         </details>
 
-        <button id="connect" type="submit">Connect browser</button>
+        <section
+          id="session-disclosure"
+          class="disclosure"
+          aria-labelledby="disclosure-title"
+        >
+          <strong id="disclosure-title">Session sharing</strong>
+          <p>
+            Connecting sends the exact TCGplayer authentication cookie and its
+            expiration time only to TCGPlayerAlert at
+            <code>127.0.0.1</code> on this computer. While paired, the connector
+            sends updated session cookies automatically.
+          </p>
+        </section>
+
+        <button id="connect" type="submit">Connect and share session</button>
       </form>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>
       <p class="privacy">
-        The connector sends only the seller-session ticket to the paired app on
-        this computer. It does not read or control Seller Portal pages.
+        No analytics, advertising, tracking, remote code, or Seller Portal page
+        inspection. Disconnect and delete the protected session from the
+        TCGPlayerAlert connection panel.
         <a
           href="https://github.com/Reldnahc/TCGPlayerAlert/blob/main/browser-extension/PRIVACY.md"
           target="_blank"

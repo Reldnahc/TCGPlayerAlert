@@ -103,8 +103,10 @@ application connection survives restarts.
 The Firefox manifest requires version 140 or newer so Mozilla's built-in
 installation prompt can disclose the required authentication-information
 transfer. The connector's exact data handling is documented in its public
-[privacy policy](browser-extension/PRIVACY.md). Submit that document's GitHub
-URL as the privacy-policy URL when requesting unlisted Mozilla signing.
+[privacy policy](browser-extension/PRIVACY.md). Store-ready ZIP files, listing
+assets, privacy answers, permission justifications, and reviewer notes are
+produced and documented by `npm run package:extension`; see the
+[submission guide](browser-extension/SUBMISSION.md).
 
 Build once, then launch the application:
 

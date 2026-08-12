@@ -37,7 +37,7 @@ api.cookies.onChanged.addListener((change) => {
   if (
     change.removed ||
     change.cookie.name !== AUTH_COOKIE_NAME ||
-    !change.cookie.domain.endsWith("tcgplayer.com")
+    !isSellerPortalDomain(change.cookie.domain)
   ) {
     return;
   }
@@ -49,15 +49,15 @@ api.alarms.onAlarm.addListener((alarm) => {
 });
 
 api.runtime.onStartup.addListener(() => {
-  void ensureRenewalAlarm();
+  void ensureRenewalAlarm().catch(() => undefined);
   void renewSession().catch(() => undefined);
 });
 
 api.runtime.onInstalled.addListener(() => {
-  void ensureRenewalAlarm();
+  void ensureRenewalAlarm().catch(() => undefined);
 });
 
-void ensureRenewalAlarm();
+void ensureRenewalAlarm().catch(() => undefined);
 
 async function pairSession(message) {
   const pairingCode =
@@ -178,7 +178,24 @@ function failure(cause) {
 }
 
 async function ensureRenewalAlarm() {
-  await alarmCreate(RENEWAL_ALARM, { periodInMinutes: 5 });
+  if ((await alarmGet(RENEWAL_ALARM)) === undefined) {
+    await alarmCreate(RENEWAL_ALARM, { periodInMinutes: 5 });
+  }
+}
+
+function isSellerPortalDomain(domain) {
+  return domain === "store.tcgplayer.com" || domain === ".store.tcgplayer.com";
+}
+
+function alarmGet(name) {
+  if (typeof browser !== "undefined") return browser.alarms.get(name);
+  return new Promise((resolvePromise, rejectPromise) => {
+    chrome.alarms.get(name, (alarm) => {
+      const error = chrome.runtime.lastError;
+      if (error === undefined) resolvePromise(alarm);
+      else rejectPromise(new Error(error.message));
+    });
+  });
 }
 
 function cookieGet(details) {

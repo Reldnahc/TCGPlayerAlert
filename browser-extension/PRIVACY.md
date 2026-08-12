@@ -1,6 +1,6 @@
 # TCGPlayerAlert Session Connector privacy policy
 
-Effective date: August 8, 2026
+Effective date: August 11, 2026
 
 The TCGPlayerAlert Session Connector exists only to connect an authorized,
 signed-in TCGplayer Seller Portal browser session to the TCGPlayerAlert
@@ -28,9 +28,11 @@ advertising, tracking, or remotely downloaded code.
 The connector sends the current authentication cookie and its expiration time
 only to the paired TCGPlayerAlert application at
 `http://127.0.0.1:<port>/api/auth/session`. It does this when the user first
-pairs the browser, when the user selects **Refresh session**, when Firefox
+pairs the browser, when the user selects **Refresh session**, when the browser
 reports that the exact cookie changed, and during a five-minute local renewal
-check while the connector is paired.
+check while the connector is paired. Before initial pairing, the connector
+prominently explains this transmission and the user must select **Connect and
+share session**.
 
 The connector does not send this information to the project maintainer,
 Mozilla, advertising or analytics services, or any other remote service. The
@@ -40,8 +42,8 @@ the user is authorized to perform with TCGplayer.
 ## Storage and retention
 
 The extension stores only its random connector token and selected local port in
-Firefox extension-local storage. It does not store the TCGplayer authentication
-cookie outside Firefox's cookie store.
+browser extension-local storage. It does not store the TCGplayer authentication
+cookie outside the browser's cookie store.
 
 The local TCGPlayerAlert application stores its current session, seller key,
 and matching connector token in its ignored local data directory after
@@ -68,3 +70,12 @@ Privacy questions and policy changes are tracked through the public project at
 <https://github.com/Reldnahc/TCGPlayerAlert/issues>. Material changes to the
 data handled or its destination require an updated disclosure and extension
 release.
+
+## Chrome Web Store Limited Use disclosure
+
+The connector's use of information received from browser APIs complies with
+the Chrome Web Store User Data Policy, including the Limited Use requirements.
+Authentication information is used only to provide the connector's single,
+user-facing purpose. It is not sold, used for advertising or creditworthiness,
+transferred to third parties, or made available for human review. It is sent
+only to the user-installed TCGPlayerAlert application on the same computer.
