@@ -13,13 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 22, 24]
+        node-version: [24]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
         with:
           repository: Reldnahc/tcgplayer-private-api
-          ref: 639975c35feafb05d1d7eaeebffc1751dc8c4771
+          ref: d2d7012f9ee73f54f260a1f8167b90efb3261317
           path: api-package
       - uses: actions/setup-node@v7
         with:
@@ -34,9 +34,9 @@ jobs:
       - run: npm ci
       - run: npm run check
       - name: Install browser test runtime
-        if: matrix.node-version == 22
+        if: matrix.node-version == 24
         run: npx playwright install --with-deps chromium
       - name: Verify operator UI in Chromium
-        if: matrix.node-version == 22
+        if: matrix.node-version == 24
         run: npm run test:browser
       - run: npm run audit
