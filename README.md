@@ -51,7 +51,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.17.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.18.1 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -142,7 +142,7 @@ panel:
 2. Open `https://store.tcgplayer.com/admin` in the browser profile containing
    the connector and sign in normally. Complete MFA or CAPTCHA yourself.
 3. Open the pinned connector, enter the displayed code and local port, and
-   select **Connect browser**.
+   select **Connect and share session**.
 4. Wait for the application status to change to **connected**.
 
 The validated seller session is encrypted with Windows DPAPI for the current
@@ -156,7 +156,14 @@ When TCGplayer rejects a session, the application marks it expired, pauses
 scheduled synchronization, and leaves queued mutations pending. If the browser
 still has a renewed session, the connector replaces it automatically. If
 TCGplayer logged the browser out, sign in normally and select **Refresh
-session** in the connector. Use **Disconnect** in Settings to clear the
+session** in the connector. A late authentication failure from an older
+in-flight request cannot expire a newer paired session. A failure from a
+current feature request is checked against authenticated seller discovery
+before the shared session is expired, and a public request that deliberately
+omits the seller cookie cannot invalidate it. If Firefox retained an old
+temporary-extension pairing that the application no longer recognizes,
+select **Pair with a new code** in the connector and enter a newly generated
+code. Use **Disconnect** in Settings to clear the
 application credential and invalidate the connector token.
 
 The authenticated status in the lower-left sidebar includes **Log out**, which

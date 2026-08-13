@@ -37,10 +37,23 @@ in extension-local storage. Later cookie changes and a bounded periodic check
 may replace the session using that token without repeating the pairing code.
 The extension never controls or reads Seller Portal pages.
 
-An authentication-required result from the private client marks the shared
-session expired, clears the unusable cookie, and retains the connector token so
-the installed extension can provide a renewed browser session. The console
-shows the disconnected state, ordinary API reads fail with an explicit
+Every session supplied to the private API client includes a process-local,
+non-secret revision. Authentication-required callbacks identify the revision
+used by the failed request, and the session manager ignores a callback for a
+revision that has already been replaced. A late failure from an older in-flight
+request therefore cannot expire a newly paired or renewed session.
+
+An authentication-required callback for the current revision triggers fresh
+authenticated-seller discovery with that exact cookie. The manager marks the
+shared session expired only when that authoritative revalidation rejects the
+cookie or returns a different seller. Endpoint-specific failures and transient
+revalidation failures remain local to the request. Requests that deliberately
+omit the seller cookie, such as public feedback reads, never notify the global
+authentication observer.
+
+Confirmed expiration clears the unusable cookie and retains the connector
+token so the installed extension can provide a renewed browser session. The
+console shows the disconnected state, ordinary API reads fail with an explicit
 authentication-required response, scheduled synchronization waits, and queued
 mutations remain pending. A true Seller Portal logout still requires the
 operator to complete TCGplayer login, MFA, and CAPTCHA normally.
@@ -56,7 +69,9 @@ the same protected disconnect as Settings.
 Firefox development builds remain temporary until the package is signed by
 Mozilla. Signing changes distribution, not the session protocol or application
 architecture. Chromium and Firefox builds share behavior but use their
-browser-specific Manifest V3 background declaration.
+browser-specific Manifest V3 background declaration. Because Firefox may
+retain extension-local storage when a temporary build is reloaded, the paired
+popup always offers **Pair with a new code** as an explicit recovery path.
 
 The Firefox build requires Firefox 140 or newer and declares required
 `authenticationInfo` handling so Firefox presents its built-in data consent at

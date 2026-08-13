@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
+
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
+import { describe, expect, it, vi } from "vitest";
 
 async function readManifest(
   browserName: string,
@@ -85,5 +88,65 @@ describe("browser session connector", () => {
       );
       expect(icon.size).toBeGreaterThan(0);
     }
+  });
+
+  it("lets a retained Firefox pairing be replaced with a new code", async () => {
+    const [popup, popupHtml] = await Promise.all([
+      readFile(join("browser-extension", "popup.js"), "utf8"),
+      readFile(join("browser-extension", "popup.html"), "utf8"),
+    ]);
+    const parsed = new DOMParser().parseFromString(popupHtml, "text/html");
+    document.documentElement.innerHTML = parsed.documentElement.innerHTML;
+    const messages: unknown[] = [];
+    const sendMessage = vi.fn((message: unknown) => {
+      messages.push(message);
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "connection-status"
+      ) {
+        return Promise.resolve({ paired: true, port: 47_831 });
+      }
+      return Promise.resolve({
+        ok: true,
+        message: "Synthetic session connected.",
+      });
+    });
+    runInNewContext(popup, {
+      browser: { runtime: { sendMessage } },
+      document,
+    });
+
+    const codeInput = document.querySelector("#pairing-code");
+    const connect = document.querySelector("#connect");
+    const pairAgain = document.querySelector("#pair-again");
+    if (
+      !(codeInput instanceof HTMLInputElement) ||
+      !(connect instanceof HTMLButtonElement) ||
+      !(pairAgain instanceof HTMLButtonElement)
+    ) {
+      throw new Error("The synthetic connector controls are missing.");
+    }
+    await vi.waitFor(() => expect(connect.textContent).toBe("Refresh session"));
+    expect(codeInput.hidden).toBe(true);
+    expect(pairAgain.hidden).toBe(false);
+
+    pairAgain.click();
+
+    expect(codeInput.hidden).toBe(false);
+    expect(connect.textContent).toBe("Connect and share session");
+    codeInput.value = "ABCD-EF01-2345-6789";
+    document
+      .querySelector("#pairing-form")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(messages).toContainEqual({
+        type: "pair-session",
+        pairingCode: "ABCD-EF01-2345-6789",
+        port: 47_831,
+      }),
+    );
   });
 });

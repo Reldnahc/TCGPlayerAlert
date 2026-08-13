@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   createTcgplayerSellerClient,
   TcgplayerApiError,
+  type TcgplayerAuthenticationRequiredContext,
   type TcgplayerSession,
 } from "tcgplayer-private-api";
 import type {
@@ -65,6 +66,7 @@ export interface SellerSessionService {
 
 interface ActiveSession {
   readonly authCookie: string;
+  readonly revision: string;
   readonly sellerKey: string;
   readonly source: SellerConnectionSource;
   readonly connectorToken?: string;
@@ -88,8 +90,15 @@ export class SellerSessionManager
 {
   readonly session = (): Promise<TcgplayerSession> => this.getSession();
   readonly sellerKey = (): string => this.getSellerKey();
-  readonly onAuthenticationRequired = (): void => {
-    void this.markExpired();
+  readonly onAuthenticationRequired = (
+    _error: TcgplayerApiError,
+    context: TcgplayerAuthenticationRequiredContext,
+  ): void => {
+    if (context.sessionRevision === undefined) {
+      void this.markExpired();
+      return;
+    }
+    void this.revalidateAuthenticationFailure(context.sessionRevision);
   };
   readonly isConnected = (): boolean =>
     this.connectionStatus().state === "connected";
@@ -104,6 +113,11 @@ export class SellerSessionManager
   private stateUpdatedAt: string | undefined;
   private pendingPairing: PendingPairing | undefined;
   private persistence: Promise<void> = Promise.resolve();
+  private readonly authenticationRevalidations = new Map<
+    string,
+    Promise<void>
+  >();
+  private revisionSequence = 0;
 
   constructor(private readonly options: SellerSessionManagerOptions) {
     this.environment = options.environment ?? process.env;
@@ -125,6 +139,7 @@ export class SellerSessionManager
       if (authCookie && sellerKey) {
         this.active = {
           authCookie,
+          revision: this.newRevision(),
           sellerKey,
           source: "environment",
           updatedAt: this.now().toISOString(),
@@ -195,6 +210,7 @@ export class SellerSessionManager
     const updatedAt = this.now().toISOString();
     const active: ActiveSession = {
       ...normalized,
+      revision: this.newRevision(),
       sellerKey,
       source: "browser",
       connectorToken,
@@ -237,6 +253,7 @@ export class SellerSessionManager
     const updatedAt = this.now().toISOString();
     const active: ActiveSession = {
       ...normalized,
+      revision: this.newRevision(),
       sellerKey,
       source: "browser",
       connectorToken: expectedToken,
@@ -264,10 +281,13 @@ export class SellerSessionManager
     return this.connectionStatus();
   }
 
-  async markExpired(): Promise<void> {
+  async markExpired(sessionRevision?: string): Promise<void> {
     if (!this.initialized) return;
     const current = this.active;
     if (current === undefined) return;
+    if (sessionRevision !== undefined && sessionRevision !== current.revision) {
+      return;
+    }
     if (current.connectorToken === undefined) {
       this.active = undefined;
       this.expired = undefined;
@@ -293,6 +313,51 @@ export class SellerSessionManager
     this.notifyExpired(expired.updatedAt);
   }
 
+  private revalidateAuthenticationFailure(
+    sessionRevision: string,
+  ): Promise<void> {
+    const current = this.active;
+    if (!this.initialized || current?.revision !== sessionRevision) {
+      return Promise.resolve();
+    }
+    const existing = this.authenticationRevalidations.get(sessionRevision);
+    if (existing !== undefined) return existing;
+
+    const operation = this.confirmCurrentSession(
+      sessionRevision,
+      current.authCookie,
+      current.sellerKey,
+    ).finally(() => {
+      if (this.authenticationRevalidations.get(sessionRevision) === operation) {
+        this.authenticationRevalidations.delete(sessionRevision);
+      }
+    });
+    this.authenticationRevalidations.set(sessionRevision, operation);
+    return operation;
+  }
+
+  private async confirmCurrentSession(
+    sessionRevision: string,
+    authCookie: string,
+    expectedSellerKey: string,
+  ): Promise<void> {
+    try {
+      const sellerKey = await this.validate(authCookie);
+      const current = this.active;
+      if (current?.revision !== sessionRevision) return;
+      if (sellerKey.toLowerCase() !== expectedSellerKey.toLowerCase()) {
+        await this.markExpired(sessionRevision);
+      }
+    } catch (error) {
+      if (
+        error instanceof TcgplayerApiError &&
+        error.code === "AUTHENTICATION_REQUIRED"
+      ) {
+        await this.markExpired(sessionRevision);
+      }
+    }
+  }
+
   private notifyExpired(updatedAt: string): void {
     try {
       void Promise.resolve(this.options.onExpired?.(updatedAt)).catch(
@@ -312,7 +377,10 @@ export class SellerSessionManager
         "Connect TCGplayer from the local application before using seller tools.",
       );
     }
-    return { authCookie: this.active.authCookie };
+    return {
+      authCookie: this.active.authCookie,
+      revision: this.active.revision,
+    };
   }
 
   private getSellerKey(): string {
@@ -334,6 +402,7 @@ export class SellerSessionManager
     if (stored.state === "connected") {
       this.active = {
         authCookie: stored.authCookie,
+        revision: this.newRevision(),
         sellerKey: stored.sellerKey,
         source: "browser",
         connectorToken: stored.connectorToken,
@@ -359,6 +428,11 @@ export class SellerSessionManager
 
   private isPast(value: string | undefined): boolean {
     return value !== undefined && Date.parse(value) <= this.now().getTime();
+  }
+
+  private newRevision(): string {
+    this.revisionSequence += 1;
+    return String(this.revisionSequence);
   }
 
   private assertInitialized(): void {

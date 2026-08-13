@@ -4,6 +4,7 @@ import {
   type SellerCredentialStore,
   type StoredSellerSession,
 } from "../src/index.js";
+import { TcgplayerApiError } from "tcgplayer-private-api";
 
 class MemoryCredentialStore implements SellerCredentialStore {
   readonly available = true;
@@ -26,6 +27,7 @@ function manager(
   options: {
     readonly environment?: NodeJS.ProcessEnv;
     readonly sellerKey?: string;
+    readonly validateSession?: (authCookie: string) => Promise<string>;
     readonly onExpired?: (updatedAt: string) => void | Promise<void>;
   } = {},
 ) {
@@ -40,9 +42,11 @@ function manager(
     ...(options.onExpired === undefined
       ? {}
       : { onExpired: options.onExpired }),
-    validateSession: vi
-      .fn<(authCookie: string) => Promise<string>>()
-      .mockResolvedValue(options.sellerKey ?? "synthetic-seller"),
+    validateSession:
+      options.validateSession ??
+      vi
+        .fn<(authCookie: string) => Promise<string>>()
+        .mockResolvedValue(options.sellerKey ?? "synthetic-seller"),
   });
 }
 
@@ -63,9 +67,9 @@ describe("SellerSessionManager", () => {
       source: "environment",
       automaticRenewal: false,
     });
-    await expect(session.session()).resolves.toEqual({
-      authCookie: "synthetic-environment-cookie",
-    });
+    const environmentSession = await session.session();
+    expect(environmentSession.authCookie).toBe("synthetic-environment-cookie");
+    expect(environmentSession.revision).toMatch(/^\d+$/u);
     expect(session.sellerKey()).toBe("synthetic-seller");
     expect(store.value).toBeUndefined();
   });
@@ -96,9 +100,9 @@ describe("SellerSessionManager", () => {
 
     const reloaded = manager(store);
     await reloaded.initialize();
-    await expect(reloaded.session()).resolves.toEqual({
-      authCookie: "synthetic-browser-cookie",
-    });
+    const reloadedSession = await reloaded.session();
+    expect(reloadedSession.authCookie).toBe("synthetic-browser-cookie");
+    expect(reloadedSession.revision).toMatch(/^\d+$/u);
   });
 
   it("renews only from the paired connector and the same seller", async () => {
@@ -121,9 +125,9 @@ describe("SellerSessionManager", () => {
         authCookie: "synthetic-browser-cookie-two",
       }),
     ).resolves.toMatchObject({ state: "connected" });
-    await expect(session.session()).resolves.toEqual({
-      authCookie: "synthetic-browser-cookie-two",
-    });
+    const renewedSession = await session.session();
+    expect(renewedSession.authCookie).toBe("synthetic-browser-cookie-two");
+    expect(renewedSession.revision).toMatch(/^\d+$/u);
 
     const wrongSeller = manager(store, { sellerKey: "another-seller" });
     await wrongSeller.initialize();
@@ -162,6 +166,133 @@ describe("SellerSessionManager", () => {
 
     await session.markExpired();
     expect(onExpired).toHaveBeenCalledOnce();
+  });
+
+  it("ignores an old failure and retains a current session that revalidates", async () => {
+    const store = new MemoryCredentialStore();
+    const validateSession = vi
+      .fn<(authCookie: string) => Promise<string>>()
+      .mockResolvedValue("synthetic-seller");
+    const session = manager(store, { validateSession });
+    await session.initialize();
+    const firstChallenge = session.startPairing();
+    await session.connect(firstChallenge.pairingCode, {
+      authCookie: "synthetic-old-browser-cookie",
+    });
+    const oldRevision = (await session.session()).revision;
+    if (oldRevision === undefined) {
+      throw new Error("The old session did not expose its revision.");
+    }
+
+    const replacementChallenge = session.startPairing();
+    await session.connect(replacementChallenge.pairingCode, {
+      authCookie: "synthetic-replacement-browser-cookie",
+    });
+    const replacementRevision = (await session.session()).revision;
+    if (replacementRevision === undefined) {
+      throw new Error("The replacement session did not expose its revision.");
+    }
+    expect(replacementRevision).not.toBe(oldRevision);
+
+    session.onAuthenticationRequired(
+      new TcgplayerApiError(
+        "AUTHENTICATION_REQUIRED",
+        "Synthetic old request failed.",
+      ),
+      { sessionRevision: oldRevision },
+    );
+    await Promise.resolve();
+
+    expect(session.connectionStatus().state).toBe("connected");
+    await expect(session.session()).resolves.toMatchObject({
+      authCookie: "synthetic-replacement-browser-cookie",
+      revision: replacementRevision,
+    });
+
+    session.onAuthenticationRequired(
+      new TcgplayerApiError(
+        "AUTHENTICATION_REQUIRED",
+        "Synthetic current request failed.",
+      ),
+      { sessionRevision: replacementRevision },
+    );
+
+    await vi.waitFor(() => expect(validateSession).toHaveBeenCalledTimes(3));
+    expect(session.connectionStatus().state).toBe("connected");
+    await expect(session.session()).resolves.toMatchObject({
+      authCookie: "synthetic-replacement-browser-cookie",
+      revision: replacementRevision,
+    });
+  });
+
+  it("retains the current session when authoritative revalidation is transiently unavailable", async () => {
+    const store = new MemoryCredentialStore();
+    const validateSession = vi
+      .fn<(authCookie: string) => Promise<string>>()
+      .mockResolvedValueOnce("synthetic-seller")
+      .mockRejectedValueOnce(
+        new TcgplayerApiError(
+          "NETWORK_ERROR",
+          "Synthetic revalidation network failure.",
+        ),
+      );
+    const session = manager(store, { validateSession });
+    await session.initialize();
+    const challenge = session.startPairing();
+    await session.connect(challenge.pairingCode, {
+      authCookie: "synthetic-browser-cookie",
+    });
+    const revision = (await session.session()).revision;
+    if (revision === undefined) {
+      throw new Error("The current session did not expose its revision.");
+    }
+
+    session.onAuthenticationRequired(
+      new TcgplayerApiError(
+        "AUTHENTICATION_REQUIRED",
+        "Synthetic feature request failed.",
+      ),
+      { sessionRevision: revision },
+    );
+
+    await vi.waitFor(() => expect(validateSession).toHaveBeenCalledTimes(2));
+    expect(session.connectionStatus().state).toBe("connected");
+  });
+
+  it("expires the current session when authoritative revalidation rejects it", async () => {
+    const store = new MemoryCredentialStore();
+    const validateSession = vi
+      .fn<(authCookie: string) => Promise<string>>()
+      .mockResolvedValueOnce("synthetic-seller")
+      .mockRejectedValueOnce(
+        new TcgplayerApiError(
+          "AUTHENTICATION_REQUIRED",
+          "Synthetic authoritative rejection.",
+        ),
+      );
+    const session = manager(store, { validateSession });
+    await session.initialize();
+    const challenge = session.startPairing();
+    await session.connect(challenge.pairingCode, {
+      authCookie: "synthetic-browser-cookie",
+    });
+    const revision = (await session.session()).revision;
+    if (revision === undefined) {
+      throw new Error("The current session did not expose its revision.");
+    }
+
+    session.onAuthenticationRequired(
+      new TcgplayerApiError(
+        "AUTHENTICATION_REQUIRED",
+        "Synthetic feature request failed.",
+      ),
+      { sessionRevision: revision },
+    );
+
+    await vi.waitFor(() =>
+      expect(session.connectionStatus().state).toBe("expired"),
+    );
+    expect(validateSession).toHaveBeenCalledTimes(2);
   });
 
   it("persists an explicit disconnect instead of reactivating environment credentials", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "tcgplayer-alert",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local-first, configurable seller fulfillment automation service",
   "type": "module",
@@ -41,7 +41,7 @@
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "preact": "10.29.8",
-    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.17.0.tgz"
+    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.18.1.tgz"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

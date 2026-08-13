@@ -4,6 +4,7 @@ const form = document.querySelector("#pairing-form");
 const codeInput = document.querySelector("#pairing-code");
 const portInput = document.querySelector("#pairing-port");
 const button = document.querySelector("#connect");
+const pairAgainButton = document.querySelector("#pair-again");
 const hint = document.querySelector("#pairing-hint");
 const status = document.querySelector("#status");
 let paired = false;
@@ -11,6 +12,12 @@ let paired = false;
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   void connect();
+});
+
+pairAgainButton.addEventListener("click", () => {
+  paired = false;
+  renderConnectionState();
+  codeInput.focus();
 });
 
 void loadStatus().catch((cause) => {
@@ -23,11 +30,16 @@ async function loadStatus() {
   const result = await sendMessage({ type: "connection-status" });
   paired = result?.paired === true;
   if (Number.isInteger(result?.port)) portInput.value = String(result.port);
+  renderConnectionState();
+}
+
+function renderConnectionState() {
   button.textContent = paired ? "Refresh session" : "Connect and share session";
   codeInput.hidden = paired;
   document.querySelector('label[for="pairing-code"]').hidden = paired;
+  pairAgainButton.hidden = !paired;
   hint.textContent = paired
-    ? "This browser is paired. Refresh sends its current seller session now; later cookie changes are sent automatically."
+    ? "This browser is paired. Refresh sends its current seller session now; use a new code if the local application no longer recognizes this pairing."
     : "Generate this code from the connection panel in TCGPlayerAlert.";
 }
 

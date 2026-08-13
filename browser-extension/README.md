@@ -75,9 +75,13 @@ external release steps performed through the operator's store accounts.
 3. Sign in normally at `https://store.tcgplayer.com/admin` in the same browser
    profile. Complete MFA or CAPTCHA yourself.
 4. Open the connector, enter the application's pairing code and port, then
-   select **Connect browser**.
+   select **Connect and share session**.
 5. The application changes to **connected** after it validates and protects the
    session.
+
+If a temporary Firefox reinstall retains an older extension-local pairing,
+select **Pair with a new code** in the connector. This reveals the code field
+without requiring the stale pairing to fail first.
 
 The extension stores a random connector token, not the TCGplayer session
 cookie. It sends the current exact authentication cookie when that cookie
@@ -95,8 +99,8 @@ logged out:
 3. Select **Refresh session**.
 
 If the connector reports that pairing is required, generate a new code from
-the application and pair again. A custom application port must also be entered
-in the connector's Connection settings.
+the application, select **Pair with a new code**, and pair again. A custom
+application port must also be entered in the connector's Connection settings.
 
 The extension requests cookie access only for `store.tcgplayer.com`, extension
 storage for its connector token, alarms for the bounded local renewal check,

@@ -92,7 +92,8 @@ export function SellerConnectionCard({
           </Button>
           <p>
             Open the pinned TCGPlayerAlert connector in the same browser
-            profile, enter this code and port, then select Connect browser.
+            profile, enter this code and port, then select Connect and share
+            session.
           </p>
         </div>
       )}

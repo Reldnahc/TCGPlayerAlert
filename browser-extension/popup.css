@@ -160,6 +160,19 @@ button:disabled {
   opacity: 0.6;
 }
 
+.secondary-action {
+  min-height: auto;
+  padding: 3px;
+  background: transparent;
+  color: #126b57;
+}
+
+.secondary-action:hover:not(:disabled) {
+  background: transparent;
+  color: #0d5b4a;
+  text-decoration: underline;
+}
+
 .status {
   min-height: 20px;
   margin-top: 13px;
