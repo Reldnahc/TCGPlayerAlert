@@ -209,6 +209,8 @@ function service(
     readonly liveMode?: () => Promise<boolean>;
     readonly pageSize?: number;
     readonly maximumPages?: number;
+    readonly cacheMilliseconds?: number;
+    readonly now?: () => Date;
     readonly pullListGrouping?: () => Promise<{
       readonly groupLands: boolean;
       readonly groupMulticolored: boolean;
@@ -558,49 +560,75 @@ describe("order management", () => {
   it("shows only a newly arrived allocation as remaining for an already pulled SKU", async () => {
     const fakeClient = client();
     const progressStore = new MemoryPullListProgressStore();
+    let now = new Date("2026-08-04T12:00:00.000Z");
     fakeClient.searchOrders.mockResolvedValue({
       totalOrders: 1,
       orders: [firstOrder],
     });
     const orders = service(fakeClient, {
       pullListProgressStore: progressStore,
+      cacheMilliseconds: 30_000,
+      now: () => now,
     });
     await orders.getMasterPullList();
     await orders.setPullListRowPulled(pullSheetRow.skuId, true);
 
+    now = new Date("2026-08-04T12:00:31.000Z");
     const newOrder = {
       ...firstOrder,
       orderNumber: "synthetic-order-2",
     };
     fakeClient.searchOrders.mockResolvedValue({
-      totalOrders: 2,
-      orders: [firstOrder, newOrder],
+      totalOrders: 1,
+      orders: [newOrder],
     });
     fakeClient.exportPullSheet.mockResolvedValue({
       text: "synthetic pull sheet",
       contentType: "text/csv",
       fileName: "pull-sheet.csv",
-      orderNumbers: [firstOrder.orderNumber, newOrder.orderNumber],
+      orderNumbers: [newOrder.orderNumber],
       rows: [
         {
           ...pullSheetRow,
-          orderQuantity: 3,
+          orderQuantity: 1,
           orderAllocations: [
-            { orderNumber: firstOrder.orderNumber, quantity: 2 },
             { orderNumber: newOrder.orderNumber, quantity: 1 },
           ],
         },
       ],
     });
 
-    const refreshed = await orders.getMasterPullList({ force: true });
+    const refreshed = await orders.getMasterPullList();
 
+    expect(refreshed.orderCount).toBe(2);
     expect(refreshed.rows[0]).toMatchObject({
       orderQuantity: 3,
       pulledQuantity: 2,
       remainingQuantity: 1,
       pulled: false,
     });
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledTimes(2);
+    expect(fakeClient.exportPullSheet.mock.calls[1]?.[0].orderNumbers).toEqual([
+      newOrder.orderNumber,
+    ]);
+  });
+
+  it("retains the active pull list after an order is marked shipped", async () => {
+    const fakeClient = client();
+    fakeClient.searchOrders.mockResolvedValue({
+      totalOrders: 1,
+      orders: [firstOrder],
+    });
+    const orders = service(fakeClient);
+    const initial = await orders.getMasterPullList();
+
+    await orders.markShipped(firstOrder.orderNumber);
+    fakeClient.searchOrders.mockResolvedValue({ totalOrders: 0, orders: [] });
+    const retained = await orders.getMasterPullList({ force: true });
+
+    expect(retained.rows).toEqual(initial.rows);
+    expect(retained.orderCount).toBe(1);
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
   });
 
   it("prunes progress after TCGplayer no longer returns the order as ready", async () => {

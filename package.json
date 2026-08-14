@@ -1,6 +1,6 @@
 {
   "name": "tcgplayer-alert",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Local-first, configurable seller fulfillment automation service",
   "type": "module",

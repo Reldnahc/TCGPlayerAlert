@@ -161,10 +161,20 @@ interface CachedPullList {
   readonly expiresAt: number;
   readonly value: ManagedMasterPullList;
   readonly groupingKey: string;
+  readonly orderNumbers: ReadonlySet<string>;
   readonly allocationsBySku: ReadonlyMap<
     string,
     readonly PullSheetOrderAllocation[]
   >;
+}
+
+interface LoadedPullListRows {
+  readonly rows: readonly ManagedPullListRow[];
+  readonly allocationsBySku: ReadonlyMap<
+    string,
+    readonly PullSheetOrderAllocation[]
+  >;
+  readonly metadataIssue?: string;
 }
 
 export class OrderManagementService {
@@ -354,19 +364,44 @@ export class OrderManagementService {
     const now = this.now();
     const grouping = await this.pullListGrouping();
     const groupingKey = pullListGroupingKey(grouping);
+    const previousCache = this.pullListCache;
+    const matchingCache =
+      previousCache?.groupingKey === groupingKey ? previousCache : undefined;
     if (
       options.force !== true &&
-      this.pullListCache !== undefined &&
-      this.pullListCache.expiresAt > now.getTime() &&
-      this.pullListCache.groupingKey === groupingKey
+      matchingCache !== undefined &&
+      matchingCache.expiresAt > now.getTime()
     ) {
-      return this.pullListCache.value;
+      return matchingCache.value;
     }
     const readyOrders = await this.listOrders("ready-to-ship", options);
-    const orderNumbers = readyOrders.orders
+    const readyOrderNumbers = readyOrders.orders
       .filter((order) => order.statusCode === SellerOrderStatus.ReadyToShip)
       .map((order) => order.orderNumber);
+    const orderNumbers =
+      matchingCache === undefined
+        ? [
+            ...new Set([
+              ...(previousCache?.orderNumbers ?? []),
+              ...readyOrderNumbers,
+            ]),
+          ]
+        : readyOrderNumbers.filter(
+            (orderNumber) => !matchingCache.orderNumbers.has(orderNumber),
+          );
     if (orderNumbers.length === 0) {
+      if (matchingCache !== undefined) {
+        const value = {
+          ...matchingCache.value,
+          fetchedAt: now.toISOString(),
+        };
+        this.pullListCache = {
+          ...matchingCache,
+          expiresAt: now.getTime() + this.cacheMilliseconds,
+          value,
+        };
+        return value;
+      }
       return this.withPullListProgressOperation(async () => {
         const allocationsBySku = new Map<
           string,
@@ -385,16 +420,75 @@ export class OrderManagementService {
           expiresAt: now.getTime() + this.cacheMilliseconds,
           value,
           groupingKey,
+          orderNumbers: new Set(),
           allocationsBySku,
         };
         return value;
       });
     }
-    const requestOptions =
-      options.signal === undefined ? undefined : { signal: options.signal };
+    const loaded = await this.loadPullListRows(
+      orderNumbers,
+      grouping,
+      options.signal,
+    );
+    const baseRows =
+      matchingCache === undefined
+        ? loaded.rows
+        : mergeManagedPullListRows(matchingCache.value.rows, loaded.rows);
+    const allocationsBySku =
+      matchingCache === undefined
+        ? loaded.allocationsBySku
+        : mergePullListAllocationMaps(
+            matchingCache.allocationsBySku,
+            loaded.allocationsBySku,
+          );
+    const accumulatedOrderNumbers = new Set([
+      ...(matchingCache?.orderNumbers ?? []),
+      ...orderNumbers,
+    ]);
+    return this.withPullListProgressOperation(async () => {
+      const progress =
+        await this.loadReconciledPullListProgress(allocationsBySku);
+      const metadataIssue = combinePullListMetadataIssues(
+        matchingCache?.value.metadataIssue,
+        loaded.metadataIssue,
+      );
+      const value = applyPullListProgress(
+        {
+          orderCount: accumulatedOrderNumbers.size,
+          rows: baseRows,
+          totalQuantity: baseRows.reduce(
+            (total, row) => total + row.orderQuantity,
+            0,
+          ),
+          pulledQuantity: 0,
+          remainingQuantity: 0,
+          fetchedAt: now.toISOString(),
+          ...(metadataIssue === undefined ? {} : { metadataIssue }),
+        },
+        allocationsBySku,
+        progress,
+      );
+      this.pullListCache = {
+        expiresAt: now.getTime() + this.cacheMilliseconds,
+        value,
+        groupingKey,
+        orderNumbers: accumulatedOrderNumbers,
+        allocationsBySku,
+      };
+      return value;
+    });
+  }
+
+  private async loadPullListRows(
+    orderNumbers: readonly string[],
+    grouping: PullListGroupingSettings,
+    signal?: AbortSignal,
+  ): Promise<LoadedPullListRows> {
+    const requestOptions = signal === undefined ? undefined : { signal };
     const rowsBySku = new Map<string, PullSheetRow>();
     for (let offset = 0; offset < orderNumbers.length; offset += 500) {
-      options.signal?.throwIfAborted();
+      signal?.throwIfAborted();
       const batch = orderNumbers.slice(offset, offset + 500);
       const document = await this.client.exportPullSheet(
         {
@@ -435,13 +529,10 @@ export class OrderManagementService {
     const productIds = await this.loadPullListProductIds(
       pullSheetRows,
       orderNumbers,
-      options.signal,
+      signal,
     );
     const uniqueProductIds = [...new Set(productIds.bySku.values())];
-    const metadata = await this.loadPullListMetadata(
-      uniqueProductIds,
-      options.signal,
-    );
+    const metadata = await this.loadPullListMetadata(uniqueProductIds, signal);
     const baseRows = pullSheetRows.map<ManagedPullListRow>((row) => {
       const productId = productIds.bySku.get(row.skuId);
       const colors =
@@ -475,39 +566,15 @@ export class OrderManagementService {
     const allocationsBySku = new Map(
       pullSheetRows.map((row) => [row.skuId, row.orderAllocations] as const),
     );
-    return this.withPullListProgressOperation(async () => {
-      const progress =
-        await this.loadReconciledPullListProgress(allocationsBySku);
-      const value = applyPullListProgress(
-        {
-          orderCount: orderNumbers.length,
-          rows: baseRows,
-          totalQuantity: baseRows.reduce(
-            (total, row) => total + row.orderQuantity,
-            0,
-          ),
-          pulledQuantity: 0,
-          remainingQuantity: 0,
-          fetchedAt: now.toISOString(),
-          ...(productIds.issue === undefined && metadata.issue === undefined
-            ? {}
-            : {
-                metadataIssue: [productIds.issue, metadata.issue]
-                  .filter((issue): issue is string => issue !== undefined)
-                  .join(" "),
-              }),
-        },
-        allocationsBySku,
-        progress,
-      );
-      this.pullListCache = {
-        expiresAt: now.getTime() + this.cacheMilliseconds,
-        value,
-        groupingKey,
-        allocationsBySku,
-      };
-      return value;
-    });
+    const metadataIssue = combinePullListMetadataIssues(
+      productIds.issue,
+      metadata.issue,
+    );
+    return {
+      rows: baseRows,
+      allocationsBySku,
+      ...(metadataIssue === undefined ? {} : { metadataIssue }),
+    };
   }
 
   async setPullListRowPulled(
@@ -797,7 +864,7 @@ export class OrderManagementService {
       "Tracking number",
       256,
     );
-    this.clearOrderCaches();
+    this.clearOrderCaches(true);
     const requestOptions = signal === undefined ? undefined : { signal };
     const { carrier } = await this.client.detectCarrier(
       normalizedTracking,
@@ -824,7 +891,7 @@ export class OrderManagementService {
   }> {
     const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
-    this.clearOrderCaches();
+    this.clearOrderCaches(true);
     try {
       const result = await this.client.markOrdersShipped(
         { sellerKey, orderNumbers: [normalized] },
@@ -897,7 +964,7 @@ export class OrderManagementService {
       );
     }
     this.refundingOrders.add(refundKey);
-    this.clearOrderCaches();
+    this.clearOrderCaches(true);
     try {
       const requestOptions = signal === undefined ? undefined : { signal };
       if (input.type === "full") {
@@ -946,10 +1013,10 @@ export class OrderManagementService {
     return sellerKey;
   }
 
-  private clearOrderCaches(): void {
+  private clearOrderCaches(preservePullList = false): void {
     this.cache.clear();
     this.detailCache.clear();
-    this.pullListCache = undefined;
+    if (!preservePullList) this.pullListCache = undefined;
     this.pirateShipCache.clear();
   }
 }
@@ -1016,8 +1083,28 @@ function pullListGroupingKey(grouping: PullListGroupingSettings): string {
 }
 
 function samePullSheetProduct(
-  left: PullSheetRow,
-  right: PullSheetRow,
+  left: Pick<
+    PullSheetRow,
+    | "productLine"
+    | "productName"
+    | "condition"
+    | "number"
+    | "setName"
+    | "rarity"
+    | "mainPhotoUrl"
+    | "setReleaseDate"
+  >,
+  right: Pick<
+    PullSheetRow,
+    | "productLine"
+    | "productName"
+    | "condition"
+    | "number"
+    | "setName"
+    | "rarity"
+    | "mainPhotoUrl"
+    | "setReleaseDate"
+  >,
 ): boolean {
   return (
     left.productLine === right.productLine &&
@@ -1029,6 +1116,75 @@ function samePullSheetProduct(
     left.mainPhotoUrl === right.mainPhotoUrl &&
     left.setReleaseDate === right.setReleaseDate
   );
+}
+
+function mergeManagedPullListRows(
+  existingRows: readonly ManagedPullListRow[],
+  newRows: readonly ManagedPullListRow[],
+): readonly ManagedPullListRow[] {
+  const rows = new Map(existingRows.map((row) => [row.skuId, row] as const));
+  for (const row of newRows) {
+    const existing = rows.get(row.skuId);
+    if (existing === undefined) {
+      rows.set(row.skuId, row);
+      continue;
+    }
+    if (!samePullSheetProduct(existing, row)) {
+      throw new ApplicationError(
+        "PROVIDER_ERROR",
+        "The pull sheet returned conflicting details for one cached SKU.",
+      );
+    }
+    rows.set(row.skuId, {
+      ...existing,
+      ...row,
+      orderQuantity: existing.orderQuantity + row.orderQuantity,
+      metadata: row.metadata.length === 0 ? existing.metadata : row.metadata,
+      pulledQuantity: 0,
+      remainingQuantity: existing.orderQuantity + row.orderQuantity,
+      pulled: false,
+      canTrackPullProgress: false,
+    });
+  }
+  return [...rows.values()];
+}
+
+function mergePullListAllocationMaps(
+  existing: ReadonlyMap<string, readonly PullSheetOrderAllocation[]>,
+  additions: ReadonlyMap<string, readonly PullSheetOrderAllocation[]>,
+): ReadonlyMap<string, readonly PullSheetOrderAllocation[]> {
+  const merged = new Map(existing);
+  for (const [skuId, allocations] of additions) {
+    const current = merged.get(skuId);
+    if (current === undefined) {
+      merged.set(skuId, allocations);
+      continue;
+    }
+    const currentOrders = new Set(
+      current.map((allocation) => allocation.orderNumber),
+    );
+    if (
+      allocations.some((allocation) =>
+        currentOrders.has(allocation.orderNumber),
+      )
+    ) {
+      throw new ApplicationError(
+        "PROVIDER_ERROR",
+        "The pull sheet repeated an order already held in the active pull list.",
+      );
+    }
+    merged.set(skuId, [...current, ...allocations]);
+  }
+  return merged;
+}
+
+function combinePullListMetadataIssues(
+  ...issues: readonly (string | undefined)[]
+): string | undefined {
+  const distinct = [
+    ...new Set(issues.filter((issue): issue is string => issue !== undefined)),
+  ];
+  return distinct.length === 0 ? undefined : distinct.join(" ");
 }
 
 function mergeOrderAllocations(

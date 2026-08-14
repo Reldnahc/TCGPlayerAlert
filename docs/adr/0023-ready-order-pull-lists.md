@@ -48,8 +48,12 @@ metadata enrichment must avoid one catalog request per row.
   to enabled for migrated configurations.
 - Treat metadata as an enhancement. If its read fails, return the complete
   operational master list with a visible warning instead of failing the list.
-- Cache the assembled master list in server memory for 30 seconds. Refresh
-  bypasses both it and the ready-order cache, and order mutations invalidate it.
+- Keep one cumulative master pull session in server memory. The 30-second cache
+  bounds ready-queue checks, but an expired or explicit refresh requests pull
+  sheets only for ready order numbers the active session has not seen and
+  merges those allocations into its existing SKU rows. Orders leaving the
+  ready queue and order mutations do not remove rows from an active picking
+  session. A process restart or seller change ends that in-memory session.
 - Render a dedicated master-list route with combined quantity, product, set,
   number, condition, rarity, and available metadata. Allow every data column to
   control a stable ascending or descending row sort; keep the check-off column
@@ -58,16 +62,19 @@ metadata enrichment must avoid one catalog request per row.
   Keep the summary visible while the row region scrolls independently. The
   printed list follows the displayed order. Use a dense monochrome printer
   stylesheet and `window.print()` so the operating system's normal print dialog
-  remains the generic printer boundary.
+  remains the generic printer boundary. Keep the mounted pull-list page and its
+  browser state intact when a window-focus authentication check rerenders the
+  application shell.
 - Default the working and printed master list to allocations that still need to
   be pulled. A `Show pulled` control may reveal completed SKU rows with their
   checkboxes prechecked. Checking a combined SKU marks only its current
   per-order allocations; a later order for the same SKU remains unpulled and
   contributes only its new quantity.
 - Persist only order number, SKU, pulled quantity, and timestamp in a separate
-  versioned progress document. Prune entries when their allocation is no longer
-  in TCGplayer's ready queue. Never persist or log pull-sheet product fields,
-  product metadata, customer details, or a synthetic order status.
+  versioned progress document. Reconcile it against the cumulative in-memory
+  session while that session is active; after a restart, prune entries absent
+  from the newly loaded ready queue. Never persist or log pull-sheet product
+  fields, product metadata, customer details, or a synthetic order status.
 
 ## Consequences
 
@@ -76,12 +83,13 @@ per 500 ready orders, up to one detail read per ready order needed to resolve
 missing product IDs, and one public marketplace request per 24 unique products.
 It stops detail reads as soon as every pull-sheet SKU is resolved and reuses
 details already in the short-lived in-memory cache. Repeated exact SKUs become
-one physical picking row, and revisits within the pull-list cache window add no
-requests. Optional detail or catalog drift cannot block fulfillment, while
-pull-sheet identity or SKU drift fails explicitly. The feature works with any
-printer exposed through the browser's operating-system print dialog. Sorting is
-entirely client-side and adds no provider requests. Its preference is local to
-the browser profile and resets when the operator clears site data. Pull
-progress survives browser and application restarts without retaining card
-descriptions or customer data, and updating it adds no seller API request while
-the current list is cached.
+one physical picking row. Returning focus adds no pull-list request, and later
+refreshes export only newly seen ready orders before extending the current
+physical picking session. Optional detail or catalog drift cannot block
+fulfillment, while pull-sheet identity or SKU drift fails explicitly. The
+feature works with any printer exposed through the browser's operating-system
+print dialog. Sorting is entirely client-side and adds no provider requests.
+Its preference is local to the browser profile and resets when the operator
+clears site data. Pull progress survives browser and application restarts
+without retaining card descriptions or customer data, and updating it adds no
+seller API request while the current list is cached.

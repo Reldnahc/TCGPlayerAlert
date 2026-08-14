@@ -8,7 +8,7 @@ test("shows a printable master pull list with card metadata", async ({
   await expect(
     page.getByRole("heading", { name: "Master pull list" }),
   ).toBeVisible();
-  await expect(page.getByText("Ready orders", { exact: true })).toBeVisible();
+  await expect(page.getByText("Session orders", { exact: true })).toBeVisible();
   await expect(page.getByText("Lightning Bolt", { exact: true })).toBeVisible();
   await expect(page.getByText("Counterspell", { exact: true })).toBeVisible();
   await expect(page.getByText("Red", { exact: true })).toBeVisible();

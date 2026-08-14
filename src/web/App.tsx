@@ -160,14 +160,7 @@ function Console() {
   else {
     const pages: Readonly<Record<RouteId, () => JSX.Element | null>> = {
       dashboard: DashboardPage,
-      orders: () =>
-        applicationRoute.orderView === "master-pull-list" ? (
-          <MasterPullListPage />
-        ) : applicationRoute.orderNumber === undefined ? (
-          <OrdersPage />
-        ) : (
-          <OrderDetailPage orderNumber={applicationRoute.orderNumber} />
-        ),
+      orders: OrdersPage,
       payments: PaymentsPage,
       feedback: FeedbackPage,
       messages: MessagesPage,
@@ -216,7 +209,17 @@ function Console() {
                 </main>
               }
             >
-              <Page />
+              {candidate.id === "orders" ? (
+                applicationRoute.orderView === "master-pull-list" ? (
+                  <MasterPullListPage />
+                ) : applicationRoute.orderNumber === undefined ? (
+                  <OrdersPage />
+                ) : (
+                  <OrderDetailPage orderNumber={applicationRoute.orderNumber} />
+                )
+              ) : (
+                <Page />
+              )}
             </Suspense>
           )}
         </div>

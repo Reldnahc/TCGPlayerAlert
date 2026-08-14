@@ -242,7 +242,7 @@ export function MasterPullListPage() {
     <main class="page pull-list-page">
       <PageHeader
         title="Master pull list"
-        description="All orders ready to ship"
+        description="Active picking session · refresh adds new ready orders"
         actions={
           <>
             <a class="button button--quiet" href="#orders">
@@ -291,7 +291,7 @@ export function MasterPullListPage() {
             )}
             <section class="surface pull-list-summary">
               <div>
-                <span>Ready orders</span>
+                <span>Session orders</span>
                 <strong>{String(pullList.orderCount)}</strong>
               </div>
               <div>
