@@ -63,6 +63,7 @@ class MemoryShipmentTagRegistry implements ShipmentTagRegistry {
           orderNumber,
           tagId,
           assignedAt: "2026-08-09T12:00:00.000Z",
+          assignedSequence: this.assignments.size + 1,
         });
         used.add(tagId);
         break;

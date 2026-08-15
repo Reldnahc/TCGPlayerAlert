@@ -97,6 +97,7 @@ export {
   shipmentTagAssignmentsPath,
   shipmentTagId,
   SHIPMENT_TAG_COUNT,
+  SHIPMENT_TAG_REUSE_ORDER_GAP,
 } from "./shipment-tags.js";
 export type {
   ShipmentTagAssigner,

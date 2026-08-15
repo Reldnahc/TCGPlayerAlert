@@ -49,10 +49,13 @@ printer submission rather than falling back to the colliding hash.
 Scanner status reserves assignments for the in-memory ready snapshot so labels
 created by the previous hash-only version remain recognizable when they do not
 collide. A fresh authoritative ready-order response reconciles the registry:
-orders still ready retain their assignment, absent orders are released, and any
-unassigned ready orders receive unique IDs. If old physical labels already
-contain the same colliding marker, one must be reprinted after migration because
-software cannot alter a marker already on paper.
+orders still ready retain their assignment, newly absent orders become retired,
+and any unassigned ready orders receive unique IDs. A retired marker remains
+unavailable until 100 newer order markers have been assigned. Wall time cannot
+expire that quarantine. If the same order reappears before reuse, reactivate its
+original marker. If old physical labels already contain the same colliding
+marker, one must be reprinted after migration because software cannot alter a
+marker already on paper.
 
 The original implementation used the browser detector and continuous-camera controller proven by ADR 0016. It examined at most four frames per second, allowed one detection in flight,
 requires five matching reads, latches the processed tag, and re-arms after five
@@ -93,10 +96,11 @@ context never changes scan behavior.
   ordinary camera frames and Scanner page visits cause none.
 - A hash collision is resolved before label submission, so two current orders
   cannot receive the same marker. If all 587 identifiers are simultaneously
-  reserved, the next label stops for review before printing.
+  active or quarantined, the next label stops for review before printing.
 - The assignment registry contains only order number, tag id, and assignment
-  timestamp. It is local, atomically replaced, and protected by a filesystem
-  lease. Changing the preferred-hash version or tag family requires a
+  timestamp, monotonic assignment sequence, and optional retirement sequence.
+  It is local, atomically replaced, and protected by a filesystem lease.
+  Changing the preferred-hash version, reuse gap, or tag family requires a
   label-compatibility migration.
 - A label from an already processed order is suppressed by the durable ledger.
   If a later ready order derives the same tag, the current authoritative match
