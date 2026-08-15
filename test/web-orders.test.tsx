@@ -396,7 +396,9 @@ describe("order workspaces", () => {
           skuId: "456",
           orderQuantity: 2,
           productId: 123,
+          attributes: { color: ["Red"], cardType: ["Creature"] },
           metadata: [{ label: "Color", values: ["Red"] }],
+          bin: "MTG / Red / Creature / No power",
           pulledQuantity: 0,
           remainingQuantity: 2,
           pulled: false,
@@ -415,7 +417,9 @@ describe("order workspaces", () => {
           skuId: "789",
           orderQuantity: 1,
           productId: 124,
+          attributes: {},
           metadata: [],
+          bin: "Unsorted",
           pulledQuantity: 0,
           remainingQuantity: 1,
           pulled: false,
@@ -446,6 +450,8 @@ describe("order workspaces", () => {
     ).toBeTruthy();
     expect(await screen.findByText("Synthetic Red Card")).toBeTruthy();
     expect(screen.getByText("Red")).toBeTruthy();
+    expect(screen.getByText("MTG / Red / Creature / No power")).toBeTruthy();
+    expect(screen.getByText("Unsorted")).toBeTruthy();
     expect(screen.getByText("Product Without Color")).toBeTruthy();
     expect(screen.queryByText("Unknown")).toBeNull();
     expect(
@@ -462,13 +468,16 @@ describe("order workspaces", () => {
       within(screen.getByRole("table"))
         .getAllByRole("row")
         .slice(1)
-        .map((row) => within(row).getAllByRole("cell")[2]?.textContent);
+        .map((row) => within(row).getAllByRole("cell")[3]?.textContent);
 
     expect(productOrder()).toEqual([
       "Synthetic Red CardMagic: The Gathering",
       "Product Without ColorSynthetic Game",
     ]);
     expect(screen.getByRole("button", { name: "Sort by qty" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sort by bin, currently ascending" }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Sort by set / #" }),
     ).toBeTruthy();
@@ -528,7 +537,9 @@ describe("order workspaces", () => {
       skuId: "456",
       orderQuantity: 2,
       productId: 123,
+      attributes: { color: ["Blue"], cardType: ["Creature"] },
       metadata: [{ label: "Color", values: ["Blue"] }],
+      bin: "MTG / Blue / Creature / No power",
       pulledQuantity: 0,
       remainingQuantity: 2,
       pulled: false,

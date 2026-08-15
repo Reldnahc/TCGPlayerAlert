@@ -23,6 +23,13 @@ import {
   type ManagedOrderList,
   type ManagedOrderSummary,
 } from "./ready-orders.js";
+import {
+  DEFAULT_PULL_LIST_BINNING_CONFIG,
+  pullListBin,
+  pullListColorGroup,
+  pullListSettingsKey,
+  type PullListGroupingSettings,
+} from "./pull-list-binning.js";
 
 export type { ManagedOrderList, ManagedOrderSummary } from "./ready-orders.js";
 
@@ -75,7 +82,9 @@ export interface ManagedPullListRow extends Omit<
   "orderAllocations"
 > {
   readonly productId?: number;
+  readonly attributes: Readonly<Record<string, readonly string[]>>;
   readonly metadata: readonly PullListMetadata[];
+  readonly bin: string;
   readonly pulledQuantity: number;
   readonly remainingQuantity: number;
   readonly pulled: boolean;
@@ -90,11 +99,6 @@ export interface ManagedMasterPullList {
   readonly remainingQuantity: number;
   readonly fetchedAt: string;
   readonly metadataIssue?: string;
-}
-
-export interface PullListGroupingSettings {
-  readonly groupLands: boolean;
-  readonly groupMulticolored: boolean;
 }
 
 type OrderManagementClient = Pick<
@@ -226,7 +230,12 @@ export class OrderManagementService {
     );
     this.pullListGrouping =
       options.pullListGrouping ??
-      (() => Promise.resolve({ groupLands: true, groupMulticolored: true }));
+      (() =>
+        Promise.resolve({
+          groupLands: true,
+          groupMulticolored: true,
+          binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
+        }));
     this.cacheMilliseconds = boundedInteger(
       options.cacheMilliseconds ?? 30_000,
       0,
@@ -363,10 +372,18 @@ export class OrderManagementService {
     this.currentSellerKey();
     const now = this.now();
     const grouping = await this.pullListGrouping();
-    const groupingKey = pullListGroupingKey(grouping);
+    const groupingKey = pullListSettingsKey(grouping);
     const previousCache = this.pullListCache;
     const matchingCache =
-      previousCache?.groupingKey === groupingKey ? previousCache : undefined;
+      previousCache === undefined
+        ? undefined
+        : previousCache.groupingKey === groupingKey
+          ? previousCache
+          : {
+              ...previousCache,
+              groupingKey,
+              value: projectMasterPullList(previousCache.value, grouping),
+            };
     if (
       options.force !== true &&
       matchingCache !== undefined &&
@@ -535,11 +552,21 @@ export class OrderManagementService {
     const metadata = await this.loadPullListMetadata(uniqueProductIds, signal);
     const baseRows = pullSheetRows.map<ManagedPullListRow>((row) => {
       const productId = productIds.bySku.get(row.skuId);
-      const colors =
-        productId === undefined ? undefined : metadata.colors.get(productId);
-      const cardTypes =
-        productId === undefined ? undefined : metadata.cardTypes.get(productId);
-      const colorGroup = pullListColorGroup(colors, cardTypes, grouping);
+      const attributes =
+        productId === undefined
+          ? {}
+          : (metadata.attributes.get(productId) ?? {});
+      const colorGroup = pullListColorGroup(attributes, grouping);
+      const facts = {
+        productLine: row.productLine,
+        productName: row.productName,
+        setName: row.setName,
+        number: row.number,
+        rarity: row.rarity,
+        condition: row.condition,
+        setReleaseDate: row.setReleaseDate,
+        attributes,
+      };
       return {
         productLine: row.productLine,
         productName: row.productName,
@@ -553,10 +580,12 @@ export class OrderManagementService {
         skuId: row.skuId,
         orderQuantity: row.orderQuantity,
         ...(productId === undefined ? {} : { productId }),
+        attributes,
         metadata:
           colorGroup.length === 0
             ? []
             : [{ label: "Color", values: colorGroup }],
+        bin: pullListBin(facts, grouping),
         pulledQuantity: 0,
         remainingQuantity: row.orderQuantity,
         pulled: false,
@@ -729,12 +758,16 @@ export class OrderManagementService {
     productIds: readonly number[],
     signal?: AbortSignal,
   ): Promise<{
-    readonly colors: ReadonlyMap<number, readonly string[]>;
-    readonly cardTypes: ReadonlyMap<number, readonly string[]>;
+    readonly attributes: ReadonlyMap<
+      number,
+      Readonly<Record<string, readonly string[]>>
+    >;
     readonly issue?: string;
   }> {
-    const colors = new Map<number, readonly string[]>();
-    const cardTypes = new Map<number, readonly string[]>();
+    const attributes = new Map<
+      number,
+      Readonly<Record<string, readonly string[]>>
+    >();
     try {
       for (let offset = 0; offset < productIds.length; offset += 24) {
         signal?.throwIfAborted();
@@ -745,27 +778,22 @@ export class OrderManagementService {
         );
         const requested = new Set(batch);
         for (const product of result.products) {
-          if (
-            requested.has(product.productId) &&
-            product.colors !== undefined
-          ) {
-            colors.set(product.productId, product.colors);
-          }
-          if (
-            requested.has(product.productId) &&
-            product.cardTypes !== undefined
-          ) {
-            cardTypes.set(product.productId, product.cardTypes);
-          }
+          if (!requested.has(product.productId)) continue;
+          attributes.set(product.productId, {
+            ...(product.attributes ?? {}),
+            ...(product.colors === undefined ? {} : { color: product.colors }),
+            ...(product.cardTypes === undefined
+              ? {}
+              : { cardType: product.cardTypes }),
+          });
         }
       }
-      return { colors, cardTypes };
+      return { attributes };
     } catch (cause) {
       signal?.throwIfAborted();
       void cause;
       return {
-        colors,
-        cardTypes,
+        attributes,
         issue: "Optional card metadata could not be loaded.",
       };
     }
@@ -1054,32 +1082,27 @@ function sameStringSet(
   );
 }
 
-function pullListColorGroup(
-  colors: readonly string[] | undefined,
-  cardTypes: readonly string[] | undefined,
-  grouping: PullListGroupingSettings,
-): readonly string[] {
-  if (
-    grouping.groupLands &&
-    cardTypes?.some((cardType) => /\bland\b/iu.test(cardType))
-  ) {
-    return ["Land"];
-  }
-  const distinctColors = new Map<string, string>();
-  for (const color of colors ?? []) {
-    const trimmed = color.trim();
-    if (trimmed.length > 0) {
-      distinctColors.set(trimmed.toLocaleLowerCase(), trimmed);
-    }
-  }
-  if (grouping.groupMulticolored && distinctColors.size >= 2) {
-    return ["Multicolored"];
-  }
-  return [...distinctColors.values()];
+function projectPullListRow(
+  row: ManagedPullListRow,
+  settings: PullListGroupingSettings,
+): ManagedPullListRow {
+  const colorGroup = pullListColorGroup(row.attributes, settings);
+  return {
+    ...row,
+    metadata:
+      colorGroup.length === 0 ? [] : [{ label: "Color", values: colorGroup }],
+    bin: pullListBin(row, settings),
+  };
 }
 
-function pullListGroupingKey(grouping: PullListGroupingSettings): string {
-  return `${grouping.groupLands ? "land" : "color"}:${grouping.groupMulticolored ? "multi" : "colors"}`;
+function projectMasterPullList(
+  list: ManagedMasterPullList,
+  settings: PullListGroupingSettings,
+): ManagedMasterPullList {
+  return {
+    ...list,
+    rows: list.rows.map((row) => projectPullListRow(row, settings)),
+  };
 }
 
 function samePullSheetProduct(
@@ -1135,11 +1158,14 @@ function mergeManagedPullListRows(
         "The pull sheet returned conflicting details for one cached SKU.",
       );
     }
+    const hasNewAttributes = Object.keys(row.attributes).length > 0;
     rows.set(row.skuId, {
       ...existing,
       ...row,
       orderQuantity: existing.orderQuantity + row.orderQuantity,
-      metadata: row.metadata.length === 0 ? existing.metadata : row.metadata,
+      attributes: hasNewAttributes ? row.attributes : existing.attributes,
+      metadata: hasNewAttributes ? row.metadata : existing.metadata,
+      bin: hasNewAttributes ? row.bin : existing.bin,
       pulledQuantity: 0,
       remainingQuantity: existing.orderQuantity + row.orderQuantity,
       pulled: false,

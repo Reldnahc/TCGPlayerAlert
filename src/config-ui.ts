@@ -25,6 +25,7 @@ import type {
 import { parseConfig } from "./config.js";
 import { ConfigurationError } from "./errors.js";
 import { parseGamePricingModules } from "./game-pricing.js";
+import { parsePullListBinningConfig } from "./pull-list-binning.js";
 import type { PriceUpdateQueueStore } from "./price-update-queue.js";
 import type {
   InventoryAdditionQueueStore,
@@ -499,6 +500,11 @@ function parseUiUpdate(
   if (typeof groupMulticolored !== "boolean") {
     issues.push("Multicolored grouping must be enabled or disabled.");
   }
+  const binningResult = parsePullListBinningConfig(
+    masterPullList?.binning,
+    "The pull-list binning configuration",
+  );
+  issues.push(...binningResult.issues);
   const notifications = objectValue(source?.notifications);
   const discordNotifications = objectValue(notifications?.discord);
   const discordEvents = objectValue(discordNotifications?.events);
@@ -705,6 +711,7 @@ function parseUiUpdate(
     masterPullList: {
       groupLands: groupLands as boolean,
       groupMulticolored: groupMulticolored as boolean,
+      binning: binningResult.config,
     },
     notifications: {
       discord: {

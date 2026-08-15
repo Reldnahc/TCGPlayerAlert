@@ -1,11 +1,29 @@
 {
-  "version": 4,
+  "version": 5,
   "pricingProfileDefaultsVersion": 1,
   "pollIntervalMinutes": 60,
   "confirmBeforeMarkingShipped": true,
   "masterPullList": {
     "groupLands": true,
-    "groupMulticolored": true
+    "groupMulticolored": true,
+    "binning": {
+      "enabled": true,
+      "fallback": "Unsorted",
+      "rules": [
+        {
+          "id": "magic-default",
+          "name": "Magic",
+          "enabled": true,
+          "productLine": "Magic: The Gathering",
+          "prefix": "MTG",
+          "dimensions": [
+            { "field": "colorGroup", "fallback": "Unknown color" },
+            { "field": "cardType", "fallback": "Other type" },
+            { "field": "power", "fallback": "No power" }
+          ]
+        }
+      ]
+    }
   },
   "notifications": {
     "discord": {

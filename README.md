@@ -51,7 +51,7 @@ Pop-Location
 npm install
 ```
 
-The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.18.1 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
+The tarball is intentionally ignored by Git. `package-lock.json` pins its integrity. The current application contract requires `tcgplayer-private-api` 0.19.0 from the commit recorded in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). After that package is published, replace the file dependency with the released semantic version.
 
 ## Configure
 
@@ -70,16 +70,24 @@ Copy-Item .env.example .env.local
 Copy-Item config/local.example.json config/local.json
 ```
 
-The current configuration schema is version 4. Existing version-one,
-version-two, and version-three files are migrated safely in memory and are
-rewritten as a complete version-four document the next time Settings is saved;
+The current configuration schema is version 5. Existing version-one through
+version-four files are migrated safely in memory and are rewritten as a
+complete version-five document the next time Settings is saved;
 validation and startup never rewrite the file on their own. Discord
 notifications remain disabled during migration.
 
-The General settings independently control whether the master pull list groups
+The Pull list settings independently control whether the master pull list groups
 provider-identified lands as **Land** and cards with two or more colors as
-**Multicolored**. Both settings default to enabled for existing installations,
-and changing either one takes effect the next time the pull list loads.
+**Multicolored**. The same section contains ordered physical-bin rules. Each
+rule matches one product line (or all product lines), adds an optional prefix,
+and builds a Bin path from up to eight metadata fields with explicit missing
+values. The enabled default Magic rule produces paths such as **MTG / Blue /
+Creature / 2** from exact TCGplayer product data. Fields include Magic power,
+Pokemon HP/stage, Lorcana ink/strength, YuGiOh attack/defense, and validated
+custom provider attribute keys. Arbitrary code is never evaluated. The master
+pull list displays and prints the Bin column in ascending order by default.
+Changing bin settings reprojects the active in-memory pull session without a
+provider refresh, and binning adds no network calls.
 
 The environment file may remain blank when using the browser connector.
 

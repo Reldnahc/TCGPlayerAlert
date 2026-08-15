@@ -13,6 +13,9 @@ test("shows a printable master pull list with card metadata", async ({
   await expect(page.getByText("Counterspell", { exact: true })).toBeVisible();
   await expect(page.getByText("Red", { exact: true })).toBeVisible();
   await expect(page.getByText("Blue", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("MTG / Blue / Instant / No power", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Print" })).toBeEnabled();
   const foilRow = page.locator(".pull-list-row--foil").filter({
     hasText: "Counterspell",
@@ -26,7 +29,7 @@ test("shows a printable master pull list with card metadata", async ({
   const productNames = page.locator(
     ".pull-list-table tbody .pull-list-product strong",
   );
-  await expect(productNames).toHaveText(["Lightning Bolt", "Counterspell"]);
+  await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
   await page.getByRole("button", { name: "Sort by product" }).click();
   await expect(productNames).toHaveText(["Counterspell", "Lightning Bolt"]);
 

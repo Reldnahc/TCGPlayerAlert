@@ -10,6 +10,11 @@ import type {
   UnsupportedSellerBandAction,
 } from "./repricing.js";
 import type { DiscordNotificationSettings } from "./notifications/contracts.js";
+import {
+  DEFAULT_PULL_LIST_BINNING_CONFIG,
+  parsePullListBinningConfig,
+  type PullListGroupingSettings,
+} from "./pull-list-binning.js";
 
 export type RuleField =
   | "order.status"
@@ -119,10 +124,7 @@ export interface ShipmentScannerConfig {
   readonly stateFile: string;
 }
 
-export interface MasterPullListConfig {
-  readonly groupLands: boolean;
-  readonly groupMulticolored: boolean;
-}
+export type MasterPullListConfig = PullListGroupingSettings;
 
 export interface MerchandiseProfileConfig {
   readonly id: string;
@@ -169,7 +171,7 @@ export interface RepricingProfileConfig {
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
-export const CURRENT_CONFIG_VERSION = 4 as const;
+export const CURRENT_CONFIG_VERSION = 5 as const;
 
 export interface AppConfig {
   readonly version: typeof CURRENT_CONFIG_VERSION;
@@ -789,7 +791,7 @@ function requireField(
   key: string,
   path: string,
   issues: string[],
-  version: 2 | 3 | 4,
+  version: 2 | 3 | 4 | 5,
 ): void {
   if (source?.[key] === undefined) {
     issues.push(
@@ -801,7 +803,7 @@ function requireField(
 function validateVersionTwoShape(
   root: UnknownRecord | undefined,
   issues: string[],
-  version: 2 | 3 | 4,
+  version: 2 | 3 | 4 | 5,
 ): void {
   for (const key of [
     "pricingProfileDefaultsVersion",
@@ -897,7 +899,7 @@ function validateVersionTwoShape(
 function validateVersionThreeShape(
   root: UnknownRecord | undefined,
   issues: string[],
-  version: 3 | 4,
+  version: 3 | 4 | 5,
 ): void {
   requireField(root, "notifications", "config", issues, version);
   const notifications = record(root?.notifications);
@@ -932,12 +934,26 @@ function validateVersionThreeShape(
 function validateVersionFourShape(
   root: UnknownRecord | undefined,
   issues: string[],
+  version: 4 | 5,
 ): void {
-  requireField(root, "masterPullList", "config", issues, 4);
+  requireField(root, "masterPullList", "config", issues, version);
   const masterPullList = record(root?.masterPullList);
   for (const key of ["groupLands", "groupMulticolored"]) {
-    requireField(masterPullList, key, "config.masterPullList", issues, 4);
+    requireField(masterPullList, key, "config.masterPullList", issues, version);
   }
+}
+
+function validateVersionFiveShape(
+  root: UnknownRecord | undefined,
+  issues: string[],
+): void {
+  requireField(
+    record(root?.masterPullList),
+    "binning",
+    "config.masterPullList",
+    issues,
+    5,
+  );
 }
 
 export function parseConfig(value: unknown): AppConfig {
@@ -948,18 +964,31 @@ export function parseConfig(value: unknown): AppConfig {
   const isVersionOne = sourceVersion === 1;
   const isVersionTwo = sourceVersion === 2;
   const isVersionThree = sourceVersion === 3;
-  const isVersionFour = sourceVersion === CURRENT_CONFIG_VERSION;
-  if (!isVersionOne && !isVersionTwo && !isVersionThree && !isVersionFour) {
+  const isVersionFour = sourceVersion === 4;
+  const isVersionFive = sourceVersion === CURRENT_CONFIG_VERSION;
+  if (
+    !isVersionOne &&
+    !isVersionTwo &&
+    !isVersionThree &&
+    !isVersionFour &&
+    !isVersionFive
+  ) {
     issues.push(
-      `config.version must be 1, 2, 3, or ${String(CURRENT_CONFIG_VERSION)}; newer versions require an application update.`,
+      "config.version must be between 1 and " +
+        String(CURRENT_CONFIG_VERSION) +
+        "; newer versions require an application update.",
     );
   }
   if (isVersionTwo) validateVersionTwoShape(root, issues, 2);
   if (isVersionThree) validateVersionTwoShape(root, issues, 3);
   if (isVersionFour) validateVersionTwoShape(root, issues, 4);
+  if (isVersionFive) validateVersionTwoShape(root, issues, 5);
   if (isVersionThree) validateVersionThreeShape(root, issues, 3);
   if (isVersionFour) validateVersionThreeShape(root, issues, 4);
-  if (isVersionFour) validateVersionFourShape(root, issues);
+  if (isVersionFive) validateVersionThreeShape(root, issues, 5);
+  if (isVersionFour) validateVersionFourShape(root, issues, 4);
+  if (isVersionFive) validateVersionFourShape(root, issues, 5);
+  if (isVersionFive) validateVersionFiveShape(root, issues);
   const disableLegacySideEffects = isVersionOne && root?.dryRun === true;
   if (
     root?.pricingProfileDefaultsVersion !== undefined &&
@@ -1351,9 +1380,21 @@ export function parseConfig(value: unknown): AppConfig {
     root?.confirmBeforeMarkingShipped === undefined
       ? true
       : booleanValue(root, "confirmBeforeMarkingShipped", "config", issues);
+  const binningResult =
+    masterPullList?.binning === undefined
+      ? { config: DEFAULT_PULL_LIST_BINNING_CONFIG, issues: [] }
+      : parsePullListBinningConfig(
+          masterPullList.binning,
+          "config.masterPullList.binning",
+        );
+  issues.push(...binningResult.issues);
   const masterPullListConfig: MasterPullListConfig =
     masterPullList === undefined
-      ? { groupLands: true, groupMulticolored: true }
+      ? {
+          groupLands: true,
+          groupMulticolored: true,
+          binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
+        }
       : {
           groupLands: booleanValue(
             masterPullList,
@@ -1367,6 +1408,7 @@ export function parseConfig(value: unknown): AppConfig {
             "config.masterPullList",
             issues,
           ),
+          binning: binningResult.config,
         };
   const shipmentScannerConfig: ShipmentScannerConfig =
     shipmentScanner === undefined

@@ -6,9 +6,11 @@ import { PricingProfiles } from "./settings/PricingProfiles.js";
 import { PrintingSettings } from "./settings/PrintingSettings.js";
 import { SellerConnectionCard } from "../components/SellerConnectionCard.js";
 import { DiscordNotifications } from "./settings/DiscordNotifications.js";
+import { PullListSettings } from "./settings/PullListSettings.js";
 
 type SettingsSection =
   | "general"
+  | "pull-list"
   | "pricing"
   | "merchandise"
   | "printing"
@@ -20,6 +22,7 @@ const sections: readonly {
   readonly label: string;
 }[] = [
   { id: "general", label: "General" },
+  { id: "pull-list", label: "Pull list" },
   { id: "pricing", label: "Pricing" },
   { id: "merchandise", label: "Merchandise" },
   { id: "printing", label: "Printing" },
@@ -90,37 +93,14 @@ export function SettingsPage() {
                       }))
                     }
                   />
-                  <Toggle
-                    label="Group lands as Land"
-                    description="Show provider-identified lands in a Land group instead of Colorless"
-                    checked={settings.masterPullList.groupLands}
-                    onChange={(checked) =>
-                      update((current) => ({
-                        ...current,
-                        masterPullList: {
-                          ...current.masterPullList,
-                          groupLands: checked,
-                        },
-                      }))
-                    }
-                  />
-                  <Toggle
-                    label="Group color pairs as Multicolored"
-                    description="Combine cards with two or more colors into one Multicolored group"
-                    checked={settings.masterPullList.groupMulticolored}
-                    onChange={(checked) =>
-                      update((current) => ({
-                        ...current,
-                        masterPullList: {
-                          ...current.masterPullList,
-                          groupMulticolored: checked,
-                        },
-                      }))
-                    }
-                  />
                 </div>
               </section>
             </>
+          ) : section === "pull-list" ? (
+            <PullListSettings
+              settings={settings}
+              onChange={(next) => update(() => next)}
+            />
           ) : section === "pricing" ? (
             <PricingProfiles
               settings={settings}

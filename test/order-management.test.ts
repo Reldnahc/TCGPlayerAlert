@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ConfirmedSellerOrder } from "tcgplayer-private-api";
+import type {
+  ConfirmedSellerOrder,
+  SearchMarketplaceProductsResult,
+} from "tcgplayer-private-api";
 import { OrderManagementService } from "../src/order-management.js";
+import {
+  DEFAULT_PULL_LIST_BINNING_CONFIG,
+  type PullListGroupingSettings,
+} from "../src/pull-list-binning.js";
 import {
   emptyPullListProgressState,
   type PullListProgressState,
@@ -145,24 +152,25 @@ function client() {
           rows: [pullSheetRow],
         }),
     ),
-    searchMarketplaceProducts: vi.fn(() =>
-      Promise.resolve({
-        totalProducts: 1,
-        products: [
-          {
-            productId: 123,
-            productName: "Synthetic Card",
-            productLineName: "Magic: The Gathering",
-            setName: "Synthetic Set",
-            rarityName: "Rare",
-            colors: ["Blue"],
-            cardTypes: ["Creature"],
-            marketPrice: 6,
-            totalListings: 1,
-            listings: [],
-          },
-        ],
-      }),
+    searchMarketplaceProducts: vi.fn(
+      (): Promise<SearchMarketplaceProductsResult> =>
+        Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              productId: 123,
+              productName: "Synthetic Card",
+              productLineName: "Magic: The Gathering",
+              setName: "Synthetic Set",
+              rarityName: "Rare",
+              colors: ["Blue"],
+              cardTypes: ["Creature"],
+              marketPrice: 6,
+              totalListings: 1,
+              listings: [],
+            },
+          ],
+        }),
     ),
     detectCarrier: vi.fn(() => Promise.resolve({ carrier: "USPS" })),
     addOrderTracking: vi.fn(() =>
@@ -211,10 +219,7 @@ function service(
     readonly maximumPages?: number;
     readonly cacheMilliseconds?: number;
     readonly now?: () => Date;
-    readonly pullListGrouping?: () => Promise<{
-      readonly groupLands: boolean;
-      readonly groupMulticolored: boolean;
-    }>;
+    readonly pullListGrouping?: () => Promise<PullListGroupingSettings>;
     readonly executePrint?: (
       orderNumber: string,
       actionType: "print-address-label" | "print-packing-slip",
@@ -447,6 +452,11 @@ describe("order management", () => {
           rarityName: "Land",
           colors: ["Colorless"],
           cardTypes: ["Land"],
+          attributes: {
+            color: ["Colorless"],
+            cardType: ["Land"],
+            fullType: ["Basic Land — Forest"],
+          },
           marketPrice: 0.25,
           totalListings: 1,
           listings: [],
@@ -459,6 +469,11 @@ describe("order management", () => {
           rarityName: "Rare",
           colors: ["Blue", "Red"],
           cardTypes: ["Creature"],
+          attributes: {
+            color: ["Blue", "Red"],
+            cardType: ["Creature"],
+            power: ["3"],
+          },
           marketPrice: 1,
           totalListings: 1,
           listings: [],
@@ -471,6 +486,10 @@ describe("order management", () => {
           rarityName: "Rare",
           colors: ["Colorless"],
           cardTypes: ["Artifact"],
+          attributes: {
+            color: ["Colorless"],
+            cardType: ["Artifact"],
+          },
           marketPrice: 1,
           totalListings: 1,
           listings: [],
@@ -478,7 +497,11 @@ describe("order management", () => {
       ],
     });
 
-    let grouping = { groupLands: true, groupMulticolored: true };
+    let grouping: PullListGroupingSettings = {
+      groupLands: true,
+      groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
+    };
     const orders = service(fakeClient, {
       pullListGrouping: () => Promise.resolve(grouping),
     });
@@ -492,9 +515,20 @@ describe("order management", () => {
       "Synthetic Pair": ["Multicolored"],
       "Synthetic Artifact": ["Colorless"],
     });
+    expect(
+      Object.fromEntries(result.rows.map((row) => [row.productName, row.bin])),
+    ).toEqual({
+      "Synthetic Forest": "MTG / Land / Land / No power",
+      "Synthetic Pair": "MTG / Multicolored / Creature / 3",
+      "Synthetic Artifact": "MTG / Colorless / Artifact / No power",
+    });
     expect(fakeClient.getOrder).not.toHaveBeenCalled();
 
-    grouping = { groupLands: false, groupMulticolored: false };
+    grouping = {
+      groupLands: false,
+      groupMulticolored: false,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
+    };
     const ungrouped = await orders.getMasterPullList();
     expect(
       Object.fromEntries(
@@ -505,6 +539,17 @@ describe("order management", () => {
       "Synthetic Pair": ["Blue", "Red"],
       "Synthetic Artifact": ["Colorless"],
     });
+    expect(
+      Object.fromEntries(
+        ungrouped.rows.map((row) => [row.productName, row.bin]),
+      ),
+    ).toEqual({
+      "Synthetic Forest": "MTG / Colorless / Land / No power",
+      "Synthetic Pair": "MTG / Blue + Red / Creature / 3",
+      "Synthetic Artifact": "MTG / Colorless / Artifact / No power",
+    });
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
+    expect(fakeClient.searchMarketplaceProducts).toHaveBeenCalledOnce();
   });
 
   it("persists pull progress per order allocation without another provider request", async () => {

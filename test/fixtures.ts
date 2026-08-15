@@ -9,6 +9,7 @@ import type {
   WorkflowAction,
 } from "../src/index.js";
 import { emptyState, type ApplicationState } from "../src/state.js";
+import { DEFAULT_PULL_LIST_BINNING_CONFIG } from "../src/pull-list-binning.js";
 
 export const syntheticOrderId = "00000000000000000";
 
@@ -43,11 +44,15 @@ export const syntheticPackingSlip: FulfillmentDocument = {
 
 export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    version: 4,
+    version: 5,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     confirmBeforeMarkingShipped: true,
-    masterPullList: { groupLands: true, groupMulticolored: true },
+    masterPullList: {
+      groupLands: true,
+      groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
+    },
     notifications: {
       discord: {
         enabled: false,

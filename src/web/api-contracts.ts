@@ -55,6 +55,7 @@ import {
   optional,
   text,
   union,
+  valueRecord,
   type Decoder,
 } from "./decoder.js";
 
@@ -155,6 +156,16 @@ const packingOutput = object({
   scale: optional(enumeration("actual-size", "fit", "shrink")),
 });
 
+const pullListBinDimension = object({ field: text, fallback: text });
+const pullListBinRule = object({
+  id: text,
+  name: text,
+  enabled: boolean,
+  productLine: text,
+  prefix: text,
+  dimensions: array(pullListBinDimension),
+});
+
 export const settingsDecoder: Decoder<Settings> = object({
   revision: text,
   pollIntervalMinutes: nonNegativeInteger,
@@ -162,6 +173,11 @@ export const settingsDecoder: Decoder<Settings> = object({
   masterPullList: object({
     groupLands: boolean,
     groupMulticolored: boolean,
+    binning: object({
+      enabled: boolean,
+      fallback: text,
+      rules: array(pullListBinRule),
+    }),
   }),
   notifications: object({
     discord: object({
@@ -326,7 +342,9 @@ export const pullListRowDecoder = object({
   skuId: text,
   orderQuantity: nonNegativeInteger,
   productId: optional(nonNegativeInteger),
+  attributes: valueRecord(array(text)),
   metadata: array(pullMetadata),
+  bin: text,
   pulledQuantity: nonNegativeInteger,
   remainingQuantity: nonNegativeInteger,
   pulled: boolean,

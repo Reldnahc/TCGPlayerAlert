@@ -3,11 +3,16 @@
 import { cleanup } from "@testing-library/preact";
 import { vi } from "vitest";
 import type { Settings } from "../src/web/contracts.js";
+import { DEFAULT_PULL_LIST_BINNING_CONFIG } from "../src/pull-list-binning.js";
 export const settings: Settings = {
   revision: "synthetic-revision",
   pollIntervalMinutes: 5,
   confirmBeforeMarkingShipped: true,
-  masterPullList: { groupLands: true, groupMulticolored: true },
+  masterPullList: {
+    groupLands: true,
+    groupMulticolored: true,
+    binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
+  },
   notifications: {
     discord: {
       enabled: false,

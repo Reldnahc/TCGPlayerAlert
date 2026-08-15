@@ -100,6 +100,12 @@
   .settings-workbench {
     grid-template-columns: 170px minmax(0, 1fr);
   }
+  .bin-dimension {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+  .bin-dimension__actions {
+    grid-column: 2;
+  }
   .discord-connection,
   .notification-grid {
     grid-template-columns: 1fr;

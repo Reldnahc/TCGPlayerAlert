@@ -13,7 +13,7 @@ import { dateTime, errorMessage } from "../utils.js";
 
 type PullListRow = MasterPullList["rows"][number];
 type PullListSortField =
-  "quantity" | "product" | "set" | "condition" | "rarity" | "color";
+  "bin" | "quantity" | "product" | "set" | "condition" | "rarity" | "color";
 type PullListSortDirection = "ascending" | "descending";
 
 interface PullListSort {
@@ -31,6 +31,7 @@ interface SortableHeaderProps {
 
 const PULL_LIST_SORT_STORAGE_KEY = "tcgplayer-alert.master-pull-list-sort.v1";
 const PULL_LIST_SORT_FIELDS = new Set<PullListSortField>([
+  "bin",
   "quantity",
   "product",
   "set",
@@ -57,11 +58,13 @@ function isPullListSort(value: unknown): value is PullListSort {
 function readPullListSort(): PullListSort | null {
   try {
     const stored = window.localStorage.getItem(PULL_LIST_SORT_STORAGE_KEY);
-    if (stored === null) return null;
+    if (stored === null) return { field: "bin", direction: "ascending" };
     const parsed: unknown = JSON.parse(stored);
-    return isPullListSort(parsed) ? parsed : null;
+    return isPullListSort(parsed)
+      ? parsed
+      : { field: "bin", direction: "ascending" };
   } catch {
-    return null;
+    return { field: "bin", direction: "ascending" };
   }
 }
 
@@ -100,6 +103,8 @@ function compareRows(
   field: PullListSortField,
 ): number {
   switch (field) {
+    case "bin":
+      return PULL_LIST_COLLATOR.compare(left.bin, right.bin);
     case "quantity":
       return left.remainingQuantity - right.remainingQuantity;
     case "product":
@@ -362,6 +367,7 @@ export function MasterPullListPage() {
                   <table class="data-table pull-list-table">
                     <colgroup>
                       <col class="pull-list-col-check" />
+                      <col class="pull-list-col-bin" />
                       <col class="pull-list-col-quantity" />
                       <col class="pull-list-col-product" />
                       <col class="pull-list-col-set" />
@@ -374,6 +380,13 @@ export function MasterPullListPage() {
                         <th class="pull-list-col-check">
                           <span class="visually-hidden">Pulled</span>
                         </th>
+                        <SortableHeader
+                          field="bin"
+                          label="Bin"
+                          className="pull-list-col-bin"
+                          sort={sort}
+                          onSort={updateSort}
+                        />
                         <SortableHeader
                           field="quantity"
                           label="Qty"
@@ -443,6 +456,13 @@ export function MasterPullListPage() {
                                 )
                               }
                             />
+                          </td>
+                          <td class="pull-list-col-bin">
+                            {row.bin === "" ? (
+                              <span class="pull-list-metadata-empty">—</span>
+                            ) : (
+                              <strong>{row.bin}</strong>
+                            )}
                           </td>
                           <td class="align-right numeric pull-list-quantity">
                             {String(

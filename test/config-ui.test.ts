@@ -19,6 +19,7 @@ import {
   type SellerSessionService,
   type ShipmentScannerService,
 } from "../src/index.js";
+import { DEFAULT_PULL_LIST_BINNING_CONFIG } from "../src/pull-list-binning.js";
 
 const discovery = () =>
   Promise.resolve({
@@ -89,6 +90,7 @@ describe("configuration UI", () => {
       masterPullList: {
         groupLands: false,
         groupMulticolored: false,
+        binning: initial.masterPullList.binning,
       },
       shipmentScanner: {
         enabled: true,
@@ -179,6 +181,7 @@ describe("configuration UI", () => {
     expect(initial.masterPullList).toEqual({
       groupLands: true,
       groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
     });
 
     await current.service.save(initial);
@@ -186,11 +189,12 @@ describe("configuration UI", () => {
       await readFile(current.path, "utf8"),
     ) as Record<string, unknown>;
 
-    expect(afterSave.version).toBe(4);
+    expect(afterSave.version).toBe(5);
     expect(afterSave.confirmBeforeMarkingShipped).toBe(true);
     expect(afterSave.masterPullList).toEqual({
       groupLands: true,
       groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
     });
   });
 
@@ -720,7 +724,9 @@ describe("configuration UI", () => {
           skuId: "456",
           orderQuantity: 2,
           productId: 123,
+          attributes: { color: ["Blue"], cardType: ["Creature"] },
           metadata: [{ label: "Color", values: ["Blue"] }],
+          bin: "MTG / Blue / Creature / No power",
           pulledQuantity: 0,
           remainingQuantity: 2,
           pulled: false,

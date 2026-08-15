@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { ConfigurationError, parseConfig } from "../src/index.js";
+import { DEFAULT_PULL_LIST_BINNING_CONFIG } from "../src/pull-list-binning.js";
 
 function markAsVersionOne(value: object): void {
   Object.assign(value, { version: 1 });
@@ -14,12 +15,13 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(4);
+    expect(config.version).toBe(5);
     expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.masterPullList).toEqual({
       groupLands: true,
       groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
     });
     expect(config.shipmentScanner).toEqual({
       enabled: false,
@@ -168,11 +170,12 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(4);
+    expect(config.version).toBe(5);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.masterPullList).toEqual({
       groupLands: true,
       groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
     });
     expect(value.version).toBe(1);
   });
@@ -187,7 +190,7 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(4);
+    expect(config.version).toBe(5);
     expect(config.notifications.discord.enabled).toBe(false);
     expect(value.notifications).toBeUndefined();
   });
@@ -201,10 +204,11 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(4);
+    expect(config.version).toBe(5);
     expect(config.masterPullList).toEqual({
       groupLands: true,
       groupMulticolored: true,
+      binning: DEFAULT_PULL_LIST_BINNING_CONFIG,
     });
     expect(value.masterPullList).toBeUndefined();
   });
@@ -611,6 +615,7 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
+    value.version = 4;
     delete value.masterPullList;
 
     try {
@@ -624,11 +629,31 @@ describe("application configuration", () => {
     }
   });
 
+  it("rejects version-five files that omit binning settings", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as Record<string, unknown>;
+    const masterPullList = value.masterPullList as Record<string, unknown>;
+    delete masterPullList.binning;
+
+    try {
+      parseConfig(value);
+      throw new Error("Expected configuration validation to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect((error as ConfigurationError).issues).toEqual(
+        expect.arrayContaining([
+          "config.masterPullList.binning is required in configuration version 5.",
+        ]),
+      );
+    }
+  });
+
   it("rejects configuration from a newer unsupported schema", async () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
-    value.version = 5;
+    value.version = 6;
 
     expect(() => parseConfig(value)).toThrow(
       expect.objectContaining({

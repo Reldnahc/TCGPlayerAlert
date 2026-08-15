@@ -591,20 +591,27 @@ describe("authentication and dashboard", () => {
     const shipmentConfirmation = screen.getByRole("checkbox", {
       name: /Confirm before marking shipped/u,
     });
+    const interval = screen.getByRole("spinbutton");
+    expect((shipmentConfirmation as HTMLInputElement).checked).toBe(true);
+    await user.click(shipmentConfirmation);
+    await user.clear(interval);
+    await user.type(interval, "17");
+    await user.click(screen.getByRole("button", { name: "Pull list" }));
     const landGrouping = screen.getByRole("checkbox", {
       name: /Group lands as Land/u,
     });
     const multicolorGrouping = screen.getByRole("checkbox", {
       name: /Group color pairs as Multicolored/u,
     });
-    expect((shipmentConfirmation as HTMLInputElement).checked).toBe(true);
+    const binning = screen.getByRole("checkbox", {
+      name: /Assign cards to bins/u,
+    });
     expect((landGrouping as HTMLInputElement).checked).toBe(true);
     expect((multicolorGrouping as HTMLInputElement).checked).toBe(true);
-    await user.click(shipmentConfirmation);
+    expect((binning as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByDisplayValue("Magic: The Gathering")).toBeTruthy();
+    expect(screen.getByDisplayValue("power")).toBeTruthy();
     await user.click(landGrouping);
-    const interval = screen.getByRole("spinbutton");
-    await user.clear(interval);
-    await user.type(interval, "17");
     expect(screen.getByText("Unsaved configuration changes")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() =>

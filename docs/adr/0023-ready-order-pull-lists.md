@@ -38,7 +38,9 @@ metadata enrichment must avoid one catalog request per row.
   the export omits those URLs, read ready-order details sequentially only until
   every pull-sheet SKU that can be matched has a product ID. Reuse cached order
   details, then request marketplace metadata in sequential batches of at most
-  24 exact product IDs through `tcgplayer-private-api` 0.17.0 or newer. Display
+  24 exact product IDs through `tcgplayer-private-api` 0.19.0 or newer. Retain
+  its validated, product-line-specific scalar attributes in memory for bin
+  classification. Display
   any provider-identified card type containing `Land` as `Land`, regardless of
   its technically colorless color metadata, when the corresponding operator
   setting is enabled. When its independent setting is enabled, display products
@@ -46,6 +48,12 @@ metadata enrichment must avoid one catalog request per row.
   provider colors when either grouping rule is disabled, preserve a single
   color as-is, and omit color when none exists. Both grouping settings default
   to enabled for migrated configurations.
+- Apply the operator's ordered bin rules to those exact product attributes.
+  Each enabled rule matches one exact product line or all product lines, adds
+  an optional prefix, and constructs a path from one to eight selected fields.
+  Missing fields use explicit per-dimension fallback labels. The first matching
+  rule wins, unmatched products use the configured global fallback, and rules
+  are data only: no expressions or arbitrary code are evaluated.
 - Treat metadata as an enhancement. If its read fails, return the complete
   operational master list with a visible warning instead of failing the list.
 - Keep one cumulative master pull session in server memory. The 30-second cache
@@ -55,7 +63,8 @@ metadata enrichment must avoid one catalog request per row.
   ready queue and order mutations do not remove rows from an active picking
   session. A process restart or seller change ends that in-memory session.
 - Render a dedicated master-list route with combined quantity, product, set,
-  number, condition, rarity, and available metadata. Allow every data column to
+  number, condition, rarity, the computed Bin, and available metadata. Sort by
+  Bin ascending on first use. Allow every data column to
   control a stable ascending or descending row sort; keep the check-off column
   unsortable. Store only the validated sort field and direction in browser-local
   storage so later visits and browser restarts restore the operator's layout.
@@ -65,6 +74,9 @@ metadata enrichment must avoid one catalog request per row.
   remains the generic printer boundary. Keep the mounted pull-list page and its
   browser state intact when a window-focus authentication check rerenders the
   application shell.
+- When grouping or bin settings change, reproject cached master-list rows
+  locally from their in-memory raw attributes. Do not discard the active pull
+  session, refetch orders, or issue another marketplace request.
 - Treat a provider condition containing a foil printing label as foil. Give it
   an explicit bold `FOIL` badge and heavy row outline in both the interactive
   and printed table so the distinction never depends on color alone.
@@ -89,7 +101,8 @@ details already in the short-lived in-memory cache. Repeated exact SKUs become
 one physical picking row. Returning focus adds no pull-list request, and later
 refreshes export only newly seen ready orders before extending the current
 physical picking session. Optional detail or catalog drift cannot block
-fulfillment, while pull-sheet identity or SKU drift fails explicitly. The
+fulfillment, while pull-sheet identity or SKU drift fails explicitly. Changing
+bin rules is immediate and adds no provider request. The
 feature works with any printer exposed through the browser's operating-system
 print dialog. Sorting is entirely client-side and adds no provider requests.
 Its preference is local to the browser profile and resets when the operator

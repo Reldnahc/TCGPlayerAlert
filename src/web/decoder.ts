@@ -205,4 +205,19 @@ export function keyedRecord<const Keys extends readonly string[], Value>(
   });
 }
 
+export function valueRecord<Value>(
+  valueDecoder: Decoder<Value>,
+): Decoder<Readonly<Record<string, Value>>> {
+  return decoder((value, path) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new DecodeError(path, "an object");
+    }
+    const result: Record<string, Value> = {};
+    for (const [key, item] of Object.entries(value)) {
+      result[key] = valueDecoder.decode(item, path + "." + key);
+    }
+    return result;
+  });
+}
+
 export const discard = decoder<undefined>(() => undefined);
