@@ -1,11 +1,14 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ShipmentScannerConfig } from "./config.js";
 import { ApplicationError } from "./errors.js";
 import type { ManagedOrderSummary, ReadyOrderSource } from "./ready-orders.js";
+import {
+  SHIPMENT_TAG_COUNT,
+  type ShipmentTagRegistry,
+} from "./shipment-tags.js";
 
-export const SHIPMENT_TAG_COUNT = 587;
 const MAXIMUM_SHIPMENT_RECORDS = 10_000;
 
 export type ShipmentScanResult =
@@ -84,16 +87,8 @@ export interface ShipmentScannerServiceOptions {
   readonly readyOrders: ReadyOrderSource;
   readonly orders: ShipmentMutationService;
   readonly store: ShipmentScanStore;
+  readonly tags: ShipmentTagRegistry;
   readonly now?: () => Date;
-}
-
-export function shipmentTagId(orderNumber: string): number {
-  const normalized = safeOrderNumber(orderNumber);
-  const digest = createHash("sha256")
-    .update("tcgplayer-alert:shipment-tag:v1\0", "utf8")
-    .update(normalized, "utf8")
-    .digest();
-  return digest.readUInt32BE(0) % SHIPMENT_TAG_COUNT;
 }
 
 export class ShipmentScannerService {
@@ -101,6 +96,7 @@ export class ShipmentScannerService {
   private readonly readyOrders: ReadyOrderSource;
   private readonly orders: ShipmentMutationService;
   private readonly store: ShipmentScanStore;
+  private readonly tags: ShipmentTagRegistry;
   private readonly now: () => Date;
   private mutationTail: Promise<void> = Promise.resolve();
 
@@ -109,6 +105,7 @@ export class ShipmentScannerService {
     this.readyOrders = options.readyOrders;
     this.orders = options.orders;
     this.store = options.store;
+    this.tags = options.tags;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -116,19 +113,18 @@ export class ShipmentScannerService {
     const settings = await this.settings();
     const snapshot = this.readyOrders.snapshot();
     const scanState = recoverInterruptedMutations(await this.store.load());
-    const tagCounts = new Map<number, number>();
-    for (const order of snapshot?.orders ?? []) {
-      const tagId = shipmentTagId(order.orderNumber);
-      tagCounts.set(tagId, (tagCounts.get(tagId) ?? 0) + 1);
-    }
+    const assignments = await this.tags.reserveAll(
+      (snapshot?.orders ?? []).map((order) => order.orderNumber),
+    );
     return {
       enabled: settings.enabled,
       automaticallyMarkShipped: settings.automaticallyMarkShipped,
       soundEnabled: settings.soundEnabled,
       readyOrderCount: snapshot?.orders.length ?? 0,
-      readyTagIds: [...tagCounts.keys()].sort((left, right) => left - right),
-      conflictingTagCount: [...tagCounts.values()].filter((count) => count > 1)
-        .length,
+      readyTagIds: assignments
+        .map((assignment) => assignment.tagId)
+        .sort((left, right) => left - right),
+      conflictingTagCount: 0,
       reviewRequiredCount: Object.values(scanState.records).filter(
         (record) => record.status === "review-required",
       ).length,
@@ -181,8 +177,18 @@ export class ShipmentScannerService {
   ): Promise<ShipmentScanResult> {
     const normalizedTagId = validTagId(tagId);
     const snapshot = await this.readyOrders.refresh(signal);
+    const assignments = await this.tags.reconcile(
+      snapshot.orders.map((order) => order.orderNumber),
+      signal,
+    );
+    const tagByOrder = new Map(
+      assignments.map((assignment) => [
+        assignment.orderNumber,
+        assignment.tagId,
+      ]),
+    );
     const matches = snapshot.orders.filter(
-      (order) => shipmentTagId(order.orderNumber) === normalizedTagId,
+      (order) => tagByOrder.get(order.orderNumber) === normalizedTagId,
     );
     const scanState = recoverInterruptedMutations(
       await this.store.load(),

@@ -12,6 +12,8 @@ import {
   SHIPMENT_TAG_COUNT,
   type ShipmentScanState,
   type ShipmentScanStore,
+  type ShipmentTagAssignment,
+  type ShipmentTagRegistry,
 } from "../src/index.js";
 import type {
   ManagedOrderList,
@@ -31,6 +33,63 @@ class MemoryShipmentScanStore implements ShipmentScanStore {
     this.saves += 1;
     this.state = structuredClone(state);
     return Promise.resolve();
+  }
+}
+
+class MemoryShipmentTagRegistry implements ShipmentTagRegistry {
+  private assignments = new Map<string, ShipmentTagAssignment>();
+
+  assign(orderNumber: string): Promise<number> {
+    return this.reserveAll([orderNumber]).then((values) => {
+      const assignment = values[0];
+      if (assignment === undefined) throw new Error("Assignment is missing.");
+      return assignment.tagId;
+    });
+  }
+
+  reserveAll(
+    orderNumbers: readonly string[],
+  ): Promise<readonly ShipmentTagAssignment[]> {
+    const used = new Set(
+      [...this.assignments.values()].map((assignment) => assignment.tagId),
+    );
+    for (const orderNumber of [...new Set(orderNumbers)].sort()) {
+      if (this.assignments.has(orderNumber)) continue;
+      const preferred = shipmentTagId(orderNumber);
+      for (let offset = 0; offset < SHIPMENT_TAG_COUNT; offset += 1) {
+        const tagId = (preferred + offset) % SHIPMENT_TAG_COUNT;
+        if (used.has(tagId)) continue;
+        this.assignments.set(orderNumber, {
+          orderNumber,
+          tagId,
+          assignedAt: "2026-08-09T12:00:00.000Z",
+        });
+        used.add(tagId);
+        break;
+      }
+    }
+    return this.assigned(orderNumbers);
+  }
+
+  reconcile(
+    orderNumbers: readonly string[],
+  ): Promise<readonly ShipmentTagAssignment[]> {
+    const active = new Set(orderNumbers);
+    this.assignments = new Map(
+      [...this.assignments].filter(([orderNumber]) => active.has(orderNumber)),
+    );
+    return this.reserveAll(orderNumbers);
+  }
+
+  assigned(
+    orderNumbers: readonly string[],
+  ): Promise<readonly ShipmentTagAssignment[]> {
+    return Promise.resolve(
+      orderNumbers.flatMap((orderNumber) => {
+        const assignment = this.assignments.get(orderNumber);
+        return assignment === undefined ? [] : [assignment];
+      }),
+    );
   }
 }
 
@@ -104,6 +163,7 @@ function service(options: {
       readyOrders: options.ready,
       orders: { markShipped },
       store,
+      tags: new MemoryShipmentTagRegistry(),
       now: () => new Date("2026-08-09T12:00:00.000Z"),
     }),
     store,
@@ -131,7 +191,7 @@ describe("shipment scanner", () => {
     expect(shipmentTagId("SYNTHETIC-ORDER-2")).not.toBe(first);
   });
 
-  it("reports the in-memory ready pool without refreshing the seller", async () => {
+  it("reserves distinct tags for the in-memory ready pool without refreshing the seller", async () => {
     const [first, second] = collidingOrderNumbers();
     const ready = readySource([
       managedOrder(first),
@@ -143,7 +203,7 @@ describe("shipment scanner", () => {
     await expect(scanner.status()).resolves.toMatchObject({
       enabled: true,
       readyOrderCount: 3,
-      conflictingTagCount: 1,
+      conflictingTagCount: 0,
       reviewRequiredCount: 0,
     });
     expect(ready.refreshes).toBe(0);
@@ -212,22 +272,29 @@ describe("shipment scanner", () => {
     });
   });
 
-  it("stops colliding ready orders for review", async () => {
+  it("resolves hash collisions before either ready order can share a tag", async () => {
     const [first, second] = collidingOrderNumbers();
     const ready = readySource([managedOrder(first), managedOrder(second)]);
-    const markShipped = vi.fn();
+    const markShipped = vi.fn((orderNumber: string) =>
+      Promise.resolve({ orderNumber, outcome: "applied" as const }),
+    );
     const { scanner } = service({
       ready,
       automatic: true,
       markShipped,
     });
 
-    await expect(scanner.scan(shipmentTagId(first))).resolves.toEqual({
-      state: "ambiguous",
-      tagId: shipmentTagId(first),
-      matchCount: 2,
-    });
-    expect(markShipped).not.toHaveBeenCalled();
+    const status = await scanner.status();
+    expect(status.readyTagIds).toHaveLength(2);
+    expect(new Set(status.readyTagIds).size).toBe(2);
+
+    await expect(
+      scanner.scan(status.readyTagIds[0] ?? -1),
+    ).resolves.toMatchObject({ state: "shipped" });
+    await expect(
+      scanner.scan(status.readyTagIds[1] ?? -1),
+    ).resolves.toMatchObject({ state: "shipped" });
+    expect(markShipped).toHaveBeenCalledTimes(2);
   });
 
   it("quarantines an uncertain mutation and never retries it", async () => {

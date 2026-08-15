@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import type { ShipmentTagDetection } from "./april-tag.js";
 import type { CameraFrame } from "./camera-capture.js";
-import { SHIPMENT_TAG_COUNT } from "./shipment-scanner.js";
+import { SHIPMENT_TAG_COUNT } from "./shipment-tags.js";
 
 const DETECTION_STRUCTURE_LIMIT = 100;
 

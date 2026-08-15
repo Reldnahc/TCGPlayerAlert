@@ -82,9 +82,7 @@ export {
   emptyShipmentScanState,
   JsonShipmentScanStore,
   recoverInterruptedMutations,
-  shipmentTagId,
   ShipmentScannerService,
-  SHIPMENT_TAG_COUNT,
 } from "./shipment-scanner.js";
 export type {
   ShipmentMutationRecord,
@@ -93,6 +91,19 @@ export type {
   ShipmentScannerStatus,
   ShipmentScanStore,
 } from "./shipment-scanner.js";
+export {
+  emptyShipmentTagAssignmentState,
+  JsonShipmentTagRegistry,
+  shipmentTagAssignmentsPath,
+  shipmentTagId,
+  SHIPMENT_TAG_COUNT,
+} from "./shipment-tags.js";
+export type {
+  ShipmentTagAssigner,
+  ShipmentTagAssignment,
+  ShipmentTagAssignmentState,
+  ShipmentTagRegistry,
+} from "./shipment-tags.js";
 export {
   emptyShipmentTagConsensus,
   observeShipmentTagDetection,

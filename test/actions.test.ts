@@ -125,7 +125,15 @@ describe("address-label action", () => {
         },
       },
     });
-    const action = createActions(config, { synthetic: printer }).label;
+    const action = createActions(
+      config,
+      { synthetic: printer },
+      {
+        shipmentTags: {
+          assign: (orderNumber) => Promise.resolve(shipmentTagId(orderNumber)),
+        },
+      },
+    ).label;
     if (action === undefined) throw new Error("Synthetic action is missing.");
 
     await action.execute({

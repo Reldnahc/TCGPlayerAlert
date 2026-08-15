@@ -12,7 +12,7 @@ import {
   createShipmentAprilTag,
   type FiducialMarkerMatrix,
 } from "./april-tag.js";
-import { shipmentTagId } from "./shipment-scanner.js";
+import type { ShipmentTagAssigner } from "./shipment-tags.js";
 
 export interface ActionContext {
   readonly order: FulfillmentOrder;
@@ -394,7 +394,7 @@ class AddressLabelAction implements WorkflowAction {
     readonly id: string,
     private readonly config: AddressLabelActionConfig,
     private readonly printer: Printer,
-    private readonly includeShipmentTag: boolean,
+    private readonly shipmentTags: ShipmentTagAssigner | undefined,
   ) {}
 
   async execute(context: ActionContext): Promise<void> {
@@ -405,7 +405,9 @@ class AddressLabelAction implements WorkflowAction {
       context.idempotencyKey,
       `address-label-${printIdentifier(context.idempotencyKey)}`,
       context.signal,
-      this.includeShipmentTag ? shipmentTagId(context.order.id) : undefined,
+      this.shipmentTags === undefined
+        ? undefined
+        : await this.shipmentTags.assign(context.order.id, context.signal),
     );
   }
 }
@@ -456,10 +458,19 @@ function pdfPrintJob(
 export function createActions(
   config: AppConfig,
   printers: Readonly<Record<string, Printer>>,
-  options: { readonly includeShipmentTags?: boolean } = {},
+  options: {
+    readonly includeShipmentTags?: boolean;
+    readonly shipmentTags?: ShipmentTagAssigner;
+  } = {},
 ): Readonly<Record<string, WorkflowAction>> {
   const includeShipmentTags =
     options.includeShipmentTags ?? config.shipmentScanner.enabled;
+  if (includeShipmentTags && options.shipmentTags === undefined) {
+    throw new ApplicationError(
+      "CONFIGURATION_ERROR",
+      "Shipment scanning requires a durable shipment-tag registry.",
+    );
+  }
   return Object.fromEntries(
     Object.entries(config.actions).flatMap(([id, actionConfig]) => {
       if (actionConfig.enabled === false) return [];
@@ -471,7 +482,15 @@ export function createActions(
         );
       }
       return [
-        [id, createAction(id, actionConfig, printer, includeShipmentTags)],
+        [
+          id,
+          createAction(
+            id,
+            actionConfig,
+            printer,
+            includeShipmentTags ? options.shipmentTags : undefined,
+          ),
+        ],
       ];
     }),
   );
@@ -481,7 +500,7 @@ function createAction(
   id: string,
   config: ActionConfig,
   printer: Printer,
-  includeShipmentTags: boolean,
+  shipmentTags: ShipmentTagAssigner | undefined,
 ): WorkflowAction {
   if (config.type === "print-address-label") {
     if (
@@ -492,7 +511,7 @@ function createAction(
     ) {
       throw unsupportedPrinter(id);
     }
-    return new AddressLabelAction(id, config, printer, includeShipmentTags);
+    return new AddressLabelAction(id, config, printer, shipmentTags);
   }
   if (!printer.acceptedMediaTypes.has("application/pdf")) {
     throw unsupportedPrinter(id);

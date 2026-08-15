@@ -55,6 +55,10 @@ import {
   JsonShipmentScanStore,
   ShipmentScannerService,
 } from "./shipment-scanner.js";
+import {
+  JsonShipmentTagRegistry,
+  shipmentTagAssignmentsPath,
+} from "./shipment-tags.js";
 import { WasmShipmentTagDetector } from "./background-april-tag-detector.js";
 import { BackgroundShipmentScanner } from "./background-shipment-scanner.js";
 import { NodeAvCameraCapture } from "./camera-capture.js";
@@ -105,7 +109,11 @@ export function createWorkflow(
     config,
     provider,
     stateStore: new JsonStateStore(config.stateFile),
-    actions: createActions(config, printers),
+    actions: createActions(config, printers, {
+      shipmentTags: new JsonShipmentTagRegistry(
+        shipmentTagAssignmentsPath(config.shipmentScanner.stateFile),
+      ),
+    }),
     logger,
     syncLease: new FileSyncLease(`${config.stateFile}.sync-lock`),
   });
@@ -200,9 +208,11 @@ export async function executeConfiguredOrderPrint(
     ...config,
     actions: { [actionId]: { ...actionConfig, enabled: true } },
   };
-  const action = createActions(manualConfig, createPrinters(manualConfig))[
-    actionId
-  ];
+  const action = createActions(manualConfig, createPrinters(manualConfig), {
+    shipmentTags: new JsonShipmentTagRegistry(
+      shipmentTagAssignmentsPath(config.shipmentScanner.stateFile),
+    ),
+  })[actionId];
   if (action === undefined) {
     throw new ConfigurationError([
       "The selected order print action is unavailable.",
@@ -417,6 +427,9 @@ export function createShipmentScannerService(
     readyOrders,
     orders,
     store: new JsonShipmentScanStore(config.shipmentScanner.stateFile),
+    tags: new JsonShipmentTagRegistry(
+      shipmentTagAssignmentsPath(config.shipmentScanner.stateFile),
+    ),
   });
 }
 
