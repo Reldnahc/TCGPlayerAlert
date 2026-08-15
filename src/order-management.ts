@@ -201,6 +201,8 @@ export class OrderManagementService {
   private readonly detailCache = new Map<string, CachedOrderDetail>();
   private pullListCache: CachedPullList | undefined;
   private pullListProgressOperation: Promise<void> = Promise.resolve();
+  private readonly shippedOrdersPendingPullListReconciliation =
+    new Set<string>();
   private readonly refundingOrders = new Set<string>();
   private refundOptionsCache: CachedRefundOptions | undefined;
   private readonly pirateShipCache = new Map<
@@ -392,28 +394,43 @@ export class OrderManagementService {
       return matchingCache.value;
     }
     const readyOrders = await this.listOrders("ready-to-ship", options);
-    const readyOrderNumbers = readyOrders.orders
+    const providerReadyOrderNumbers = readyOrders.orders
       .filter((order) => order.statusCode === SellerOrderStatus.ReadyToShip)
       .map((order) => order.orderNumber);
+    const providerReadyOrderNumberSet = new Set(providerReadyOrderNumbers);
+    for (const orderNumber of this.shippedOrdersPendingPullListReconciliation) {
+      if (!providerReadyOrderNumberSet.has(orderNumber)) {
+        this.shippedOrdersPendingPullListReconciliation.delete(orderNumber);
+      }
+    }
+    const readyOrderNumbers = providerReadyOrderNumbers.filter(
+      (orderNumber) =>
+        !this.shippedOrdersPendingPullListReconciliation.has(orderNumber),
+    );
+    const readyOrderNumberSet = new Set(readyOrderNumbers);
+    const activeCache =
+      matchingCache === undefined ||
+      sameStringSet([...matchingCache.orderNumbers], readyOrderNumbers)
+        ? matchingCache
+        : await this.retainPullListOrders(
+            matchingCache,
+            readyOrderNumberSet,
+            now.toISOString(),
+          );
     const orderNumbers =
-      matchingCache === undefined
-        ? [
-            ...new Set([
-              ...(previousCache?.orderNumbers ?? []),
-              ...readyOrderNumbers,
-            ]),
-          ]
+      activeCache === undefined
+        ? readyOrderNumbers
         : readyOrderNumbers.filter(
-            (orderNumber) => !matchingCache.orderNumbers.has(orderNumber),
+            (orderNumber) => !activeCache.orderNumbers.has(orderNumber),
           );
     if (orderNumbers.length === 0) {
-      if (matchingCache !== undefined) {
+      if (activeCache !== undefined) {
         const value = {
-          ...matchingCache.value,
+          ...activeCache.value,
           fetchedAt: now.toISOString(),
         };
         this.pullListCache = {
-          ...matchingCache,
+          ...activeCache,
           expiresAt: now.getTime() + this.cacheMilliseconds,
           value,
         };
@@ -449,25 +466,25 @@ export class OrderManagementService {
       options.signal,
     );
     const baseRows =
-      matchingCache === undefined
+      activeCache === undefined
         ? loaded.rows
-        : mergeManagedPullListRows(matchingCache.value.rows, loaded.rows);
+        : mergeManagedPullListRows(activeCache.value.rows, loaded.rows);
     const allocationsBySku =
-      matchingCache === undefined
+      activeCache === undefined
         ? loaded.allocationsBySku
         : mergePullListAllocationMaps(
-            matchingCache.allocationsBySku,
+            activeCache.allocationsBySku,
             loaded.allocationsBySku,
           );
     const accumulatedOrderNumbers = new Set([
-      ...(matchingCache?.orderNumbers ?? []),
+      ...(activeCache?.orderNumbers ?? []),
       ...orderNumbers,
     ]);
     return this.withPullListProgressOperation(async () => {
       const progress =
         await this.loadReconciledPullListProgress(allocationsBySku);
       const metadataIssue = combinePullListMetadataIssues(
-        matchingCache?.value.metadataIssue,
+        activeCache?.value.metadataIssue,
         loaded.metadataIssue,
       );
       const value = applyPullListProgress(
@@ -495,6 +512,54 @@ export class OrderManagementService {
       };
       return value;
     });
+  }
+
+  private async retainPullListOrders(
+    cached: CachedPullList,
+    retainedOrderNumbers: ReadonlySet<string>,
+    fetchedAt: string,
+  ): Promise<CachedPullList> {
+    const reduced = retainCachedPullListOrders(
+      cached,
+      retainedOrderNumbers,
+      fetchedAt,
+    );
+    this.pullListCache = reduced;
+    return this.withPullListProgressOperation(async () => {
+      const progress = await this.loadReconciledPullListProgress(
+        reduced.allocationsBySku,
+      );
+      const reconciled = {
+        ...reduced,
+        value: applyPullListProgress(
+          reduced.value,
+          reduced.allocationsBySku,
+          progress,
+        ),
+      };
+      if (this.pullListCache === reduced) this.pullListCache = reconciled;
+      return reconciled;
+    });
+  }
+
+  private async removeOrderFromPullListCache(
+    orderNumber: string,
+  ): Promise<void> {
+    const cached = this.pullListCache;
+    if (cached?.orderNumbers.has(orderNumber) !== true) return;
+    const retainedOrderNumbers = new Set(
+      [...cached.orderNumbers].filter((candidate) => candidate !== orderNumber),
+    );
+    try {
+      await this.retainPullListOrders(
+        cached,
+        retainedOrderNumbers,
+        this.now().toISOString(),
+      );
+    } catch {
+      // The in-memory list was already reduced. A progress-store failure must
+      // not turn a confirmed remote shipment into an uncertain mutation.
+    }
   }
 
   private async loadPullListRows(
@@ -945,6 +1010,8 @@ export class OrderManagementService {
           "TCGplayer returned an unrecognized shipment result.",
         );
       }
+      this.shippedOrdersPendingPullListReconciliation.add(normalized);
+      await this.removeOrderFromPullListCache(normalized);
       this.onShipmentAccepted?.(normalized);
       this.notifyShipmentAttempt({
         orderNumber: normalized,
@@ -1035,6 +1102,7 @@ export class OrderManagementService {
       this.cachedSellerKey.toLowerCase() !== sellerKey.toLowerCase()
     ) {
       this.clearOrderCaches();
+      this.shippedOrdersPendingPullListReconciliation.clear();
       this.refundOptionsCache = undefined;
     }
     this.cachedSellerKey = sellerKey;
@@ -1173,6 +1241,79 @@ function mergeManagedPullListRows(
     });
   }
   return [...rows.values()];
+}
+
+function retainCachedPullListOrders(
+  cached: CachedPullList,
+  allowedOrderNumbers: ReadonlySet<string>,
+  fetchedAt: string,
+): CachedPullList {
+  const retainedOrderNumbers = new Set(
+    [...cached.orderNumbers].filter((orderNumber) =>
+      allowedOrderNumbers.has(orderNumber),
+    ),
+  );
+  const allocationsBySku = new Map<
+    string,
+    readonly PullSheetOrderAllocation[]
+  >();
+  for (const [skuId, allocations] of cached.allocationsBySku) {
+    if (allocations.length === 0) {
+      if (retainedOrderNumbers.size > 0) allocationsBySku.set(skuId, []);
+      continue;
+    }
+    const retained = allocations.filter((allocation) =>
+      retainedOrderNumbers.has(allocation.orderNumber),
+    );
+    if (retained.length > 0) allocationsBySku.set(skuId, retained);
+  }
+  const rows = cached.value.rows.flatMap((row) => {
+    const allocations = allocationsBySku.get(row.skuId);
+    if (allocations === undefined) return [];
+    if (allocations.length === 0) {
+      return [
+        {
+          ...row,
+          pulledQuantity: 0,
+          remainingQuantity: row.orderQuantity,
+          pulled: false,
+          canTrackPullProgress: false,
+        },
+      ];
+    }
+    const orderQuantity = allocations.reduce(
+      (total, allocation) => total + allocation.quantity,
+      0,
+    );
+    return [
+      {
+        ...row,
+        orderQuantity,
+        pulledQuantity: 0,
+        remainingQuantity: orderQuantity,
+        pulled: false,
+        canTrackPullProgress: false,
+      },
+    ];
+  });
+  const totalQuantity = rows.reduce(
+    (total, row) => total + row.orderQuantity,
+    0,
+  );
+  return {
+    ...cached,
+    orderNumbers: new Set(retainedOrderNumbers),
+    allocationsBySku,
+    value: {
+      ...cached.value,
+      orderCount: retainedOrderNumbers.size,
+      rows,
+      totalQuantity,
+      pulledQuantity: 0,
+      remainingQuantity: totalQuantity,
+      fetchedAt,
+    },
+  };
 }
 
 function mergePullListAllocationMaps(

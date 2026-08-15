@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 import { uiApi } from "../api.js";
 import { Icon } from "../components/Icon.js";
 import {
@@ -9,6 +15,8 @@ import {
   Spinner,
 } from "../components/ui.js";
 import type { MasterPullList } from "../contracts.js";
+import { useOrders } from "../state/OrdersContext.js";
+import { useReadyOrderSnapshotPolling } from "../useReadyOrderSnapshotPolling.js";
 import { dateTime, errorMessage } from "../utils.js";
 
 type PullListRow = MasterPullList["rows"][number];
@@ -169,6 +177,8 @@ function SortableHeader({
 }
 
 export function MasterPullListPage() {
+  const { lists, shipmentsPendingReconciliation } = useOrders();
+  useReadyOrderSnapshotPolling();
   const [pullList, setPullList] = useState<MasterPullList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -176,6 +186,13 @@ export function MasterPullListPage() {
   const [sort, setSort] = useState<PullListSort | null>(readPullListSort);
   const [showPulled, setShowPulled] = useState(false);
   const [updatingSkuId, setUpdatingSkuId] = useState<string | null>(null);
+  const previousReadyOrderNumbers = useRef<ReadonlySet<string>>();
+  const readyOrderNumbers = useMemo(() => {
+    const readyOrders = lists["ready-to-ship"];
+    return readyOrders === null
+      ? undefined
+      : new Set(readyOrders.orders.map((order) => order.orderNumber));
+  }, [lists]);
 
   const sortedRows = useMemo(() => {
     const visibleRows =
@@ -236,6 +253,24 @@ export function MasterPullListPage() {
     return () => controller.abort();
   }, [load]);
 
+  useEffect(() => {
+    if (readyOrderNumbers === undefined) return;
+    const previous = previousReadyOrderNumbers.current;
+    previousReadyOrderNumbers.current = readyOrderNumbers;
+    if (previous === undefined) return;
+    const removedOrderNumbers = [...previous].filter(
+      (orderNumber) => !readyOrderNumbers.has(orderNumber),
+    );
+    const addedOrder = [...readyOrderNumbers].some(
+      (orderNumber) => !previous.has(orderNumber),
+    );
+    if (removedOrderNumbers.length === 0 && !addedOrder) return;
+    const locallyAcceptedShipment = removedOrderNumbers.some((orderNumber) =>
+      shipmentsPendingReconciliation.has(orderNumber),
+    );
+    void load(!locallyAcceptedShipment);
+  }, [load, readyOrderNumbers, shipmentsPendingReconciliation]);
+
   const setRowPulled = useCallback(
     async (row: PullListRow, pulled: boolean) => {
       setUpdatingSkuId(row.skuId);
@@ -261,7 +296,7 @@ export function MasterPullListPage() {
     <main class="page pull-list-page">
       <PageHeader
         title="Master pull list"
-        description="Active picking session · refresh adds new ready orders"
+        description="Cached picking session · tracks the current ready queue"
         actions={
           <>
             <a class="button button--quiet" href="#orders">

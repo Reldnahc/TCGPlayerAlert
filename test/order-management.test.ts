@@ -624,8 +624,8 @@ describe("order management", () => {
       orderNumber: "synthetic-order-2",
     };
     fakeClient.searchOrders.mockResolvedValue({
-      totalOrders: 1,
-      orders: [newOrder],
+      totalOrders: 2,
+      orders: [firstOrder, newOrder],
     });
     fakeClient.exportPullSheet.mockResolvedValue({
       text: "synthetic pull sheet",
@@ -658,21 +658,101 @@ describe("order management", () => {
     ]);
   });
 
-  it("retains the active pull list after an order is marked shipped", async () => {
+  it("removes an accepted shipment from the cached pull list immediately", async () => {
     const fakeClient = client();
+    const progressStore = new MemoryPullListProgressStore();
     fakeClient.searchOrders.mockResolvedValue({
       totalOrders: 1,
       orders: [firstOrder],
     });
-    const orders = service(fakeClient);
-    const initial = await orders.getMasterPullList();
+    const orders = service(fakeClient, {
+      pullListProgressStore: progressStore,
+    });
+    await orders.getMasterPullList();
+    await orders.setPullListRowPulled(pullSheetRow.skuId, true);
 
     await orders.markShipped(firstOrder.orderNumber);
-    fakeClient.searchOrders.mockResolvedValue({ totalOrders: 0, orders: [] });
-    const retained = await orders.getMasterPullList({ force: true });
+    const updated = await orders.getMasterPullList({ force: true });
 
-    expect(retained.rows).toEqual(initial.rows);
-    expect(retained.orderCount).toBe(1);
+    expect(updated).toMatchObject({
+      orderCount: 0,
+      rows: [],
+      totalQuantity: 0,
+      pulledQuantity: 0,
+      remainingQuantity: 0,
+    });
+    expect(progressStore.state.orders).toEqual({});
+    expect(fakeClient.searchOrders).toHaveBeenCalledTimes(2);
+    expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
+  });
+
+  it("subtracts only allocations whose orders left the ready queue", async () => {
+    const fakeClient = client();
+    const progressStore = new MemoryPullListProgressStore();
+    let now = new Date("2026-08-04T12:00:00.000Z");
+    const remainingOrder = {
+      ...firstOrder,
+      orderNumber: "synthetic-order-2",
+    };
+    fakeClient.searchOrders
+      .mockResolvedValueOnce({
+        totalOrders: 2,
+        orders: [firstOrder, remainingOrder],
+      })
+      .mockResolvedValueOnce({
+        totalOrders: 1,
+        orders: [remainingOrder],
+      });
+    fakeClient.exportPullSheet.mockResolvedValue({
+      text: "synthetic pull sheet",
+      contentType: "text/csv",
+      fileName: "pull-sheet.csv",
+      orderNumbers: [firstOrder.orderNumber, remainingOrder.orderNumber],
+      rows: [
+        {
+          ...pullSheetRow,
+          orderQuantity: 3,
+          orderAllocations: [
+            { orderNumber: firstOrder.orderNumber, quantity: 2 },
+            { orderNumber: remainingOrder.orderNumber, quantity: 1 },
+          ],
+        },
+      ],
+    });
+    const orders = service(fakeClient, {
+      pullListProgressStore: progressStore,
+      cacheMilliseconds: 30_000,
+      now: () => now,
+    });
+    await orders.getMasterPullList();
+    await orders.setPullListRowPulled(pullSheetRow.skuId, true);
+
+    now = new Date("2026-08-04T12:00:31.000Z");
+    const updated = await orders.getMasterPullList();
+
+    expect(updated).toMatchObject({
+      orderCount: 1,
+      totalQuantity: 1,
+      pulledQuantity: 1,
+      remainingQuantity: 0,
+    });
+    expect(updated.rows).toEqual([
+      expect.objectContaining({
+        skuId: pullSheetRow.skuId,
+        orderQuantity: 1,
+        pulledQuantity: 1,
+        remainingQuantity: 0,
+        pulled: true,
+      }),
+    ]);
+    expect(progressStore.state.orders).toEqual({
+      [remainingOrder.orderNumber]: {
+        [pullSheetRow.skuId]: {
+          quantity: 1,
+          pulledAt: "2026-08-04T12:00:00.000Z",
+        },
+      },
+    });
     expect(fakeClient.exportPullSheet).toHaveBeenCalledOnce();
   });
 

@@ -79,4 +79,78 @@ describe("master pull list", () => {
     expect(screen.getByText("Synthetic Cached Card")).toBeTruthy();
     expect(pullListReads()).toBe(1);
   });
+
+  it("reloads the mounted list when an order leaves the ready queue", async () => {
+    window.location.hash = "orders/pull-list";
+    let readyOrderReads = 0;
+    let pullListReads = 0;
+    let runReadyOrderPoll: (() => void) | undefined;
+    vi.spyOn(window, "setInterval").mockImplementation((handler, timeout) => {
+      if (timeout === 5_000 && typeof handler === "function") {
+        runReadyOrderPoll = handler;
+      }
+      return 1 as unknown as ReturnType<typeof window.setInterval>;
+    });
+    const readyOrder = {
+      orderNumber: "SYNTHETIC-READY-ORDER",
+      buyerName: "Synthetic Buyer",
+      orderDate: "2026-08-07T12:00:00.000Z",
+      status: "Ready to Ship",
+      statusCode: "ReadyToShip",
+      canMarkShipped: true,
+      shippingType: "Standard",
+      productAmount: 12,
+      shippingAmount: 1.49,
+      totalAmount: 13.49,
+    };
+    const emptyPullList = {
+      ...pullList,
+      orderCount: 0,
+      rows: [],
+      totalQuantity: 0,
+      pulledQuantity: 0,
+      remainingQuantity: 0,
+      fetchedAt: "2026-08-07T12:00:05.000Z",
+    };
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path.startsWith("/api/orders/pull-list")) {
+          pullListReads += 1;
+          return Promise.resolve(
+            json(pullListReads === 1 ? pullList : emptyPullList),
+          );
+        }
+        if (path === "/api/orders?status=ready-to-ship") {
+          readyOrderReads += 1;
+          return Promise.resolve(
+            json({
+              snapshot: {
+                orders: readyOrderReads === 1 ? [readyOrder] : [],
+                fetchedAt: "2026-08-07T12:00:00.000Z",
+              },
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText("Synthetic Cached Card")).toBeTruthy();
+    await waitFor(() => expect(readyOrderReads).toBe(1));
+    expect(runReadyOrderPoll).toBeDefined();
+
+    await act(async () => {
+      runReadyOrderPoll?.();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(pullListReads).toBe(2);
+      expect(screen.queryByText("Synthetic Cached Card")).toBeNull();
+    });
+    expect(screen.getByText("There are no cards to pull")).toBeTruthy();
+  });
 });
