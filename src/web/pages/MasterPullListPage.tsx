@@ -80,6 +80,20 @@ function rowColor(row: PullListRow): string {
   return row.metadata.flatMap((item) => item.values).join(" / ");
 }
 
+function isFoilCondition(condition: string): boolean {
+  const normalized = condition.toLocaleLowerCase();
+  return normalized.includes("foil") && !/\bnon[-\s]?foil\b/u.test(normalized);
+}
+
+function pullListRowClass(row: PullListRow): string {
+  return [
+    row.pulled ? "pull-list-row--pulled" : "",
+    isFoilCondition(row.condition) ? "pull-list-row--foil" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function compareRows(
   left: PullListRow,
   right: PullListRow,
@@ -406,10 +420,7 @@ export function MasterPullListPage() {
                     </thead>
                     <tbody>
                       {sortedRows.map((row) => (
-                        <tr
-                          key={row.skuId}
-                          class={row.pulled ? "pull-list-row--pulled" : ""}
-                        >
+                        <tr key={row.skuId} class={pullListRowClass(row)}>
                           <td class="pull-list-col-check">
                             <input
                               type="checkbox"
@@ -459,8 +470,22 @@ export function MasterPullListPage() {
                               )}
                             </div>
                           </td>
-                          <td class="pull-list-col-condition">
-                            {row.condition}
+                          <td
+                            class={`pull-list-col-condition${isFoilCondition(row.condition) ? " pull-list-condition--foil" : ""}`}
+                          >
+                            {isFoilCondition(row.condition) ? (
+                              <strong class="pull-list-foil">
+                                <span
+                                  class="pull-list-foil__badge"
+                                  aria-hidden="true"
+                                >
+                                  FOIL
+                                </span>
+                                <span>{row.condition}</span>
+                              </strong>
+                            ) : (
+                              row.condition
+                            )}
                           </td>
                           <td class="pull-list-col-rarity">
                             {row.rarity === "" ? "—" : row.rarity}

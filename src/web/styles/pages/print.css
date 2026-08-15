@@ -108,6 +108,37 @@
   .pull-list-table tr {
     break-inside: avoid;
   }
+  .pull-list-row--foil td {
+    border-top-width: 1.2pt;
+    border-bottom-width: 1.2pt;
+  }
+  .pull-list-row--foil td:first-child {
+    border-left-width: 1.2pt;
+  }
+  .pull-list-row--foil td:last-child {
+    border-right-width: 1.2pt;
+  }
+  .pull-list-condition--foil {
+    background: #fff !important;
+  }
+  .pull-list-foil {
+    display: block;
+    color: #000;
+    font-weight: 900;
+  }
+  .pull-list-foil__badge {
+    display: inline-block;
+    margin: 0 1mm 0 0;
+    border: 0.8pt solid #000;
+    border-radius: 0;
+    padding: 0.4mm 0.7mm;
+    color: #000;
+    background: #fff;
+    font-size: 6.5pt;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    line-height: 1;
+  }
   .pull-list-product strong {
     max-width: none;
     font-size: 7.5pt;

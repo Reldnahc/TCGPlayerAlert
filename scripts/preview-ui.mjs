@@ -200,7 +200,7 @@ function masterPullList() {
     {
       productLine: "Magic: The Gathering",
       productName: "Counterspell",
-      condition: "Near Mint",
+      condition: "Near Mint Foil",
       number: "45",
       setName: "Dominaria Remastered",
       rarity: "Common",

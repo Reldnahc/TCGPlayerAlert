@@ -65,6 +65,9 @@ metadata enrichment must avoid one catalog request per row.
   remains the generic printer boundary. Keep the mounted pull-list page and its
   browser state intact when a window-focus authentication check rerenders the
   application shell.
+- Treat a provider condition containing a foil printing label as foil. Give it
+  an explicit bold `FOIL` badge and heavy row outline in both the interactive
+  and printed table so the distinction never depends on color alone.
 - Default the working and printed master list to allocations that still need to
   be pulled. A `Show pulled` control may reveal completed SKU rows with their
   checkboxes prechecked. Checking a combined SKU marks only its current

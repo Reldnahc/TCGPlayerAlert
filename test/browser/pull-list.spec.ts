@@ -14,6 +14,14 @@ test("shows a printable master pull list with card metadata", async ({
   await expect(page.getByText("Red", { exact: true })).toBeVisible();
   await expect(page.getByText("Blue", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Print" })).toBeEnabled();
+  const foilRow = page.locator(".pull-list-row--foil").filter({
+    hasText: "Counterspell",
+  });
+  await expect(foilRow).toHaveCount(1);
+  await expect(foilRow.locator(".pull-list-foil__badge")).toHaveText("FOIL");
+  await expect(foilRow.locator(".pull-list-condition--foil")).toContainText(
+    "Near Mint Foil",
+  );
 
   const productNames = page.locator(
     ".pull-list-table tbody .pull-list-product strong",
@@ -98,6 +106,12 @@ test("shows a printable master pull list with card metadata", async ({
     "2 ready orders · 2 cards · 1 unique SKUs",
   );
   await expect(page.locator(".pull-list-row--pulled")).toBeHidden();
+  await expect(foilRow).toBeVisible();
+  await expect(foilRow.locator(".pull-list-foil__badge")).toBeVisible();
+  await expect(foilRow.locator(".pull-list-foil")).toHaveCSS(
+    "font-weight",
+    "900",
+  );
   await expect(page.locator(".pull-list-table")).toBeVisible();
   await expect(page.locator(".pull-list-table tbody td").first()).toHaveCSS(
     "color",
