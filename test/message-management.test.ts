@@ -263,6 +263,32 @@ describe("MessageManagementService", () => {
     expect(current.listSellerMessageThreads).toHaveBeenCalledOnce();
   });
 
+  it("invalidates cached inbox and conversation content when the unread count changes", async () => {
+    const current = clientFixture();
+    let now = new Date("2026-08-07T12:00:00.000Z");
+    const service = new MessageManagementService({
+      client: current.client,
+      sellerKey: "seller_test",
+      cacheMilliseconds: 30_000,
+      now: () => now,
+    });
+
+    await service.unreadCount();
+    now = new Date("2026-08-07T12:00:20.000Z");
+    await service.list();
+    await service.get(123);
+
+    current.getSellerUnreadMessageCount.mockResolvedValue(3);
+    now = new Date("2026-08-07T12:00:31.000Z");
+    await expect(service.unreadCount()).resolves.toBe(3);
+    await service.list();
+    await service.get(123);
+
+    expect(current.getSellerUnreadMessageCount).toHaveBeenCalledTimes(2);
+    expect(current.listSellerMessageThreads).toHaveBeenCalledTimes(2);
+    expect(current.getSellerMessageThread).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects invalid page, order, and thread inputs", async () => {
     const service = new MessageManagementService({
       client: clientFixture().client,

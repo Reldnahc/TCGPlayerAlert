@@ -14,11 +14,19 @@ The application consumes the read-only message contract introduced by `tcgplayer
 
 The navigation rail requests the dedicated unread count when the UI opens and then once per minute. The Messages workspace loads inbox pages only when first visited, supports exact order-number filtering and optional deleted-thread inclusion, and loads a selected conversation on demand. Concurrent unread-count reads share one in-flight request.
 
+The unread count is also the freshness signal for the independently cached
+message content. When a provider read changes the cached unread count, the
+service invalidates every inbox-page and thread-detail cache before returning
+the new value to the navigation badge. The next workspace read therefore
+cannot combine a current badge with an older inbox or conversation snapshot.
+
 The application issues no message POST requests. Viewing a thread does not mark it read. Reply, delete, escalation, resolution, and read-state controls remain links to TCGplayer Seller Portal. Message content, participants, and provider identifiers are not persisted or logged.
 
 ## Consequences
 
 - The red badge reflects TCGplayer's unread state without requiring full inbox polling.
+- A changed badge count invalidates cached message content without disabling
+  the normal 30-second cache when nothing changed.
 - Reading a conversation locally intentionally leaves its unread state unchanged.
 - The UI can show short-lived message content in the browser on the same computer, but a restart clears every application message cache.
 - Message mutations require a separate authorization and design review before they can be added.

@@ -228,6 +228,7 @@ export class MessageManagementService {
       return this.countCache.value;
     }
     if (this.countPending !== undefined) return this.countPending;
+    const previousCount = this.countCache?.value;
     const revision = this.cacheRevision;
     const pending = this.client
       .getSellerUnreadMessageCount(
@@ -235,6 +236,9 @@ export class MessageManagementService {
       )
       .then((value) => {
         if (this.cacheRevision === revision) {
+          if (previousCount !== undefined && value !== previousCount) {
+            this.invalidateMessageContent();
+          }
           this.countCache = {
             value,
             expiresAt: this.now().getTime() + this.cacheMilliseconds,
@@ -378,6 +382,12 @@ export class MessageManagementService {
     }
     this.countCache = undefined;
     this.countPending = undefined;
+  }
+
+  private invalidateMessageContent(): void {
+    this.cacheRevision += 1;
+    this.pageCache.clear();
+    this.threadCache.clear();
   }
 
   private invalidateAll(): void {
