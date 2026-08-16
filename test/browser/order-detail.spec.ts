@@ -5,7 +5,10 @@ test("opens the internal order workspace from an order number", async ({
 }, testInfo) => {
   await page.goto("/#orders");
 
-  await page.getByRole("link", { name: "123-4567890-001" }).click();
+  const orderNumber = page.getByRole("link", { name: "123-4567890-001" });
+  await expect(orderNumber).toHaveCSS("white-space", "nowrap");
+  await expect(page.locator(".orders-col-number")).toHaveCSS("width", "145px");
+  await orderNumber.click();
 
   await expect(
     page.getByRole("heading", { name: "Order 123-4567890-001" }),

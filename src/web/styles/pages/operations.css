@@ -46,10 +46,10 @@
   width: min(360px, 40vw);
 }
 .orders-table {
-  min-width: 1220px;
+  min-width: 1235px;
 }
 .orders-col-number {
-  width: 130px;
+  width: 145px;
 }
 .orders-col-status {
   width: 225px;
@@ -69,6 +69,7 @@
 .order-number-link {
   color: #075f8f;
   text-decoration: none;
+  white-space: nowrap;
 }
 .order-number-link:hover {
   color: #034f79;
