@@ -250,7 +250,7 @@ describe("order workspaces", () => {
     });
   });
 
-  it("opens Pirate Ship in a new tab without replacing the local app", async () => {
+  it("prepares the address before opening Pirate Ship directly", async () => {
     window.location.hash = "orders";
     const order = {
       orderNumber: "SYNTHETIC-PIRATE-SHIP",
@@ -288,16 +288,11 @@ describe("order workspaces", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
-    const replace = vi.fn();
-    const close = vi.fn();
-    const externalTab = {
-      opener: window,
-      location: { replace },
-      close,
-    } as unknown as Window;
-    const open = vi.spyOn(window, "open").mockReturnValue(externalTab);
+    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
     const user = userEvent.setup();
-    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
     render(<App />);
 
     await screen.findByText(order.orderNumber);
@@ -309,13 +304,15 @@ describe("order workspaces", () => {
     );
 
     await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith(
+      expect(open).toHaveBeenCalledWith(
         "https://ship.pirateship.com/ship/single",
+        "_blank",
+        "noopener,noreferrer",
       ),
     );
-    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
-    expect(externalTab.opener).toBeNull();
-    expect(close).not.toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith(
+      "Synthetic Buyer\n123 Example Street\nExample City, IL 00000",
+    );
     expect(window.location.hash).toBe("#orders");
   });
 
