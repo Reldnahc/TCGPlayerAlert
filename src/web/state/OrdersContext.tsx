@@ -273,13 +273,12 @@ export function OrdersProvider({
   };
 
   const completeShipment = useCallback(
-    async (orderNumber: string, scope: Scope) => {
+    (orderNumber: string, scope: Scope) => {
       acknowledgeShipment(orderNumber);
-      const refreshes = [load(scope, true)];
-      if (scope !== "all" && listsRef.current.all !== null) {
-        refreshes.push(load("all", true));
+      if (scope === "all" || listsRef.current.all !== null) {
+        void load("all", true);
       }
-      await Promise.all(refreshes);
+      return Promise.resolve();
     },
     [acknowledgeShipment, load],
   );

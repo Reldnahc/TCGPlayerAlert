@@ -639,7 +639,7 @@ describe("authentication and dashboard", () => {
     });
   });
 
-  it("marks an order shipped immediately when confirmation is disabled", async () => {
+  it("removes a tracked $50 order from Dashboard immediately after shipment", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
@@ -647,6 +647,18 @@ describe("authentication and dashboard", () => {
         if (path === "/api/settings") {
           return Promise.resolve(
             json({ ...settings, confirmBeforeMarkingShipped: false }),
+          );
+        }
+        if (
+          path === "/api/orders/SYNTHETIC-ORDER-1/tracking" &&
+          options?.method === "POST"
+        ) {
+          return Promise.resolve(
+            json({
+              orderNumber: "SYNTHETIC-ORDER-1",
+              carrier: "USPS",
+              outcome: "applied",
+            }),
           );
         }
         if (
@@ -670,9 +682,9 @@ describe("authentication and dashboard", () => {
                     statusCode: "ReadyToShip",
                     canMarkShipped: true,
                     shippingType: "Standard",
-                    productAmount: 10,
+                    productAmount: 48.51,
                     shippingAmount: 1.49,
-                    totalAmount: 11.49,
+                    totalAmount: 50,
                   },
                 ],
                 fetchedAt: "2026-08-07T12:00:00.000Z",
@@ -686,6 +698,21 @@ describe("authentication and dashboard", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Tracking" }));
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Tracking number for order SYNTHETIC-ORDER-1",
+      }),
+      "synthetic-tracking",
+    );
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/orders/SYNTHETIC-ORDER-1/tracking",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
 
     await user.click(
       await screen.findByRole("button", { name: "Mark shipped" }),
