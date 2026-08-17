@@ -135,7 +135,12 @@ describe("shipment scanner", () => {
     expect(screen.getByText("Confirming tag 7")).toBeTruthy();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(99);
+    });
+    expect(screen.queryByText("Exact ready-order match")).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
     });
     expect(await screen.findByText("Exact ready-order match")).toBeTruthy();
     expect(screen.getByText("Waiting for review")).toBeTruthy();

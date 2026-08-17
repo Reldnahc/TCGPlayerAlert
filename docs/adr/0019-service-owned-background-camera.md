@@ -41,8 +41,9 @@ Camera discovery opens no device and makes no seller request. The service
 reconciles saved settings once per second, restarts capture when the selected
 device changes, and retries a failed device with a bounded five-second delay.
 
-Request 1280 by 720 at five frames per second. Decode and convert each frame to a
-tightly packed grayscale buffer. Load the same pinned, unmodified AprilTag
+Request 1280 by 720 at ten frames per second, giving the five-read consensus an
+approximately half-second target. Decode and convert each frame to a tightly
+packed grayscale buffer. Load the same pinned, unmodified AprilTag
 WebAssembly glue and binary used by the browser manual-upload fallback into an
 isolated Node VM context whose asset fetch is satisfied only from checked-in
 local bytes. Frames, detections, and raw camera error details are not persisted
@@ -59,9 +60,9 @@ therefore the seller API.
 Automatic mode completes the existing guarded shipment mutation with no open
 browser. Review mode pauses background detection after an exact match until the
 operator approves it in Scanner. The Scanner page polls the local scanner
-status once per second and displays the last in-memory result. While that page
-is open, it may also request the latest service-owned camera preview through a
-no-cache loopback endpoint. Sample at most one preview frame per second, copy it
+status every 100 milliseconds and displays the last in-memory result. While that
+page is open, it may also request the latest service-owned camera preview through
+a no-cache loopback endpoint. Sample at most one preview frame per second, copy it
 in memory, downsample it within 640 by 480, and encode it as a grayscale JPEG
 only when requested. Overwrite the prior sample and encoded bytes; never write
 either to disk or logs. Preview reads do not open the camera, alter detection,

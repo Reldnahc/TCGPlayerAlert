@@ -2,7 +2,7 @@ import type { Decoder, Demuxer, Scaler } from "node-av/api";
 
 const CAPTURE_WIDTH = 1280;
 const CAPTURE_HEIGHT = 720;
-const CAPTURE_FRAMES_PER_SECOND = 5;
+const CAPTURE_FRAMES_PER_SECOND = 10;
 const MAXIMUM_FRAME_PIXELS = 16_000_000;
 
 export interface CameraDevice {

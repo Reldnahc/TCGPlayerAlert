@@ -17,7 +17,7 @@ import {
 import { errorMessage } from "../utils.js";
 import { useSettings } from "../state/SettingsContext.js";
 
-const STATUS_REFRESH_MILLISECONDS = 1_000;
+const STATUS_REFRESH_MILLISECONDS = 100;
 
 export function ShipmentScannerPage() {
   const { settings } = useSettings();

@@ -86,9 +86,9 @@ tag upload, and resolves a ready order against synthetic server doubles.
 The dependency is pinned and installs the host platform's prebuilt N-API and
 FFmpeg artifacts. The application imports only the device, decoder, and scaler
 API behind `CameraCaptureAdapter`; domain and shipment-resolution code do not
-depend on NodeAV. Frames are requested at 1280×720 and five frames per second,
-converted to tightly packed grayscale buffers, and discarded after detection.
-No camera frame is persisted or logged.
+depend on NodeAV. Frames are requested at 1280×720 and ten frames per second
+(a 100-millisecond capture cadence), converted to tightly packed grayscale
+buffers, and discarded after detection. No camera frame is persisted or logged.
 
 NodeAV declares optional WebRTC dependencies that the application does not
 use. The root lockfile applies NodeAV's documented `neoip` and binary-data
