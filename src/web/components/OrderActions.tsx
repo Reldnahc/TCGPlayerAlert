@@ -1,4 +1,5 @@
 import { useState } from "preact/hooks";
+import { requiresShipmentTracking } from "../../shipment-policy.js";
 import { orderDetailUrl, packingSlipUrl, uiApi } from "../api.js";
 import type { Order } from "../contracts.js";
 import { useOrders } from "../state/OrdersContext.js";
@@ -12,11 +13,13 @@ export function OrderActions({
   order,
   scope,
   compact = false,
+  hasTracking,
   onChanged,
 }: {
   readonly order: Order;
   readonly scope: "all" | "ready-to-ship";
   readonly compact?: boolean;
+  readonly hasTracking?: boolean;
   readonly onChanged?: () => void | Promise<void>;
 }) {
   const { completeShipment, load, shipmentsPendingReconciliation } =
@@ -26,6 +29,7 @@ export function OrderActions({
   const [busy, setBusy] = useState("");
   const [trackingOpen, setTrackingOpen] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingAdded, setTrackingAdded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   async function run(
@@ -91,6 +95,7 @@ export function OrderActions({
       "tracking",
       async () => {
         await uiApi.addTracking(order.orderNumber, normalized);
+        setTrackingAdded(true);
         setTrackingOpen(false);
         setTrackingNumber("");
         await onChanged?.();
@@ -101,6 +106,44 @@ export function OrderActions({
   }
 
   async function markShipped() {
+    if (
+      requiresShipmentTracking(order.totalAmount) &&
+      hasTracking !== true &&
+      !trackingAdded
+    ) {
+      if (hasTracking === undefined) {
+        if (busy !== "") return;
+        setBusy("shipped");
+        try {
+          const detail = await uiApi.order(order.orderNumber, true);
+          if (detail.trackingNumbers.length > 0) {
+            setTrackingAdded(true);
+          } else {
+            setTrackingOpen(true);
+            toast.show(
+              "Add tracking before marking an order of $50 or more shipped.",
+              "warning",
+            );
+            return;
+          }
+        } catch (cause) {
+          toast.show(
+            errorMessage(cause, "Tracking could not be verified."),
+            "danger",
+          );
+          return;
+        } finally {
+          setBusy("");
+        }
+      } else {
+        setTrackingOpen(true);
+        toast.show(
+          "Add tracking before marking an order of $50 or more shipped.",
+          "warning",
+        );
+        return;
+      }
+    }
     if (
       settings?.confirmBeforeMarkingShipped !== false &&
       !window.confirm(`Mark order ${order.orderNumber} as shipped?`)
@@ -120,13 +163,21 @@ export function OrderActions({
   const shipmentPendingReconciliation = shipmentsPendingReconciliation.has(
     order.orderNumber,
   );
+  const missingRequiredTracking =
+    requiresShipmentTracking(order.totalAmount) &&
+    hasTracking === false &&
+    !trackingAdded;
   const markShippedDisabled =
-    !order.canMarkShipped || shipmentPendingReconciliation;
+    !order.canMarkShipped ||
+    shipmentPendingReconciliation ||
+    missingRequiredTracking;
   const markShippedTitle = shipmentPendingReconciliation
     ? "Shipment was accepted and is waiting for the order list to reconcile."
-    : order.canMarkShipped
-      ? ""
-      : `Unavailable for TCGplayer status: ${order.status}`;
+    : missingRequiredTracking
+      ? "Add tracking before marking an order of $50 or more shipped."
+      : order.canMarkShipped
+        ? ""
+        : `Unavailable for TCGplayer status: ${order.status}`;
 
   const primary = (
     <>

@@ -30,6 +30,7 @@ import {
   pullListSettingsKey,
   type PullListGroupingSettings,
 } from "./pull-list-binning.js";
+import { requiresShipmentTracking } from "./shipment-policy.js";
 
 export type { ManagedOrderList, ManagedOrderSummary } from "./ready-orders.js";
 
@@ -984,6 +985,19 @@ export class OrderManagementService {
   }> {
     const sellerKey = this.currentSellerKey();
     const normalized = requiredText(orderNumber, "Order number", 128);
+    const confirmed = await this.getOrder(normalized, {
+      force: true,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (
+      requiresShipmentTracking(confirmed.transaction.grossAmount) &&
+      confirmed.trackingNumbers.length === 0
+    ) {
+      throw new ApplicationError(
+        "TRACKING_REQUIRED",
+        "Orders totaling $50 or more require a tracking number before they can be marked shipped.",
+      );
+    }
     this.clearOrderCaches(true);
     try {
       const result = await this.client.markOrdersShipped(

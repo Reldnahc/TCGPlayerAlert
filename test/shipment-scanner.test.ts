@@ -273,6 +273,31 @@ describe("shipment scanner", () => {
     });
   });
 
+  it("stops a $50 automatic match for tracking review", async () => {
+    const order = {
+      ...managedOrder("TRACKING-REQUIRED"),
+      productAmount: 48.51,
+      totalAmount: 50,
+    };
+    const ready = readySource([order]);
+    const markShipped = vi.fn();
+    const { scanner, store } = service({
+      ready,
+      automatic: true,
+      markShipped,
+    });
+
+    await expect(
+      scanner.scan(shipmentTagId(order.orderNumber)),
+    ).resolves.toEqual({
+      state: "matched",
+      tagId: shipmentTagId(order.orderNumber),
+      order,
+    });
+    expect(markShipped).not.toHaveBeenCalled();
+    expect(store.saves).toBe(0);
+  });
+
   it("resolves hash collisions before either ready order can share a tag", async () => {
     const [first, second] = collidingOrderNumbers();
     const ready = readySource([managedOrder(first), managedOrder(second)]);

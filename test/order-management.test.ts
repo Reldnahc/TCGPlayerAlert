@@ -920,6 +920,63 @@ describe("order management", () => {
     expect(onShipmentAccepted).toHaveBeenCalledWith(firstOrder.orderNumber);
   });
 
+  it("requires tracking at the $50 shipment boundary", async () => {
+    const fakeClient = client();
+    const orders = service(fakeClient);
+    fakeClient.confirmOrder.mockResolvedValueOnce({
+      summary: { ...firstOrder, totalAmount: 49.99 },
+      order: {
+        ...orderDetail(),
+        transaction: {
+          ...orderDetail().transaction,
+          grossAmount: 49.99,
+        },
+      },
+    });
+
+    await expect(orders.markShipped(firstOrder.orderNumber)).resolves.toEqual({
+      orderNumber: firstOrder.orderNumber,
+      outcome: "applied",
+    });
+
+    fakeClient.confirmOrder.mockResolvedValueOnce({
+      summary: { ...firstOrder, totalAmount: 50 },
+      order: {
+        ...orderDetail(),
+        transaction: { ...orderDetail().transaction, grossAmount: 50 },
+      },
+    });
+    await expect(
+      orders.markShipped(firstOrder.orderNumber),
+    ).rejects.toMatchObject({
+      code: "TRACKING_REQUIRED",
+      message:
+        "Orders totaling $50 or more require a tracking number before they can be marked shipped.",
+    });
+    expect(fakeClient.markOrdersShipped).toHaveBeenCalledTimes(1);
+
+    fakeClient.confirmOrder.mockResolvedValueOnce({
+      summary: { ...firstOrder, totalAmount: 50 },
+      order: {
+        ...orderDetail(),
+        transaction: { ...orderDetail().transaction, grossAmount: 50 },
+        trackingNumbers: [
+          {
+            createdAt: "2026-08-04T12:00:00.000Z",
+            carrier: "USPS",
+            trackingNumber: "synthetic-tracking",
+            status: "In transit",
+          },
+        ],
+      },
+    });
+    await expect(orders.markShipped(firstOrder.orderNumber)).resolves.toEqual({
+      orderNumber: firstOrder.orderNumber,
+      outcome: "applied",
+    });
+    expect(fakeClient.markOrdersShipped).toHaveBeenCalledTimes(2);
+  });
+
   it("reports successful and failed mark-shipped attempts without changing their result", async () => {
     const fakeClient = client();
     const onShipmentAttempt = vi.fn();

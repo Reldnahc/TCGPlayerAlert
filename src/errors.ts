@@ -5,6 +5,7 @@ export type ApplicationErrorCode =
   | "PRINT_FAILED"
   | "PRINT_AMBIGUOUS"
   | "PAIRING_REQUIRED"
+  | "TRACKING_REQUIRED"
   | "REVIEW_REQUIRED";
 
 export class ApplicationError extends Error {

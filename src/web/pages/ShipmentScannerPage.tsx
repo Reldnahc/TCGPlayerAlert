@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { requiresShipmentTracking } from "../../shipment-policy.js";
 import type {
   ShipmentScannerStatus,
   ShipmentScanResult,
@@ -367,6 +368,7 @@ function ShipmentResolution({
   readonly onMarkShipped: () => void;
 }) {
   if (result.state === "matched") {
+    const trackingRequired = requiresShipmentTracking(result.order.totalAmount);
     return (
       <Notice tone="warning">
         <strong>Exact ready-order match</strong>
@@ -375,9 +377,16 @@ function ShipmentResolution({
           <OrderNumberLink orderNumber={result.order.orderNumber} />
         </span>
         <span>{result.order.shippingType}</span>
-        <Button tone="primary" busy={busy} onClick={onMarkShipped}>
-          Mark shipped
-        </Button>
+        {trackingRequired ? (
+          <span>
+            Add tracking in the order workspace before marking this $50 or
+            greater order shipped.
+          </span>
+        ) : (
+          <Button tone="primary" busy={busy} onClick={onMarkShipped}>
+            Mark shipped
+          </Button>
+        )}
       </Notice>
     );
   }

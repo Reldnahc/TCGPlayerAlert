@@ -8,6 +8,7 @@ import {
   SHIPMENT_TAG_COUNT,
   type ShipmentTagRegistry,
 } from "./shipment-tags.js";
+import { requiresShipmentTracking } from "./shipment-policy.js";
 
 const MAXIMUM_SHIPMENT_RECORDS = 10_000;
 
@@ -139,6 +140,9 @@ export class ShipmentScannerService {
     const resolution = await this.resolve(tagId, signal);
     if (resolution.state !== "matched") return resolution;
     if (!settings.automaticallyMarkShipped) return resolution;
+    if (requiresShipmentTracking(resolution.order.totalAmount)) {
+      return resolution;
+    }
     return this.mutate(resolution.order, resolution.tagId, signal);
   }
 

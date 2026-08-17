@@ -22,7 +22,7 @@ import {
 afterEach(resetWebUiTest);
 
 describe("order workspaces", () => {
-  it("opens a seller-confirmed internal order workspace from the order number", async () => {
+  it("requires tracking for a $50 order and opens its internal workspace", async () => {
     window.location.hash = "orders";
     const order = {
       orderNumber: "SYNTHETIC-ORDER-DETAIL",
@@ -32,9 +32,9 @@ describe("order workspaces", () => {
       statusCode: "ReadyToShip",
       canMarkShipped: true,
       shippingType: "Standard",
-      productAmount: 12,
+      productAmount: 48.51,
       shippingAmount: 1.49,
-      totalAmount: 13.49,
+      totalAmount: 50,
     };
     const detail = {
       createdAt: order.orderDate,
@@ -50,11 +50,11 @@ describe("order workspaces", () => {
       shippingType: order.shippingType,
       estimatedDeliveryDate: "2026-08-12T12:00:00.000Z",
       transaction: {
-        productAmount: 12,
+        productAmount: 48.51,
         shippingAmount: 1.49,
-        grossAmount: 13.49,
+        grossAmount: 50,
         feeAmount: 1.5,
-        netAmount: 11.99,
+        netAmount: 48.5,
         directFeeAmount: 0,
         taxes: [],
       },
@@ -70,8 +70,8 @@ describe("order workspaces", () => {
       products: [
         {
           name: "Synthetic Card · Test Set · Near Mint",
-          unitPrice: 6,
-          extendedPrice: 12,
+          unitPrice: 24.255,
+          extendedPrice: 48.51,
           quantity: 2,
           url: "https://www.tcgplayer.com/",
           productId: "123",
@@ -133,8 +133,48 @@ describe("order workspaces", () => {
     const user = userEvent.setup();
     render(<App />);
 
+    await screen.findByRole("link", {
+      name: order.orderNumber,
+    });
+    await user.click(screen.getByRole("button", { name: "Mark shipped" }));
+    expect(
+      await screen.findByRole("textbox", {
+        name: `Tracking number for order ${order.orderNumber}`,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Add tracking before marking an order of $50 or more shipped.",
+      ),
+    ).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        requestPath(input).endsWith("/mark-shipped"),
+      ),
+    ).toBe(false);
+
     await user.click(
-      await screen.findByRole("link", { name: order.orderNumber }),
+      screen.getByRole("link", {
+        name: order.orderNumber,
+      }),
+    );
+
+    await screen.findByRole("heading", {
+      name: `Order ${order.orderNumber}`,
+    });
+    await screen.findByText("No tracking has been added");
+    const detailCommandBar = document.querySelector(
+      ".order-detail-command-bar",
+    );
+    if (!(detailCommandBar instanceof HTMLElement)) {
+      throw new Error("Expected the order detail command bar.");
+    }
+    const detailMarkShipped = within(detailCommandBar).getByRole("button", {
+      name: "Mark shipped",
+    });
+    expect(detailMarkShipped.hasAttribute("disabled")).toBe(true);
+    expect(detailMarkShipped.getAttribute("title")).toBe(
+      "Add tracking before marking an order of $50 or more shipped.",
     );
 
     expect(

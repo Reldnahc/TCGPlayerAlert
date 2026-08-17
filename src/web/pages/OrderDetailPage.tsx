@@ -167,6 +167,7 @@ export function OrderDetailPage({
                 <OrderActions
                   order={actionOrder}
                   scope="all"
+                  hasTracking={detail.trackingNumbers.length > 0}
                   onChanged={() => load(true)}
                 />
                 {detail.refundCapabilities.full ||
