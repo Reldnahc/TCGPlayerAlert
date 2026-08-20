@@ -32,8 +32,8 @@ describe("feedback", () => {
                   buyerDisplayName: "Synthetic B*",
                   createdAt: "2026-08-07T12:00:00.000Z",
                   active: true,
-                  arrivedWhenExpected: true,
-                  asDescribed: true,
+                  arrivedWhenExpected: false,
+                  asDescribed: false,
                   goodCommunication: false,
                 },
               ],
@@ -80,6 +80,10 @@ describe("feedback", () => {
     expect(screen.getByText("Synthetic B*")).toBeTruthy();
     expect(screen.queryByText("Synthetic Buyer")).toBeNull();
     expect(screen.getByLabelText("5 out of 5 stars")).toBeTruthy();
+    expect(screen.queryByText("Order experience")).toBeNull();
+    expect(screen.queryByText("Delivery")).toBeNull();
+    expect(screen.queryByText("Item")).toBeNull();
+    expect(screen.queryByText("Communication")).toBeNull();
     expect(screen.getByText("80.0%")).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Open TCGplayer" }).getAttribute("href"),

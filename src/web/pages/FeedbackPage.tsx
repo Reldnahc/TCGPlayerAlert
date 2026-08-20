@@ -196,7 +196,6 @@ export function FeedbackPage() {
                   <th>Date</th>
                   <th>Buyer</th>
                   <th>Comment</th>
-                  <th>Order experience</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,37 +250,7 @@ function FeedbackRow({ feedback }: { readonly feedback: FeedbackEntry }) {
       <td class="feedback-comment">
         {feedback.comment ?? <span class="muted">No comment left</span>}
       </td>
-      <td>
-        <div class="feedback-signals">
-          <FeedbackSignal
-            label="Delivery"
-            value={feedback.arrivedWhenExpected}
-          />
-          <FeedbackSignal label="Item" value={feedback.asDescribed} />
-          <FeedbackSignal
-            label="Communication"
-            value={feedback.goodCommunication}
-          />
-        </div>
-      </td>
     </tr>
-  );
-}
-
-function FeedbackSignal({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: boolean | undefined;
-}) {
-  return (
-    <span
-      class={`feedback-signal ${value === true ? "is-positive" : value === false ? "is-negative" : "is-unanswered"}`}
-      title={`${label}: ${value === true ? "positive" : value === false ? "negative" : "not answered"}`}
-    >
-      {label}
-    </span>
   );
 }
 
