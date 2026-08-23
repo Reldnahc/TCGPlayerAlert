@@ -573,6 +573,7 @@ describe("authentication and dashboard", () => {
       ].map((link) => link.textContent.trim()),
     ).toEqual([
       "Dashboard",
+      "Labels",
       "Add cards",
       "Orders",
       "Scanner",

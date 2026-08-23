@@ -25,9 +25,99 @@
 }
 .manual-label-tool__form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
   gap: 10px;
+}
+.bulk-labels-layout {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(340px, 0.85fr) minmax(480px, 1.15fr);
+  gap: 14px;
+}
+.bulk-labels-source,
+.bulk-labels-preview {
+  min-width: 0;
+}
+.bulk-labels-source {
+  align-self: start;
+}
+.bulk-labels-source__body {
+  display: grid;
+  gap: 12px;
+}
+.bulk-labels-source textarea {
+  min-height: 280px;
+  resize: vertical;
+  line-height: 1.35;
+}
+.bulk-labels-source__actions,
+.label-preview__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.bulk-labels-preview {
+  display: grid;
+  align-content: start;
+  overflow: hidden;
+}
+.bulk-labels-printer {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 14px;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  font-size: 11px;
+}
+.bulk-labels-issues {
+  padding-bottom: 0;
+}
+.bulk-labels-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+.label-preview {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: white;
+}
+.label-preview--printed {
+  border-color: #74ad92;
+  background: #f4fbf7;
+}
+.label-preview--failed {
+  border-color: #d28d86;
+  background: #fff7f6;
+}
+.label-preview--printing {
+  border-color: #d2a24a;
+  background: #fffbf2;
+}
+.label-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+}
+.label-preview__header span {
+  color: var(--text-muted);
+}
+.label-preview textarea {
+  min-height: 92px;
+  resize: vertical;
+  color: #111;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
 }
 .manual-label-tool textarea {
   min-height: 72px;

@@ -3,6 +3,7 @@ import { Icon, type IconName } from "./Icon.js";
 
 export type RouteId =
   | "dashboard"
+  | "labels"
   | "orders"
   | "payments"
   | "feedback"
@@ -19,6 +20,7 @@ export const routes: readonly {
   readonly icon: IconName;
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "labels", label: "Labels", icon: "printer" },
   { id: "add-cards", label: "Add cards", icon: "add" },
   { id: "orders", label: "Orders", icon: "orders" },
   { id: "scanner", label: "Scanner", icon: "scan" },

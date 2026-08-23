@@ -180,6 +180,9 @@ export function DashboardPage() {
                 >
                   Print label
                 </Button>
+                <a class="button button--secondary" href="#labels">
+                  Bulk labels
+                </a>
               </form>
             </section>
           </div>

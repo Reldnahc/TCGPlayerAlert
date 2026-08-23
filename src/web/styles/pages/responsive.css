@@ -8,6 +8,9 @@
   .dashboard-control-grid {
     grid-template-columns: 1fr;
   }
+  .bulk-labels-layout {
+    grid-template-columns: 1fr;
+  }
   .feedback-layout {
     overflow: auto;
   }

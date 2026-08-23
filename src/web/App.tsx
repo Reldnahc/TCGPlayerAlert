@@ -8,6 +8,7 @@ import { AddCardsPage } from "./pages/AddCardsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { InventoryPage } from "./pages/InventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
+import { BulkLabelsPage } from "./pages/BulkLabelsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
 import { OrderDetailPage } from "./pages/OrderDetailPage.js";
 import { MasterPullListPage } from "./pages/MasterPullListPage.js";
@@ -160,6 +161,7 @@ function Console() {
   else {
     const pages: Readonly<Record<RouteId, () => JSX.Element | null>> = {
       dashboard: DashboardPage,
+      labels: BulkLabelsPage,
       orders: OrdersPage,
       payments: PaymentsPage,
       feedback: FeedbackPage,

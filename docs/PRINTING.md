@@ -44,6 +44,17 @@ Supported template fields are:
 
 The Dashboard also provides a manual address-label tool. It accepts pasted multiline text and prints the non-empty lines in their original order using the saved address-label printer, dimensions, margin, font size, orientation, and `omitLineValues`. Manual printing remains available when address-label automation is disabled because it is an explicit operator action. Input is limited to eight lines and 1,024 characters and is never added to application state, responses, or logs. Like order labels, it passes through the random short-lived spool workspace described below and is removed after submission.
 
+The **Labels** workspace extends that explicit tool to batches from unrelated selling platforms. It accepts up to 100 addresses in these forms:
+
+- Multiline addresses separated by a blank line.
+- Consecutive multiline U.S. or Canadian addresses whose final lines contain recognizable postal codes.
+- One comma-separated complete address per line.
+- CSV or tab-separated spreadsheet rows. A header row with address and city columns is recognized; common name, address, unit, state/province, postal-code, and country headings are mapped to conventional label lines.
+
+Formatting happens in the browser and produces editable label previews. Operators must review those lines before printing. The browser then submits one ordinary manual print request at a time. A failed submission stops the batch; successfully submitted labels stay marked **Printed**, the failed label is marked **Needs review**, and untouched labels remain available through **Print remaining**. A failed label is excluded until the operator explicitly marks it for retry. No batch is automatically retried.
+
+Pasted source text, previews, and progress stay in memory in the current browser tab. They are not written to configuration, workflow state, responses, or logs. Reloading or clearing the page discards them.
+
 `print-packing-slip` accepts the validated PDF returned by the seller provider. The `windows-pdf` adapter renders each page at the configured DPI and preserves the PDF page aspect ratio. Its scale options are:
 
 - `actual-size` - retain the physical PDF page size even if it clips.
