@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { requiresShipmentTracking } from "../../shipment-policy.js";
 import { orderDetailUrl, packingSlipUrl, uiApi } from "../api.js";
-import type { Order } from "../contracts.js";
+import { orderActionAvailable, orderKey, type Order } from "../contracts.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { useSettings } from "../state/SettingsContext.js";
 import { useToast } from "../state/ToastContext.js";
@@ -52,29 +52,44 @@ export function OrderActions({
   }
 
   async function openPirateShip() {
+    if (busy !== "") return;
+    const prepared = uiApi.pirateShip(order.ref);
+    const copying = copyPromisedTextToClipboard(
+      prepared.then((result) => result.pasteAddress),
+    );
+    const opened = window.open("about:blank", "_blank");
+    if (opened !== null) opened.opener = null;
     await run(
       "pirate",
       async () => {
-        const prepared = await uiApi.pirateShip(order.orderNumber);
         try {
-          await navigator.clipboard.writeText(prepared.pasteAddress);
-        } catch {
-          const accepted = window.prompt(
-            "Copy this address, then select OK to open Pirate Ship.",
-            prepared.pasteAddress,
-          );
-          if (accepted === null) {
-            throw new Error("Pirate Ship was not opened.");
+          const result = await prepared;
+          await copying;
+          if (opened === null) {
+            throw new Error(
+              "Address copied, but Pirate Ship was blocked. Allow pop-ups and try again.",
+            );
           }
+          opened.location.assign(result.url);
+        } catch (cause) {
+          opened?.close();
+          throw cause;
         }
-        const opened = window.open(
-          prepared.url,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        if (opened === null) window.location.assign(prepared.url);
       },
       "Address copied. Paste it into Pirate Ship.",
+    );
+  }
+
+  async function printOrder(
+    actionType: "print-address-label" | "print-packing-slip",
+  ) {
+    setMenuOpen(false);
+    await run(
+      actionType,
+      () => uiApi.printOrder(order.ref, actionType),
+      actionType === "print-address-label"
+        ? "Address label sent to the printer."
+        : "Packing slip sent to the printer.",
     );
   }
 
@@ -87,7 +102,7 @@ export function OrderActions({
     await run(
       "tracking",
       async () => {
-        await uiApi.addTracking(order.orderNumber, normalized);
+        await uiApi.addTracking(order.ref, normalized);
         setTrackingAdded(true);
         setTrackingOpen(false);
         setTrackingNumber("");
@@ -100,7 +115,7 @@ export function OrderActions({
 
   async function markShipped() {
     if (
-      requiresShipmentTracking(order.totalAmount) &&
+      requiresShipmentTracking(order.totals.total.minorUnits / 100) &&
       hasTracking !== true &&
       !trackingAdded
     ) {
@@ -108,10 +123,9 @@ export function OrderActions({
         if (busy !== "") return;
         setBusy("shipped");
         try {
-          const detail = await uiApi.order(order.orderNumber, true);
-          if (detail.trackingNumbers.length > 0) {
-            setTrackingAdded(true);
-          } else {
+          const detail = await uiApi.order(order.ref, true);
+          if (detail.trackingNumbers.length > 0) setTrackingAdded(true);
+          else {
             setTrackingOpen(true);
             toast.show(
               "Add tracking before marking an order of $50 or more shipped.",
@@ -139,14 +153,15 @@ export function OrderActions({
     }
     if (
       settings?.confirmBeforeMarkingShipped !== false &&
-      !window.confirm(`Mark order ${order.orderNumber} as shipped?`)
-    )
+      !window.confirm(`Mark order ${order.displayOrderNumber} as shipped?`)
+    ) {
       return;
+    }
     await run(
       "shipped",
       async () => {
-        const result = await uiApi.markShipped(order.orderNumber);
-        await completeShipment(result.orderNumber, scope);
+        await uiApi.markShipped(order.ref);
+        await completeShipment(order, scope);
         await onChanged?.();
       },
       "Order marked shipped.",
@@ -154,50 +169,57 @@ export function OrderActions({
   }
 
   const shipmentPendingReconciliation = shipmentsPendingReconciliation.has(
-    order.orderNumber,
+    orderKey(order),
   );
   const missingRequiredTracking =
-    requiresShipmentTracking(order.totalAmount) &&
+    requiresShipmentTracking(order.totals.total.minorUnits / 100) &&
     hasTracking === false &&
     !trackingAdded;
+  const canMarkShipped = orderActionAvailable(order, "mark-shipped");
   const markShippedDisabled =
-    !order.canMarkShipped ||
-    shipmentPendingReconciliation ||
-    missingRequiredTracking;
+    !canMarkShipped || shipmentPendingReconciliation || missingRequiredTracking;
   const markShippedTitle = shipmentPendingReconciliation
     ? "Shipment was accepted and is waiting for the order list to reconcile."
     : missingRequiredTracking
       ? "Add tracking before marking an order of $50 or more shipped."
-      : order.canMarkShipped
+      : canMarkShipped
         ? ""
-        : `Unavailable for TCGplayer status: ${order.status}`;
+        : `Unavailable for order status: ${order.providerStatus}`;
+  const canTrack = orderActionAvailable(order, "add-tracking");
+  const canPirateShip = orderActionAvailable(order, "pirate-ship");
 
   const primary = (
     <>
-      <Button
-        tone="secondary"
-        icon="truck"
-        busy={busy === "pirate"}
-        onClick={() => void openPirateShip()}
-      >
-        Pirate Ship
-      </Button>
-      <Button
-        tone="secondary"
-        busy={busy === "tracking"}
-        onClick={() => setTrackingOpen((value) => !value)}
-      >
-        Tracking
-      </Button>
-      <Button
-        tone="primary"
-        busy={busy === "shipped"}
-        disabled={markShippedDisabled}
-        title={markShippedTitle}
-        onClick={() => void markShipped()}
-      >
-        Mark shipped
-      </Button>
+      {canPirateShip ? (
+        <Button
+          tone="secondary"
+          icon="truck"
+          busy={busy === "pirate"}
+          onClick={() => void openPirateShip()}
+        >
+          Pirate Ship
+        </Button>
+      ) : null}
+      {canTrack ? (
+        <Button
+          tone="secondary"
+          busy={busy === "tracking"}
+          onClick={() => setTrackingOpen((value) => !value)}
+        >
+          Tracking
+        </Button>
+      ) : null}
+      {canMarkShipped ? (
+        <Button
+          tone="primary"
+          busy={busy === "shipped"}
+          disabled={markShippedDisabled}
+          title={markShippedTitle}
+          onClick={() => void markShipped()}
+        >
+          Mark shipped
+        </Button>
+      ) : null}
     </>
   );
 
@@ -208,22 +230,26 @@ export function OrderActions({
           primary
         ) : (
           <>
-            <Button
-              tone="secondary"
-              busy={busy === "tracking"}
-              onClick={() => setTrackingOpen((value) => !value)}
-            >
-              Tracking
-            </Button>
-            <Button
-              tone="primary"
-              busy={busy === "shipped"}
-              disabled={markShippedDisabled}
-              title={markShippedTitle}
-              onClick={() => void markShipped()}
-            >
-              Mark shipped
-            </Button>
+            {canTrack ? (
+              <Button
+                tone="secondary"
+                busy={busy === "tracking"}
+                onClick={() => setTrackingOpen((value) => !value)}
+              >
+                Tracking
+              </Button>
+            ) : null}
+            {canMarkShipped ? (
+              <Button
+                tone="primary"
+                busy={busy === "shipped"}
+                disabled={markShippedDisabled}
+                title={markShippedTitle}
+                onClick={() => void markShipped()}
+              >
+                Mark shipped
+              </Button>
+            ) : null}
             <div class="menu">
               <IconButton
                 label="More order actions"
@@ -232,79 +258,67 @@ export function OrderActions({
               />
               {menuOpen ? (
                 <div class="menu__popover">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void run(
-                        "label",
-                        async () => {
-                          await uiApi.printOrder(
-                            order.orderNumber,
-                            "print-address-label",
-                          );
-                        },
-                        "Address label sent to the printer.",
-                      );
-                    }}
-                  >
-                    <Icon name="printer" size={15} />
-                    Print address label
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void run(
-                        "slip",
-                        async () => {
-                          await uiApi.printOrder(
-                            order.orderNumber,
-                            "print-packing-slip",
-                          );
-                        },
-                        "Packing slip sent to the printer.",
-                      );
-                    }}
-                  >
-                    <Icon name="printer" size={15} />
-                    Print packing slip
-                  </button>
-                  <a
-                    href={packingSlipUrl(order.orderNumber)}
-                    download={`packing-slip-${order.orderNumber}.pdf`}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    <Icon name="download" size={15} />
-                    Download packing slip
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void openPirateShip();
-                    }}
-                  >
-                    <Icon name="truck" size={15} />
-                    Open in Pirate Ship
-                  </button>
-                  <a
-                    href={orderDetailUrl(order.orderNumber)}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    <Icon name="external" size={15} />
-                    Order details
-                  </a>
+                  {orderActionAvailable(order, "print-address-label") ? (
+                    <button
+                      type="button"
+                      disabled={busy !== ""}
+                      onClick={() => void printOrder("print-address-label")}
+                    >
+                      <Icon name="printer" size={15} />
+                      Print address label
+                    </button>
+                  ) : null}
+                  {orderActionAvailable(order, "packing-slip") ? (
+                    <button
+                      type="button"
+                      disabled={busy !== ""}
+                      onClick={() => void printOrder("print-packing-slip")}
+                    >
+                      <Icon name="printer" size={15} />
+                      Print packing slip
+                    </button>
+                  ) : null}
+                  {orderActionAvailable(order, "packing-slip") ? (
+                    <a
+                      href={packingSlipUrl(order.ref)}
+                      download={`packing-slip-${order.displayOrderNumber}.pdf`}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <Icon name="download" size={15} />
+                      Download packing slip
+                    </a>
+                  ) : null}
+                  {canPirateShip ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        void openPirateShip();
+                      }}
+                    >
+                      <Icon name="truck" size={15} />
+                      Open in Pirate Ship
+                    </button>
+                  ) : null}
+                  {orderActionAvailable(order, "view-detail") ? (
+                    <a
+                      href={orderDetailUrl(order.ref)}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <Icon name="external" size={15} />
+                      Order details
+                    </a>
+                  ) : null}
                 </div>
               ) : null}
             </div>
           </>
         )}
       </div>
-      {trackingOpen ? (
+      {trackingOpen && canTrack ? (
         <div class="tracking-entry">
           <input
-            aria-label={`Tracking number for order ${order.orderNumber}`}
+            aria-label={`Tracking number for order ${order.displayOrderNumber}`}
             type="text"
             maxLength={256}
             autoComplete="off"
@@ -331,4 +345,68 @@ export function OrderActions({
       ) : null}
     </div>
   );
+}
+
+interface ClipboardCopyDependencies {
+  readonly clipboard?: Pick<Clipboard, "writeText">;
+  readonly document?: Document;
+  readonly executeCopy?: (command: string) => boolean;
+}
+
+function copyPromisedTextToClipboard(text: Promise<string>): Promise<void> {
+  if (
+    typeof globalThis.ClipboardItem !== "function" ||
+    typeof navigator.clipboard.write !== "function"
+  ) {
+    return text.then((value) => copyTextToClipboard(value));
+  }
+  const item = new globalThis.ClipboardItem({
+    "text/plain": text.then(
+      (value) => new Blob([value], { type: "text/plain" }),
+    ),
+  });
+  return navigator.clipboard.write([item]);
+}
+
+export async function copyTextToClipboard(
+  text: string,
+  dependencies: ClipboardCopyDependencies = {},
+): Promise<void> {
+  const clipboard = dependencies.clipboard ?? navigator.clipboard;
+  try {
+    await clipboard.writeText(text);
+    return;
+  } catch {
+    // Clipboard permission can expire while the address request is in flight.
+  }
+
+  const ownerDocument = dependencies.document ?? document;
+  const textarea = ownerDocument.createElement("textarea");
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.setAttribute("aria-hidden", "true");
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0 auto auto -10000px";
+  textarea.style.opacity = "0";
+  ownerDocument.body.append(textarea);
+  try {
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    const executeCopy =
+      dependencies.executeCopy ??
+      ((command: string) => {
+        // Required only when the modern clipboard permission expires mid-action.
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        return ownerDocument.execCommand(command);
+      });
+    const copied = executeCopy("copy");
+    if (!copied) throw new Error("Clipboard copy was rejected.");
+  } catch {
+    throw new Error(
+      "The address could not be copied. Allow clipboard access and try again.",
+    );
+  } finally {
+    textarea.remove();
+  }
 }

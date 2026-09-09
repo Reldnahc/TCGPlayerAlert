@@ -1,8 +1,12 @@
-import { SellerOrderStatus } from "tcgplayer-private-api";
-import type { Logger } from "../logger.js";
-import type { ManagedOrderDetail } from "../order-management.js";
-import type { ReadyOrderSource } from "../ready-orders.js";
 import { safeErrorCode } from "../errors.js";
+import type { Logger } from "../logger.js";
+import { parseOrderDetail } from "../marketplaces/contracts.js";
+import {
+  orderRefKey,
+  type ProviderOrderRef,
+} from "../marketplaces/identity.js";
+import type { MarketplaceConnectionRegistry } from "../marketplaces/registry.js";
+import type { QualifiedReadyOrderSource } from "../shipment-scanner.js";
 import type {
   DiscordNotificationSettings,
   NotificationPublisher,
@@ -25,21 +29,15 @@ interface NotificationMessageSource {
   }>;
 }
 
-interface NotificationOrderSource {
-  getOrder(
-    orderNumber: string,
-    options?: { readonly force?: boolean; readonly signal?: AbortSignal },
-  ): Promise<Pick<ManagedOrderDetail, "status" | "statusCode">>;
-}
-
 export interface NotificationMonitorOptions {
   readonly settings: () =>
     DiscordNotificationSettings | Promise<DiscordNotificationSettings>;
   readonly publisher: NotificationPublisher;
   readonly state: JsonNotificationStateStore;
-  readonly messages: NotificationMessageSource;
-  readonly orders: NotificationOrderSource;
-  readonly readyOrders: ReadyOrderSource;
+  readonly registry: MarketplaceConnectionRegistry;
+  readonly readyOrders: QualifiedReadyOrderSource;
+  readonly messages?: NotificationMessageSource;
+  readonly messageConnectionId?: string;
   readonly logger: Logger;
   readonly now?: () => Date;
 }
@@ -67,57 +65,89 @@ export class NotificationMonitor {
     const settings = await this.options.settings();
     if (!settings.enabled) return;
     if (settings.events.orderCanceled) {
-      await this.observeCanceledOrders(signal).catch((error: unknown) =>
-        this.logFailure("order-canceled", error),
-      );
+      await this.observeCanceledOrders(signal).catch((error: unknown) => {
+        signal?.throwIfAborted();
+        this.logFailure("order-canceled", error);
+      });
     }
-    if (settings.events.inboundMessage) {
-      await this.observeMessages(signal).catch((error: unknown) =>
-        this.logFailure("inbound-message", error),
-      );
+    if (
+      settings.events.inboundMessage &&
+      this.options.messages !== undefined &&
+      this.options.messageConnectionId !== undefined
+    ) {
+      await this.observeMessages(
+        this.options.messages,
+        this.options.messageConnectionId,
+        signal,
+      ).catch((error: unknown) => {
+        signal?.throwIfAborted();
+        this.logFailure("inbound-message", error);
+      });
     }
   }
 
   private async observeCanceledOrders(signal?: AbortSignal): Promise<void> {
     const snapshot = this.options.readyOrders.snapshot();
     if (snapshot === undefined) return;
-    const current = new Set(snapshot.orders.map((order) => order.orderNumber));
-    const previous = await this.options.state.readReadyOrderNumbers();
+    const current = new Map(
+      snapshot.orders.map((order) => [orderRefKey(order.ref), order.ref]),
+    );
+    const previous = await this.options.state.readReadyOrderRefs();
     if (previous === undefined) {
-      await this.options.state.writeReadyOrderNumbers([...current]);
+      await this.options.state.writeReadyOrderRefs([...current.values()]);
       return;
     }
-    const unresolved = new Set(current);
-    for (const orderNumber of previous) {
-      if (current.has(orderNumber)) continue;
+    const completed = new Set(snapshot.successfulConnectionIds);
+    const unresolved = new Map(current);
+    for (const ref of previous) {
+      const key = orderRefKey(ref);
+      if (current.has(key)) continue;
+      if (!completed.has(ref.connectionId)) {
+        unresolved.set(key, ref);
+        continue;
+      }
       try {
-        const order = await this.options.orders.getOrder(orderNumber, {
-          force: true,
-          ...(signal === undefined ? {} : { signal }),
-        });
-        if (isCanceled(order.statusCode)) {
+        const connection = this.options.registry.get(ref.connectionId);
+        if (connection?.facets.orderDetails === undefined) {
+          unresolved.set(key, ref);
+          continue;
+        }
+        const order = parseOrderDetail(
+          await connection.facets.orderDetails.getOrder(ref, signal),
+        );
+        if (order.lifecycle === "canceled") {
           const occurredAt = this.now().toISOString();
           await this.options.publisher.publish(
             {
               type: "order-canceled",
-              idempotencyKey: `order-canceled:${orderNumber}:${order.statusCode}`,
+              idempotencyKey: `order-canceled:${key}:${order.providerStatusCode ?? order.providerStatus}`,
               occurredAt,
-              orderNumber,
-              providerStatus: order.status,
+              ref,
+              displayOrderNumber: order.displayOrderNumber,
+              connectionId: ref.connectionId,
+              connectionLabel: connection.descriptor.connectionLabel,
+              providerStatus: order.providerStatus,
             },
             signal,
           );
         }
       } catch (error) {
-        unresolved.add(orderNumber);
+        signal?.throwIfAborted();
+        unresolved.set(key, ref);
         this.logFailure("order-canceled", error);
       }
     }
-    await this.options.state.writeReadyOrderNumbers([...unresolved]);
+    await this.options.state.writeReadyOrderRefs([...unresolved.values()]);
   }
 
-  private async observeMessages(signal?: AbortSignal): Promise<void> {
-    const first = await this.options.messages.list({
+  private async observeMessages(
+    messages: NotificationMessageSource,
+    connectionId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const connection = this.options.registry.get(connectionId);
+    if (connection === undefined) return;
+    const first = await messages.list({
       page: 1,
       force: true,
       ...(signal === undefined ? {} : { signal }),
@@ -132,7 +162,7 @@ export class NotificationMonitor {
       observedUnreadMessages < first.unreadCount && page <= first.totalPages;
       page += 1
     ) {
-      const next = await this.options.messages.list({
+      const next = await messages.list({
         page,
         ...(signal === undefined ? {} : { signal }),
       });
@@ -142,7 +172,7 @@ export class NotificationMonitor {
         0,
       );
     }
-    const previous = await this.options.state.readMessages();
+    const previous = await this.options.state.readMessages(connectionId);
     const observedAt = this.now().toISOString();
     const current: Record<
       string,
@@ -162,15 +192,17 @@ export class NotificationMonitor {
       await this.options.publisher.publish(
         {
           type: "inbound-message",
-          idempotencyKey: `inbound-message:${key}:${fingerprint}`,
+          idempotencyKey: `inbound-message:${connectionId}:${key}:${fingerprint}`,
           occurredAt: observedAt,
+          connectionId,
+          connectionLabel: connection.descriptor.connectionLabel,
           threadId: thread.threadId,
           unreadMessageCount: thread.unreadMessageCount,
         },
         signal,
       );
     }
-    await this.options.state.mergeMessages(current);
+    await this.options.state.mergeMessages(connectionId, current);
   }
 
   private logFailure(type: string, error: unknown): void {
@@ -181,10 +213,8 @@ export class NotificationMonitor {
   }
 }
 
-function isCanceled(status: string): boolean {
-  return (
-    status === SellerOrderStatus.Canceled ||
-    status === SellerOrderStatus.PickupOrderCanceled ||
-    status === SellerOrderStatus.ShippedOrderCanceled
-  );
+export function notificationOrderRef(event: {
+  readonly ref: ProviderOrderRef;
+}): string {
+  return orderRefKey(event.ref);
 }

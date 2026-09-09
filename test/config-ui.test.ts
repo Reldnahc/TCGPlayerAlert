@@ -12,8 +12,6 @@ import {
   type ConfigurationUiServer,
   type FeedbackManagementService,
   type MessageManagementService,
-  type OrderManagementService,
-  type OrderSyncCoordinator,
   type PaymentManagementService,
   type RepricingService,
   type SellerSessionService,
@@ -127,6 +125,7 @@ describe("configuration UI", () => {
           printerName: "Synthetic Office Printer",
           dpi: 200,
           scale: "fit",
+          colorMode: "color",
         },
       ],
     });
@@ -156,6 +155,7 @@ describe("configuration UI", () => {
       printerName: "Synthetic Office Printer",
       dpi: 200,
       scale: "fit",
+      colorMode: "color",
     });
   });
 
@@ -189,7 +189,17 @@ describe("configuration UI", () => {
       await readFile(current.path, "utf8"),
     ) as Record<string, unknown>;
 
-    expect(afterSave.version).toBe(5);
+    expect(afterSave.version).toBe(6);
+    expect(afterSave.provider).toBeUndefined();
+    expect(afterSave.providers).toMatchObject({
+      synchronizationConcurrency: 2,
+      connections: {
+        "tcgplayer-main": {
+          providerId: "tcgplayer",
+          enabled: true,
+        },
+      },
+    });
     expect(afterSave.confirmBeforeMarkingShipped).toBe(true);
     expect(afterSave.masterPullList).toEqual({
       groupLands: true,
@@ -578,309 +588,6 @@ describe("configuration UI", () => {
     expect(body).toMatchObject({ connectorToken: "a".repeat(64) });
   });
 
-  it("keeps ready-order reads pure and synchronizes only through an explicit mutation", async () => {
-    const current = await fixture();
-    const ready = {
-      orders: [],
-      fetchedAt: "2026-08-07T12:00:00.000Z",
-    };
-    const listReadyOrders = vi.fn(() => ready);
-    const synchronizeReadyOrders = vi
-      .fn<
-        (options: { readonly signal: AbortSignal }) => Promise<typeof ready>
-      >()
-      .mockResolvedValue(ready);
-    const listOrders = vi.fn(() => Promise.resolve(ready));
-    server = await startConfigurationUi({
-      configPath: current.path,
-      service: current.service,
-      port: 0,
-      orderService: { listOrders } as unknown as OrderManagementService,
-      orderSync: {
-        listReadyOrders,
-        synchronizeReadyOrders,
-      } as unknown as OrderSyncCoordinator,
-    });
-
-    const response = await fetch(
-      `${server.url}/api/orders?status=ready-to-ship`,
-    );
-    const rejectedImplicitSync = await fetch(
-      `${server.url}/api/orders?status=ready-to-ship&refresh=1`,
-    );
-    const synchronized = await fetch(`${server.url}/api/orders/sync`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: server.url,
-      },
-      body: JSON.stringify({}),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ snapshot: ready });
-    expect(rejectedImplicitSync.status).toBe(400);
-    expect(await rejectedImplicitSync.json()).toEqual({
-      message: "Ready-order synchronization requires the explicit sync action.",
-    });
-    expect(synchronized.status).toBe(200);
-    expect(await synchronized.json()).toEqual(ready);
-    expect(listReadyOrders).toHaveBeenCalledOnce();
-    expect(synchronizeReadyOrders).toHaveBeenCalledOnce();
-    expect(synchronizeReadyOrders.mock.calls[0]?.[0].signal).toBeInstanceOf(
-      AbortSignal,
-    );
-    expect(listOrders).not.toHaveBeenCalled();
-  });
-
-  it("reports an unavailable ready-order snapshot without starting work", async () => {
-    const current = await fixture();
-    server = await startConfigurationUi({
-      configPath: current.path,
-      service: current.service,
-      port: 0,
-      orderService: {} as OrderManagementService,
-    });
-
-    const response = await fetch(
-      `${server.url}/api/orders?status=ready-to-ship`,
-    );
-    const synchronization = await fetch(`${server.url}/api/orders/sync`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: server.url,
-      },
-      body: JSON.stringify({}),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ snapshot: null });
-    expect(synchronization.status).toBe(503);
-    expect(await synchronization.json()).toEqual({
-      message: "Order synchronization is unavailable.",
-    });
-  });
-
-  it("serves an exact internal order detail with explicit refresh control", async () => {
-    const current = await fixture();
-    const detail = {
-      orderNumber: "SYNTHETIC-ORDER-1",
-      buyerName: "Synthetic Buyer",
-      status: "Ready to Ship",
-      fetchedAt: "2026-08-07T12:00:00.000Z",
-    };
-    const getOrder = vi
-      .fn<
-        (
-          orderNumber: string,
-          options: { readonly force: boolean; readonly signal: AbortSignal },
-        ) => Promise<typeof detail>
-      >()
-      .mockResolvedValue(detail);
-    server = await startConfigurationUi({
-      configPath: current.path,
-      service: current.service,
-      port: 0,
-      orderService: { getOrder } as unknown as OrderManagementService,
-    });
-
-    const response = await fetch(
-      `${server.url}/api/orders/SYNTHETIC-ORDER-1?refresh=1`,
-    );
-    const invalid = await fetch(`${server.url}/api/orders/${"A".repeat(129)}`);
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(detail);
-    expect(getOrder).toHaveBeenCalledOnce();
-    expect(getOrder.mock.calls[0]?.[0]).toBe("SYNTHETIC-ORDER-1");
-    expect(getOrder.mock.calls[0]?.[1].force).toBe(true);
-    expect(getOrder.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal);
-    expect(invalid.status).toBe(400);
-    expect(await invalid.json()).toMatchObject({
-      issues: ["The order number is invalid."],
-    });
-  });
-
-  it("serves the master ready-order pull list with explicit refresh control", async () => {
-    const current = await fixture();
-    const pullList = {
-      orderCount: 2,
-      totalQuantity: 2,
-      pulledQuantity: 0,
-      remainingQuantity: 2,
-      fetchedAt: "2026-08-07T12:00:00.000Z",
-      rows: [
-        {
-          productLine: "Magic: The Gathering",
-          productName: "Synthetic Card",
-          condition: "Near Mint",
-          number: "42",
-          setName: "Synthetic Set",
-          rarity: "Rare",
-          quantity: 3,
-          mainPhotoUrl: "https://www.example.test/card.jpg",
-          setReleaseDate: "2026-01-01",
-          skuId: "456",
-          orderQuantity: 2,
-          productId: 123,
-          attributes: { color: ["Blue"], cardType: ["Creature"] },
-          metadata: [{ label: "Color", values: ["Blue"] }],
-          bin: "MTG / Blue / Creature / No power",
-          pulledQuantity: 0,
-          remainingQuantity: 2,
-          pulled: false,
-          canTrackPullProgress: true,
-        },
-      ],
-    };
-    const getMasterPullList = vi
-      .fn<
-        (options: {
-          readonly force: boolean;
-          readonly signal: AbortSignal;
-        }) => Promise<typeof pullList>
-      >()
-      .mockResolvedValue(pullList);
-    const setPullListRowPulled = vi
-      .fn((skuId: string, pulled: boolean, signal?: AbortSignal) => {
-        void skuId;
-        void pulled;
-        void signal;
-        return Promise.resolve(pullList.rows[0]);
-      })
-      .mockName("setPullListRowPulled");
-    server = await startConfigurationUi({
-      configPath: current.path,
-      service: current.service,
-      port: 0,
-      orderService: {
-        getMasterPullList,
-        setPullListRowPulled,
-      } as unknown as OrderManagementService,
-    });
-
-    const response = await fetch(
-      `${server.url}/api/orders/pull-list?refresh=1`,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(pullList);
-    expect(getMasterPullList).toHaveBeenCalledOnce();
-    expect(getMasterPullList.mock.calls[0]?.[0].force).toBe(true);
-    expect(getMasterPullList.mock.calls[0]?.[0].signal).toBeInstanceOf(
-      AbortSignal,
-    );
-
-    const update = await fetch(`${server.url}/api/orders/pull-list/items/456`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: server.url,
-      },
-      body: JSON.stringify({ pulled: true }),
-    });
-
-    expect(update.status).toBe(200);
-    expect(await update.json()).toEqual(pullList.rows[0]);
-    expect(setPullListRowPulled).toHaveBeenCalledOnce();
-    expect(setPullListRowPulled.mock.calls[0]?.[0]).toBe("456");
-    expect(setPullListRowPulled.mock.calls[0]?.[1]).toBe(true);
-    expect(setPullListRowPulled.mock.calls[0]?.[2]).toBeInstanceOf(AbortSignal);
-
-    const invalid = await fetch(
-      `${server.url}/api/orders/pull-list/items/456`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          origin: server.url,
-        },
-        body: JSON.stringify({ pulled: "yes" }),
-      },
-    );
-    expect(invalid.status).toBe(400);
-    expect(setPullListRowPulled).toHaveBeenCalledOnce();
-  });
-
-  it("routes validated order refunds through the injected order service", async () => {
-    const current = await fixture();
-    const refundOptions = {
-      origins: [{ name: "Seller initiated", value: "SellerInitiated" }],
-      reasons: [
-        { name: "Inventory issue", value: "Product - Inventory Issue" },
-      ],
-    };
-    const getRefundOptions = vi
-      .fn<
-        (options: {
-          readonly force?: boolean;
-          readonly signal?: AbortSignal;
-        }) => Promise<typeof refundOptions>
-      >()
-      .mockResolvedValue(refundOptions);
-    const refundOrder = vi.fn(() =>
-      Promise.resolve({
-        orderNumber: "SYNTHETIC-ORDER-1",
-        refundType: "partial" as const,
-        outcome: "submitted" as const,
-      }),
-    );
-    server = await startConfigurationUi({
-      configPath: current.path,
-      service: current.service,
-      port: 0,
-      orderService: {
-        getRefundOptions,
-        refundOrder,
-      } as unknown as OrderManagementService,
-    });
-
-    const options = await fetch(
-      `${server.url}/api/orders/refunds/options?refresh=1`,
-    );
-    const response = await fetch(
-      `${server.url}/api/orders/SYNTHETIC-ORDER-1/refund`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          origin: server.url,
-        },
-        body: JSON.stringify({
-          type: "partial",
-          origin: "SellerInitiated",
-          reason: "Product - Inventory Issue",
-          reasonText: "Synthetic refund explanation",
-          shippingRefundAmount: 0.49,
-          products: [{ skuId: "synthetic-sku", refundAmount: 2 }],
-        }),
-      },
-    );
-
-    expect(options.status).toBe(200);
-    expect(await options.json()).toEqual(refundOptions);
-    expect(getRefundOptions).toHaveBeenCalledOnce();
-    expect(getRefundOptions.mock.calls[0]?.[0].force).toBe(true);
-    expect(getRefundOptions.mock.calls[0]?.[0].signal).toBeInstanceOf(
-      AbortSignal,
-    );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ outcome: "submitted" });
-    expect(refundOrder).toHaveBeenCalledWith(
-      "SYNTHETIC-ORDER-1",
-      {
-        type: "partial",
-        origin: "SellerInitiated",
-        reason: "Product - Inventory Issue",
-        reasonText: "Synthetic refund explanation",
-        shippingRefundAmount: 0.49,
-        products: [{ skuId: "synthetic-sku", refundAmount: 2 }],
-      },
-      expect.any(AbortSignal),
-    );
-  });
-
   it("routes confirmed shipment tags through the injected scanner service", async () => {
     const current = await fixture();
     const status = vi.fn(() =>
@@ -892,6 +599,7 @@ describe("configuration UI", () => {
         readyTagIds: [42],
         conflictingTagCount: 0,
         reviewRequiredCount: 0,
+        issues: [],
       }),
     );
     const scan = vi.fn(() =>
@@ -901,7 +609,10 @@ describe("configuration UI", () => {
       Promise.resolve({
         state: "already-processed" as const,
         tagId: 42,
-        orderNumber: "SYNTHETIC-ORDER",
+        ref: {
+          connectionId: "tcgplayer-main",
+          remoteId: "SYNTHETIC-ORDER",
+        },
       }),
     );
     server = await startConfigurationUi({
@@ -933,7 +644,13 @@ describe("configuration UI", () => {
       {
         method: "POST",
         headers: mutationHeaders,
-        body: JSON.stringify({ tagId: 42, orderNumber: "SYNTHETIC-ORDER" }),
+        body: JSON.stringify({
+          tagId: 42,
+          ref: {
+            connectionId: "tcgplayer-main",
+            remoteId: "SYNTHETIC-ORDER",
+          },
+        }),
       },
     );
 
@@ -946,6 +663,7 @@ describe("configuration UI", () => {
       readyTagIds: [42],
       conflictingTagCount: 0,
       reviewRequiredCount: 0,
+      issues: [],
       backgroundCamera: {
         state: "unavailable",
         deviceId: "",
@@ -958,12 +676,18 @@ describe("configuration UI", () => {
     expect(await markResponse.json()).toEqual({
       state: "already-processed",
       tagId: 42,
-      orderNumber: "SYNTHETIC-ORDER",
+      ref: {
+        connectionId: "tcgplayer-main",
+        remoteId: "SYNTHETIC-ORDER",
+      },
     });
     expect(scan).toHaveBeenCalledWith(42, expect.any(AbortSignal));
     expect(markShipped).toHaveBeenCalledWith(
       42,
-      "SYNTHETIC-ORDER",
+      {
+        connectionId: "tcgplayer-main",
+        remoteId: "SYNTHETIC-ORDER",
+      },
       expect.any(AbortSignal),
     );
   });
@@ -1100,7 +824,9 @@ describe("configuration UI", () => {
       configPath: current.path,
       service: current.service,
       port: 0,
-      paymentService,
+      marketplaceAccounts: {
+        "tcgplayer-main": { payments: paymentService },
+      },
     });
 
     const page = await fetch(
@@ -1172,7 +898,9 @@ describe("configuration UI", () => {
       configPath: current.path,
       service: current.service,
       port: 0,
-      feedbackService,
+      marketplaceAccounts: {
+        "tcgplayer-main": { feedback: feedbackService },
+      },
     });
 
     const page = await fetch(
@@ -1243,7 +971,9 @@ describe("configuration UI", () => {
       configPath: current.path,
       service: current.service,
       port: 0,
-      messageService,
+      marketplaceAccounts: {
+        "tcgplayer-main": { messages: messageService },
+      },
     });
 
     const count = await fetch(

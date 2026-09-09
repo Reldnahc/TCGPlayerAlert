@@ -2,15 +2,19 @@ import { createContext, type ComponentChildren } from "preact";
 import {
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
 } from "preact/hooks";
 import { UiApiError, uiApi } from "../api.js";
-import type { OrderList } from "../contracts.js";
+import {
+  orderActionAvailable,
+  orderKey,
+  type MarketplaceConnections,
+  type Order,
+  type OrderList,
+} from "../contracts.js";
 import { errorMessage } from "../utils.js";
-import { useAuthentication } from "./AuthenticationContext.js";
 
 type Scope = "all" | "ready-to-ship";
 
@@ -21,16 +25,14 @@ interface OrdersContextValue {
   readonly loading: Readonly<Record<Scope, boolean>>;
   readonly errors: Readonly<Record<Scope, string>>;
   readonly shipmentsPendingReconciliation: ReadonlySet<string>;
+  readonly connections: MarketplaceConnections | null;
   readonly load: (
     scope: Scope,
     force?: boolean,
     refreshLoaded?: boolean,
   ) => Promise<void>;
   readonly synchronizeReadyOrders: () => Promise<void>;
-  readonly completeShipment: (
-    orderNumber: string,
-    scope: Scope,
-  ) => Promise<void>;
+  readonly completeShipment: (order: Order, scope: Scope) => Promise<void>;
 }
 
 const OrdersContext = createContext<OrdersContextValue | null>(null);
@@ -43,8 +45,8 @@ function readyList(
     ...list,
     orders: list.orders.filter(
       (order) =>
-        order.canMarkShipped &&
-        !shipmentsPendingReconciliation.has(order.orderNumber),
+        orderActionAvailable(order, "mark-shipped") &&
+        !shipmentsPendingReconciliation.has(orderKey(order)),
     ),
   };
 }
@@ -56,16 +58,25 @@ function allOrdersList(
   return {
     ...list,
     orders: list.orders.map((order) =>
-      shipmentsPendingReconciliation.has(order.orderNumber) &&
-      order.canMarkShipped
-        ? { ...order, canMarkShipped: false }
+      shipmentsPendingReconciliation.has(orderKey(order)) &&
+      orderActionAvailable(order, "mark-shipped")
+        ? {
+            ...order,
+            actions: {
+              ...order.actions,
+              "mark-shipped": {
+                state: "unavailable" as const,
+                reason: "review-required" as const,
+              },
+            },
+          }
         : order,
     ),
   };
 }
 
 function readyOrderNumbers(list: OrderList): ReadonlySet<string> {
-  return new Set(list.orders.map((order) => order.orderNumber));
+  return new Set(list.orders.map(orderKey));
 }
 
 export function OrdersProvider({
@@ -73,8 +84,10 @@ export function OrdersProvider({
 }: {
   readonly children: ComponentChildren;
 }) {
-  const { status: sellerConnection } = useAuthentication();
-  const connected = sellerConnection?.state === "connected";
+  const [connections, setConnections] = useState<MarketplaceConnections | null>(
+    null,
+  );
+  const connectionsRef = useRef(connections);
   const [lists, setLists] = useState<Readonly<Record<Scope, OrderList | null>>>(
     { all: null, "ready-to-ship": null },
   );
@@ -84,12 +97,15 @@ export function OrdersProvider({
   });
   const listsRef = useRef(lists);
   const loadingRef = useRef(loading);
+  const pendingForcedLoadsRef = useRef(new Set<Scope>());
+  const loadRef = useRef<OrdersContextValue["load"]>();
   const readyOrderNumbersRef = useRef<ReadonlySet<string>>();
   const allOrderReconciliationsRef = useRef(new Set<string>());
   const automaticReconciliationRetryAtRef = useRef(0);
   const refreshAllOrdersRef = useRef<() => Promise<void>>();
   listsRef.current = lists;
   loadingRef.current = loading;
+  connectionsRef.current = connections;
   const [errors, setErrors] = useState<Readonly<Record<Scope, string>>>({
     all: "",
     "ready-to-ship": "",
@@ -98,26 +114,11 @@ export function OrdersProvider({
   const [shipmentsPendingReconciliation, setShipmentsPendingReconciliation] =
     useState<ReadonlySet<string>>(new Set());
 
-  useEffect(() => {
-    if (connected) return;
-    const emptyLists = { all: null, "ready-to-ship": null } as const;
-    const idle = { all: false, "ready-to-ship": false } as const;
-    shipmentReconciliationsRef.current.clear();
-    readyOrderNumbersRef.current = undefined;
-    allOrderReconciliationsRef.current.clear();
-    automaticReconciliationRetryAtRef.current = 0;
-    listsRef.current = emptyLists;
-    loadingRef.current = idle;
-    setLists(emptyLists);
-    setLoading(idle);
-    setErrors({ all: "", "ready-to-ship": "" });
-    setShipmentsPendingReconciliation(new Set());
-  }, [connected]);
-
-  const acknowledgeShipment = useCallback((orderNumber: string) => {
-    shipmentReconciliationsRef.current.add(orderNumber);
+  const acknowledgeShipment = useCallback((order: Order) => {
+    const key = orderKey(order);
+    shipmentReconciliationsRef.current.add(key);
     if (listsRef.current.all !== null) {
-      allOrderReconciliationsRef.current.add(orderNumber);
+      allOrderReconciliationsRef.current.add(key);
       automaticReconciliationRetryAtRef.current = 0;
     }
     setShipmentsPendingReconciliation(
@@ -146,13 +147,16 @@ export function OrdersProvider({
   const acceptOrderList = useCallback((scope: Scope, result: OrderList) => {
     let reconciliationsChanged = false;
     if (scope === "all") {
-      for (const orderNumber of shipmentReconciliationsRef.current) {
+      for (const key of shipmentReconciliationsRef.current) {
         const order = result.orders.find(
-          (candidate) => candidate.orderNumber === orderNumber,
+          (candidate) => orderKey(candidate) === key,
         );
-        if (order?.canMarkShipped !== true) {
-          shipmentReconciliationsRef.current.delete(orderNumber);
-          allOrderReconciliationsRef.current.delete(orderNumber);
+        if (
+          order === undefined ||
+          !orderActionAvailable(order, "mark-shipped")
+        ) {
+          shipmentReconciliationsRef.current.delete(key);
+          allOrderReconciliationsRef.current.delete(key);
           reconciliationsChanged = true;
         }
       }
@@ -184,15 +188,15 @@ export function OrdersProvider({
 
       let changed = false;
       if (previousOrderNumbers !== undefined && listsRef.current.all !== null) {
-        for (const orderNumber of previousOrderNumbers) {
-          if (!nextOrderNumbers.has(orderNumber)) {
-            allOrderReconciliationsRef.current.add(orderNumber);
+        for (const key of previousOrderNumbers) {
+          if (!nextOrderNumbers.has(key)) {
+            allOrderReconciliationsRef.current.add(key);
             changed = true;
           }
         }
-        for (const orderNumber of nextOrderNumbers) {
-          if (!previousOrderNumbers.has(orderNumber)) {
-            allOrderReconciliationsRef.current.add(orderNumber);
+        for (const key of nextOrderNumbers) {
+          if (!previousOrderNumbers.has(key)) {
+            allOrderReconciliationsRef.current.add(key);
             changed = true;
           }
         }
@@ -207,35 +211,45 @@ export function OrdersProvider({
 
   const load = useCallback(
     async (scope: Scope, force = false, refreshLoaded = false) => {
-      if (!connected) return;
-      if (loadingRef.current[scope]) return;
+      if (loadingRef.current[scope]) {
+        if (force) pendingForcedLoadsRef.current.add(scope);
+        return;
+      }
       if (!force && !refreshLoaded && listsRef.current[scope] !== null) return;
       const started = { ...loadingRef.current, [scope]: true };
       loadingRef.current = started;
       setLoading(started);
       setErrors((current) => ({ ...current, [scope]: "" }));
       try {
+        if (connectionsRef.current === null || force) {
+          const nextConnections = await uiApi.marketplaceConnections(force);
+          connectionsRef.current = nextConnections;
+          setConnections(nextConnections);
+        }
         const result =
           scope === "ready-to-ship"
-            ? (await uiApi.readyOrders()).snapshot
+            ? await uiApi.readyOrders()
             : await uiApi.orders(force);
-        if (result === null) return;
         if (scope === "ready-to-ship") {
           acceptReadyOrderList(result);
         } else {
           acceptOrderList(scope, result);
           const readyOrderNumbers = readyOrderNumbersRef.current;
-          for (const orderNumber of allOrderReconciliationsRef.current) {
-            if (shipmentReconciliationsRef.current.has(orderNumber)) continue;
+          for (const key of allOrderReconciliationsRef.current) {
+            if (shipmentReconciliationsRef.current.has(key)) continue;
             const order = result.orders.find(
-              (candidate) => candidate.orderNumber === orderNumber,
+              (candidate) => orderKey(candidate) === key,
             );
-            const expectedReady = readyOrderNumbers?.has(orderNumber) === true;
+            const expectedReady = readyOrderNumbers?.has(key) === true;
             if (
-              (expectedReady && order?.canMarkShipped === true) ||
-              (!expectedReady && order?.canMarkShipped !== true)
+              (expectedReady &&
+                order !== undefined &&
+                orderActionAvailable(order, "mark-shipped")) ||
+              (!expectedReady &&
+                (order === undefined ||
+                  !orderActionAvailable(order, "mark-shipped")))
             ) {
-              allOrderReconciliationsRef.current.delete(orderNumber);
+              allOrderReconciliationsRef.current.delete(key);
             }
           }
           if (allOrderReconciliationsRef.current.size === 0) {
@@ -257,10 +271,14 @@ export function OrdersProvider({
         const finished = { ...loadingRef.current, [scope]: false };
         loadingRef.current = finished;
         setLoading(finished);
+        if (pendingForcedLoadsRef.current.delete(scope)) {
+          void loadRef.current?.(scope, true);
+        }
       }
     },
-    [acceptOrderList, acceptReadyOrderList, connected],
+    [acceptOrderList, acceptReadyOrderList],
   );
+  loadRef.current = load;
 
   refreshAllOrdersRef.current = async () => {
     if (allOrderReconciliationsRef.current.size === 0) return;
@@ -273,8 +291,8 @@ export function OrdersProvider({
   };
 
   const completeShipment = useCallback(
-    (orderNumber: string, scope: Scope) => {
-      acknowledgeShipment(orderNumber);
+    (order: Order, scope: Scope) => {
+      acknowledgeShipment(order);
       if (scope === "all" || listsRef.current.all !== null) {
         void load("all", true);
       }
@@ -284,7 +302,7 @@ export function OrdersProvider({
   );
 
   const synchronizeReadyOrders = useCallback(async () => {
-    if (!connected || loadingRef.current["ready-to-ship"]) return;
+    if (loadingRef.current["ready-to-ship"]) return;
     const scope = "ready-to-ship" as const;
     const started = { ...loadingRef.current, [scope]: true };
     loadingRef.current = started;
@@ -309,7 +327,7 @@ export function OrdersProvider({
       loadingRef.current = finished;
       setLoading(finished);
     }
-  }, [acceptReadyOrderList, connected]);
+  }, [acceptReadyOrderList]);
 
   const value = useMemo(
     () => ({
@@ -317,12 +335,14 @@ export function OrdersProvider({
       loading,
       errors,
       shipmentsPendingReconciliation,
+      connections,
       load,
       synchronizeReadyOrders,
       completeShipment,
     }),
     [
       completeShipment,
+      connections,
       errors,
       lists,
       load,

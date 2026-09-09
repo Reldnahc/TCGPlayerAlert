@@ -50,6 +50,18 @@
   display: grid;
   gap: 2px;
   padding: 12px 9px;
+  overflow-y: auto;
+}
+.nav__group {
+  margin: 10px 11px 3px;
+  color: #71838d;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.nav__group:first-child {
+  margin-top: 0;
 }
 .nav__item {
   position: relative;
@@ -280,6 +292,7 @@
   }
   .brand__copy,
   .nav__item span,
+  .nav__group,
   .sidebar__footer {
     display: none;
   }

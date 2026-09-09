@@ -21,7 +21,7 @@ export function SellerConnectionCard({
         : "Connect TCGplayer";
   const detail =
     state === "expired"
-      ? "Sign in normally if needed, then send the current browser session with the connector."
+      ? "TCGplayer rejected the saved session. Sign in normally if needed, then pair the current browser session again."
       : connected
         ? status?.automaticRenewal === true
           ? "The browser connector can replace this session when TCGplayer rotates it."
@@ -97,6 +97,11 @@ export function SellerConnectionCard({
           </p>
         </div>
       )}
+      <div class="provider-environment">
+        <span>Optional environment fallback loaded from .env.local</span>
+        <code>TCGPLAYER_AUTH_COOKIE</code>
+        <code>TCGPLAYER_SELLER_KEY</code>
+      </div>
       {error === "" ? null : <Notice tone="danger">{error}</Notice>}
     </section>
   );

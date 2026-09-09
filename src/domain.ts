@@ -15,6 +15,7 @@ export interface OrderItem {
 }
 
 export interface FulfillmentOrder {
+  readonly ref: ProviderOrderRef;
   readonly provider: string;
   readonly id: string;
   readonly placedAt: string;
@@ -56,3 +57,4 @@ export interface OrderProvider {
     signal?: AbortSignal,
   ): Promise<FulfillmentDocument>;
 }
+import type { ProviderOrderRef } from "./marketplaces/identity.js";

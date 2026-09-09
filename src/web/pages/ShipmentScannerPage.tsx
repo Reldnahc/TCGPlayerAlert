@@ -17,11 +17,13 @@ import {
 } from "../components/ui.js";
 import { errorMessage } from "../utils.js";
 import { useSettings } from "../state/SettingsContext.js";
+import { useOrders } from "../state/OrdersContext.js";
 
 const STATUS_REFRESH_MILLISECONDS = 100;
 
 export function ShipmentScannerPage() {
   const { settings } = useSettings();
+  const { completeShipment } = useOrders();
   const [status, setStatus] = useState<ShipmentScannerStatus | null>(null);
   const [statusError, setStatusError] = useState("");
   const [manualResult, setManualResult] = useState<ShipmentScanResult | null>(
@@ -60,6 +62,9 @@ export function ShipmentScannerPage() {
     try {
       const next = await uiApi.scanShipmentTag(tagId);
       setManualResult(next);
+      if (next.state === "shipped") {
+        await completeShipment(next.order, "ready-to-ship");
+      }
       playScanCue(next, status?.soundEnabled === true);
       await loadStatus();
     } catch (cause) {
@@ -83,9 +88,12 @@ export function ShipmentScannerPage() {
     try {
       const next = await uiApi.markScannedShipment(
         matched.tagId,
-        matched.order.orderNumber,
+        matched.order.ref,
       );
       setManualResult(next);
+      if (next.state === "shipped") {
+        await completeShipment(next.order, "ready-to-ship");
+      }
       playScanCue(next, status?.soundEnabled === true);
       await loadStatus();
     } catch (cause) {
@@ -138,6 +146,15 @@ export function ShipmentScannerPage() {
             <span>{statusError}</span>
           </Notice>
         )}
+        {status?.issues.map((issue) => (
+          <Notice
+            key={`${issue.connectionId}:${issue.operation}:${issue.code}`}
+            tone="warning"
+          >
+            {issue.connectionId} did not contribute to the ready-order scan pool
+            ({issue.code}).
+          </Notice>
+        ))}
         {status === null && statusError === "" ? (
           <Spinner label="Loading scanner" />
         ) : null}
@@ -222,6 +239,18 @@ export function ShipmentScannerPage() {
               {camera?.issue === undefined ? null : (
                 <Notice tone="danger">{camera.issue}</Notice>
               )}
+              {imageScanner.scanError === "" ? null : (
+                <Notice tone="danger">{imageScanner.scanError}</Notice>
+              )}
+              {processing || camera?.state === "processing" ? (
+                <Spinner label="Resolving parcel" />
+              ) : result?.state === "matched" ? (
+                <MatchedShipmentReview
+                  result={result}
+                  busy={processing}
+                  onMarkShipped={() => void markMatchedOrder(result)}
+                />
+              ) : null}
               <div class="scanner-actions">
                 <a class="button button--secondary" href="#settings">
                   Camera settings
@@ -246,38 +275,6 @@ export function ShipmentScannerPage() {
                 ref={imageScanner.workCanvasRef}
                 class="scan-work-canvas"
               />
-            </div>
-          </section>
-
-          <section class="surface scan-result scanner-result">
-            <div class="surface__header">
-              <div>
-                <h2>Parcel result</h2>
-                <p>A confirmed tag causes one authoritative order refresh.</p>
-              </div>
-            </div>
-            <div class="surface__body">
-              {imageScanner.scanError !== "" ? (
-                <Notice tone="danger">{imageScanner.scanError}</Notice>
-              ) : processing || camera?.state === "processing" ? (
-                <Spinner label="Resolving parcel" />
-              ) : result === null ? (
-                <div class="scan-result__idle">
-                  <strong>Waiting for a parcel</strong>
-                  <span>Camera frames never make seller API requests.</span>
-                </div>
-              ) : (
-                <ShipmentResolution
-                  result={result}
-                  automatic={status?.automaticallyMarkShipped === true}
-                  busy={processing}
-                  onMarkShipped={() => {
-                    if (result.state === "matched") {
-                      void markMatchedOrder(result);
-                    }
-                  }}
-                />
-              )}
             </div>
           </section>
         </div>
@@ -356,92 +353,38 @@ function cameraStateLabel(
   }[state];
 }
 
-function ShipmentResolution({
+function MatchedShipmentReview({
   result,
-  automatic,
   busy,
   onMarkShipped,
 }: {
-  readonly result: ShipmentScanResult;
-  readonly automatic: boolean;
+  readonly result: Extract<ShipmentScanResult, { readonly state: "matched" }>;
   readonly busy: boolean;
   readonly onMarkShipped: () => void;
 }) {
-  if (result.state === "matched") {
-    const trackingRequired = requiresShipmentTracking(result.order.totalAmount);
-    return (
-      <Notice tone="warning">
-        <strong>Exact ready-order match</strong>
-        <span>
-          {result.order.buyerName} · order{" "}
-          <OrderNumberLink orderNumber={result.order.orderNumber} />
-        </span>
-        <span>{result.order.shippingType}</span>
-        {trackingRequired ? (
-          <span>
-            Add tracking in the order workspace before marking this $50 or
-            greater order shipped.
-          </span>
-        ) : (
-          <Button tone="primary" busy={busy} onClick={onMarkShipped}>
-            Mark shipped
-          </Button>
-        )}
-      </Notice>
-    );
-  }
-  if (result.state === "shipped") {
-    return (
-      <Notice tone="success">
-        <strong>Order marked shipped</strong>
-        <span>
-          {result.order.buyerName} · order{" "}
-          <OrderNumberLink orderNumber={result.order.orderNumber} />
-        </span>
-        <span>
-          {automatic ? "Automatic exact-match workflow" : "Operator approved"}
-        </span>
-      </Notice>
-    );
-  }
-  if (result.state === "already-processed") {
-    return (
-      <Notice tone="success">
-        <strong>Already processed</strong>
-        <span>
-          Order <OrderNumberLink orderNumber={result.orderNumber} /> was not
-          submitted again.
-        </span>
-      </Notice>
-    );
-  }
-  if (result.state === "ambiguous") {
-    return (
-      <Notice tone="danger">
-        <strong>Multiple ready orders matched</strong>
-        <span>
-          {String(result.matchCount)} orders share tag {String(result.tagId)}.
-          Mark this parcel manually.
-        </span>
-      </Notice>
-    );
-  }
-  if (result.state === "review-required") {
-    return (
-      <Notice tone="danger">
-        <strong>Shipment requires review</strong>
-        <span>
-          The result for order{" "}
-          <OrderNumberLink orderNumber={result.orderNumber} /> was uncertain and
-          will not be retried automatically.
-        </span>
-      </Notice>
-    );
-  }
+  const trackingRequired =
+    result.order.totals.total.currency !== "USD" ||
+    requiresShipmentTracking(result.order.totals.total.minorUnits / 100);
   return (
-    <Notice tone="danger">
-      <strong>No ready order matched</strong>
-      <span>Tag {String(result.tagId)} did not identify a ready order.</span>
+    <Notice tone="warning">
+      <strong>Review matched order</strong>
+      <span>
+        {result.order.buyerName} · order{" "}
+        <OrderNumberLink
+          orderNumber={result.order.displayOrderNumber}
+          orderRef={result.order.ref}
+        />
+      </span>
+      {trackingRequired ? (
+        <span>
+          Add tracking in the order workspace before marking this $50 or greater
+          order shipped.
+        </span>
+      ) : (
+        <Button tone="primary" busy={busy} onClick={onMarkShipped}>
+          Mark shipped
+        </Button>
+      )}
     </Notice>
   );
 }

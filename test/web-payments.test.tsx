@@ -98,9 +98,10 @@ describe("payments", () => {
       }),
     );
     expect(screen.getByText("Upcoming payments")).toBeTruthy();
+    expect(screen.getByText("SYNTHETIC-UPCOMING-1")).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "SYNTHETIC-UPCOMING-1" }),
-    ).toBeTruthy();
+      screen.queryByRole("link", { name: "SYNTHETIC-UPCOMING-1" }),
+    ).toBeNull();
     await user.selectOptions(
       screen.getByLabelText("Transaction type"),
       "ApplyRefund",
@@ -114,9 +115,10 @@ describe("payments", () => {
     ).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "View" }));
     expect(await screen.findByText("Payout SYNTHETIC-PAYOUT-1")).toBeTruthy();
+    expect(screen.getByText("SYNTHETIC-ORDER-1")).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "SYNTHETIC-ORDER-1" }),
-    ).toBeTruthy();
+      screen.queryByRole("link", { name: "SYNTHETIC-ORDER-1" }),
+    ).toBeNull();
     expect(screen.queryByText(/bank|payment account/iu)).toBeNull();
     expect(
       fetchMock.mock.calls

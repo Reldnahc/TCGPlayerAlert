@@ -1,10 +1,4 @@
 import type {
-  CatalogProductDetails,
-  OrderRefundMutationResult,
-  SellerOrderRefundOptions,
-  SellerPayoutDetail,
-} from "tcgplayer-private-api";
-import type {
   ConfigurationUiSettings,
   ConfigurationUiUpdate,
 } from "../config-ui.js";
@@ -13,17 +7,22 @@ import type {
   InventoryAdditionJob,
   InventoryAdditionPreview,
   InventoryAdditionQueueSnapshot,
+  CatalogProductDetails,
 } from "../inventory-additions.js";
+import type { MasterPullList as ProviderNeutralMasterPullList } from "../fulfillment/pull-list.js";
 import type {
-  AddTrackingResult,
-  ManagedOrderRefundInput,
-  ManagedOrderDetail,
-  ManagedOrderList,
-  ManagedMasterPullList,
-  ManagedOrderSummary,
-  PirateShipPreparation,
-} from "../order-management.js";
-import type { ManagedPaymentsPage } from "../payment-management.js";
+  MutationResult,
+  OrderActionId,
+  OrderDetail as NormalizedOrderDetail,
+  OrderSummary,
+  ProviderIssue,
+} from "../marketplaces/contracts.js";
+import type { MarketplaceConnectionStatus } from "../marketplaces/health.js";
+import { orderRefKey } from "../marketplaces/identity.js";
+import type {
+  ManagedPaymentsPage,
+  ManagedSellerPayoutDetail,
+} from "../payment-management.js";
 import type { ManagedSellerFeedbackPage } from "../feedback-management.js";
 import type {
   MarkAllSellerMessagesReadResult,
@@ -41,6 +40,17 @@ import type {
 } from "../repricing.js";
 import type { ShipmentScanResult as ServerShipmentScanResult } from "../shipment-scanner.js";
 import type { ManagedShipmentScannerStatus } from "../background-shipment-scanner.js";
+import type { InventoryMutationResult as MarketplaceInventoryMutationResult } from "../marketplaces/inventory.js";
+import type { LocalInventoryItem } from "../local-inventory-contracts.js";
+import type {
+  MarketplacePublicationJob as ServerMarketplacePublicationJob,
+  MarketplacePublicationPreview as ServerMarketplacePublicationPreview,
+  MarketplaceListingQuote as ServerMarketplaceListingQuote,
+} from "../marketplace-publications.js";
+import type {
+  LocalInventoryImportPreview as ServerLocalInventoryImportPreview,
+  LocalInventoryWorkspace,
+} from "../local-inventory-workspace.js";
 import type {
   InternalJobSnapshot,
   InternalRun,
@@ -48,29 +58,48 @@ import type {
   InternalScheduleInput,
   ScheduledListingInput,
 } from "../internal-jobs/index.js";
+import type { MarketplaceCredentialStatus as ProviderCredentialStatus } from "../marketplaces/credentials.js";
 
 export type Settings = ConfigurationUiSettings;
 export type SettingsUpdate = ConfigurationUiUpdate;
-export type OrderList = ManagedOrderList;
+export interface OrderList {
+  readonly orders: readonly Order[];
+  readonly issues: readonly ProviderIssue[];
+  readonly fetchedAt: string;
+}
 export interface ReadyOrderSnapshot {
   readonly snapshot: OrderList | null;
 }
-export type Order = ManagedOrderSummary;
-export type OrderDetail = ManagedOrderDetail;
-export type MasterPullList = ManagedMasterPullList;
-export type TrackingResult = AddTrackingResult;
-export type RefundOptions = SellerOrderRefundOptions;
-export type RefundRequest = ManagedOrderRefundInput;
-export type RefundResult = OrderRefundMutationResult;
-export interface ShipmentResult {
-  readonly orderNumber: string;
-  readonly outcome: "applied" | "already-applied";
+export type Order = OrderSummary;
+export type OrderDetail = NormalizedOrderDetail;
+
+export interface MarketplaceConnections {
+  readonly connections: readonly MarketplaceConnectionStatus[];
+  readonly completedAt: string;
 }
-export type PirateShipResult = PirateShipPreparation;
+export type MarketplaceCredentialStatus = ProviderCredentialStatus;
+
+export function orderKey(order: Pick<Order, "ref">): string {
+  return orderRefKey(order.ref);
+}
+
+export function orderActionAvailable(
+  order: Pick<Order, "actions">,
+  actionId: OrderActionId,
+): boolean {
+  return order.actions[actionId].state === "available";
+}
+export type MasterPullList = ProviderNeutralMasterPullList;
+export type TrackingResult = MutationResult;
+export type ShipmentResult = MutationResult;
+export interface PirateShipResult {
+  readonly url: string;
+  readonly pasteAddress: string;
+}
 export type ShipmentScannerStatus = ManagedShipmentScannerStatus;
 export type ShipmentScanResult = ServerShipmentScanResult;
 export type PaymentsPage = ManagedPaymentsPage;
-export type PaymentDetail = SellerPayoutDetail;
+export type PaymentDetail = ManagedSellerPayoutDetail;
 export type FeedbackPage = ManagedSellerFeedbackPage;
 export type MessagesPage = ManagedSellerMessagesPage;
 export type MessageThread = ManagedSellerMessageThread;
@@ -85,6 +114,29 @@ export type CatalogSearch = CatalogSearchResult;
 export type CatalogProduct = CatalogProductDetails;
 export type AdditionPreview = InventoryAdditionPreview;
 export type InventoryJob = InventoryAdditionJob;
+export type InventoryList = LocalInventoryWorkspace;
+export type InventoryMutationResult = MarketplaceInventoryMutationResult;
+export type LocalInventoryImportPreview = ServerLocalInventoryImportPreview;
+export interface LocalInventoryItemResponse {
+  readonly item: LocalInventoryItem;
+}
+export interface LocalInventoryImportResult {
+  readonly createdCount: number;
+  readonly createdItems: readonly LocalInventoryItem[];
+  readonly preview: LocalInventoryImportPreview;
+}
+export type MarketplacePublicationPreview = ServerMarketplacePublicationPreview;
+export type MarketplaceListingQuote = ServerMarketplaceListingQuote;
+export type MarketplacePublicationJob = ServerMarketplacePublicationJob;
+export interface MarketplacePublicationPreviewResponse {
+  readonly preview: MarketplacePublicationPreview;
+}
+export interface MarketplaceListingQuoteResponse {
+  readonly quote?: MarketplaceListingQuote;
+}
+export interface MarketplacePublicationJobResponse {
+  readonly job: MarketplacePublicationJob;
+}
 export type PriceJob = PriceUpdateJob;
 export type JobSchedule = InternalSchedule;
 export type JobScheduleInput = InternalScheduleInput;

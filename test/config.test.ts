@@ -15,7 +15,13 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(5);
+    expect(config.version).toBe(6);
+    expect(config.providers.connections["tcgplayer-main"]).toMatchObject({
+      providerId: "tcgplayer",
+      enabled: true,
+      label: "TCGplayer",
+    });
+    expect(JSON.stringify(config)).not.toContain('"provider":');
     expect(config.pricingProfileDefaultsVersion).toBe(1);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.masterPullList).toEqual({
@@ -119,6 +125,10 @@ describe("application configuration", () => {
       omitLineValues: ["US", "USA"],
       page: { fontSize: 14 },
     });
+    expect(config.printers["packing-slip-printer"]).toMatchObject({
+      adapter: "windows-pdf",
+      colorMode: "black-and-white",
+    });
     expect(config.notifications.discord).toEqual({
       enabled: false,
       webhookUrlEnv: "DISCORD_WEBHOOK_URL",
@@ -128,6 +138,22 @@ describe("application configuration", () => {
         orderCanceled: true,
         shipmentMarkAttempt: true,
       },
+    });
+  });
+
+  it("defaults existing Windows PDF printer configurations to black and white", async () => {
+    const value = JSON.parse(
+      await readFile("config/local.example.json", "utf8"),
+    ) as {
+      printers: Record<string, Record<string, unknown>>;
+    };
+    delete value.printers["packing-slip-printer"]?.colorMode;
+
+    const config = parseConfig(value);
+
+    expect(config.printers["packing-slip-printer"]).toMatchObject({
+      adapter: "windows-pdf",
+      colorMode: "black-and-white",
     });
   });
 
@@ -170,7 +196,7 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(5);
+    expect(config.version).toBe(6);
     expect(config.confirmBeforeMarkingShipped).toBe(true);
     expect(config.masterPullList).toEqual({
       groupLands: true,
@@ -190,7 +216,7 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(5);
+    expect(config.version).toBe(6);
     expect(config.notifications.discord.enabled).toBe(false);
     expect(value.notifications).toBeUndefined();
   });
@@ -204,7 +230,7 @@ describe("application configuration", () => {
 
     const config = parseConfig(value);
 
-    expect(config.version).toBe(5);
+    expect(config.version).toBe(6);
     expect(config.masterPullList).toEqual({
       groupLands: true,
       groupMulticolored: true,
@@ -653,7 +679,7 @@ describe("application configuration", () => {
     const value = JSON.parse(
       await readFile("config/local.example.json", "utf8"),
     ) as Record<string, unknown>;
-    value.version = 6;
+    value.version = 7;
 
     expect(() => parseConfig(value)).toThrow(
       expect.objectContaining({

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { loadConfig } from "./config.js";
+import { loadConfig, type AppConfig } from "./config.js";
 import {
   startConfigurationUi,
   type ConfigurationAddressLabelPrint,
@@ -12,7 +12,9 @@ import {
   createInventoryAdditionQueue,
   createInventoryAdditionService,
   createInternalJobStore,
-  createOrderManagementService,
+  createLocalInventoryService,
+  legacyStateConnectionId,
+  createMarketplaceOrderRuntime,
   createNotificationMonitor,
   createNotificationRuntime,
   createFeedbackManagementService,
@@ -20,7 +22,6 @@ import {
   createPaymentManagementService,
   createPriceUpdateExecutor,
   createPriceUpdateQueue,
-  createReadyOrderSource,
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
@@ -28,16 +29,21 @@ import {
   createBackgroundShipmentScanner,
   createShipmentScannerService,
   createWorkflow,
+  createMarketplaceCredentialManager,
 } from "./runtime.js";
 import { JsonStateStore } from "./state.js";
 import { PriceUpdateWorker } from "./price-update-queue.js";
 import { InventoryAdditionWorker } from "./inventory-additions.js";
 import { FileSyncLease } from "./sync-lease.js";
-import { OrderSyncCoordinator } from "./order-sync.js";
 import {
   InternalJobExecutor,
   InternalJobRunner,
 } from "./internal-jobs/index.js";
+import {
+  marketplaceAccountServiceMap,
+  type MarketplaceAccountServices,
+} from "./marketplaces/account-workspaces.js";
+import { primaryTcgplayerConnection } from "./providers/tcgplayer/configuration.js";
 
 const argumentsList = process.argv.slice(2);
 const command = argumentsList[0];
@@ -58,7 +64,9 @@ try {
     );
   } else if (command === "status") {
     const config = await loadConfig(configPath);
-    const state = await new JsonStateStore(config.stateFile).load();
+    const state = await new JsonStateStore(config.stateFile, {
+      legacyConnectionId: legacyStateConnectionId(config),
+    }).load();
     const counts = Object.values(state.orders).reduce<Record<string, number>>(
       (result, order) => {
         result[order.workflowStatus] = (result[order.workflowStatus] ?? 0) + 1;
@@ -67,10 +75,12 @@ try {
       {},
     );
     process.stdout.write(
-      `${JSON.stringify({ baselineCompletedAt: state.baselineCompletedAt, lastSync: state.lastSync, orderCounts: counts }, null, 2)}\n`,
+      `${JSON.stringify({ baselines: state.baselines, lastSync: state.lastSync, orderCounts: counts }, null, 2)}\n`,
     );
   } else if (command === "sync") {
     const config = await loadConfig(configPath);
+    const marketplaceCredentials =
+      await createMarketplaceCredentialManager(config);
     const notifications = await createNotificationRuntime(
       config,
       configPath,
@@ -85,9 +95,10 @@ try {
       config,
       jsonLogger,
       process.env,
-      undefined,
       sessionManager,
       sellerApi,
+      notifications.publisher,
+      marketplaceCredentials,
     );
     const result = await workflow.run("manual", {
       processBacklog: argumentsList.includes("--process-backlog"),
@@ -109,6 +120,8 @@ try {
     );
   } else if (command === "configure") {
     const config = await loadConfig(configPath);
+    const marketplaceCredentials =
+      await createMarketplaceCredentialManager(config);
     const notifications = await createNotificationRuntime(
       config,
       configPath,
@@ -134,18 +147,23 @@ try {
       sellerApi,
     );
     const internalJobs = createInternalJobStore(config);
+    const localInventory = createLocalInventoryService(config);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    const orderService = createOrderManagementService(
+    const marketplaces = createMarketplaceOrderRuntime(
       config,
-      configPath,
       process.env,
-      undefined,
       sessionManager,
       sellerApi,
-      notifications.publisher,
+      {
+        configuration: () => loadConfig(configPath),
+        logger: jsonLogger,
+        notifications: notifications.publisher,
+        providerSecrets: marketplaceCredentials,
+        localInventory,
+      },
     );
     const messageService = createMessageManagementService(
       config,
@@ -160,23 +178,27 @@ try {
       repricingService,
       inventoryQueue,
       inventoryService,
+      localInventory,
       internalJobs,
-      orderService,
-      paymentService: createPaymentManagementService(
-        config,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
-      feedbackService: createFeedbackManagementService(
-        config,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
-      messageService,
+      marketplaces,
+      marketplaceAccounts: tcgplayerAccountServices(config, {
+        payments: createPaymentManagementService(
+          config,
+          process.env,
+          sessionManager,
+          sellerApi,
+        ),
+        feedback: createFeedbackManagementService(
+          config,
+          process.env,
+          sessionManager,
+          sellerApi,
+        ),
+        messages: messageService,
+      }),
       sessionManager,
       discordWebhook: notifications.discordWebhook,
+      marketplaceCredentials,
       sellerRequestMetrics: sellerApi.requests.snapshot,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
@@ -189,6 +211,8 @@ try {
     }
   } else if (command === "start") {
     const initialConfig = await loadConfig(configPath);
+    const marketplaceCredentials =
+      await createMarketplaceCredentialManager(initialConfig);
     const notifications = await createNotificationRuntime(
       initialConfig,
       configPath,
@@ -218,20 +242,19 @@ try {
       sellerApi,
     );
     const internalJobs = createInternalJobStore(initialConfig);
-    const readyOrders = createReadyOrderSource(
+    const localInventory = createLocalInventoryService(initialConfig);
+    const marketplaces = createMarketplaceOrderRuntime(
       initialConfig,
       process.env,
       sessionManager,
       sellerApi,
-    );
-    const orderService = createOrderManagementService(
-      initialConfig,
-      configPath,
-      process.env,
-      readyOrders,
-      sessionManager,
-      sellerApi,
-      notifications.publisher,
+      {
+        configuration: () => loadConfig(configPath),
+        logger: jsonLogger,
+        notifications: notifications.publisher,
+        providerSecrets: marketplaceCredentials,
+        localInventory,
+      },
     );
     const messageService = createMessageManagementService(
       initialConfig,
@@ -242,34 +265,20 @@ try {
     const notificationMonitor = createNotificationMonitor(
       configPath,
       notifications,
-      readyOrders,
-      orderService,
+      marketplaces,
       messageService,
       jsonLogger,
     );
     const shipmentScannerService = createShipmentScannerService(
       initialConfig,
       configPath,
-      readyOrders,
-      orderService,
+      marketplaces,
     );
     const backgroundShipmentScanner = createBackgroundShipmentScanner(
       configPath,
       shipmentScannerService,
       jsonLogger,
     );
-    const orderSync = new OrderSyncCoordinator({
-      readyOrders,
-      createWorkflow: async () =>
-        createWorkflow(
-          await loadConfig(configPath),
-          jsonLogger,
-          process.env,
-          readyOrders,
-          sessionManager,
-          sellerApi,
-        ),
-    });
     const priceWorker = new PriceUpdateWorker({
       queue: priceQueue,
       executor: createPriceUpdateExecutor(
@@ -320,7 +329,8 @@ try {
         `${initialConfig.stateFile}.internal-jobs.worker-lock`,
       ),
       canProcess: () =>
-        sessionManager.isConnected() && !orderSync.isSynchronizing(),
+        sessionManager.isConnected() &&
+        !marketplaces.workflow.isSynchronizing(),
     });
     const ui = await startConfigurationUi({
       configPath,
@@ -331,27 +341,30 @@ try {
       inventoryQueue,
       inventoryWorkerRunning: true,
       inventoryService,
+      localInventory,
       internalJobs,
       internalJobRunnerRunning: true,
-      orderService,
-      orderSync,
+      marketplaces,
       shipmentScannerService,
       backgroundShipmentScanner,
-      paymentService: createPaymentManagementService(
-        initialConfig,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
-      feedbackService: createFeedbackManagementService(
-        initialConfig,
-        process.env,
-        sessionManager,
-        sellerApi,
-      ),
-      messageService,
+      marketplaceAccounts: tcgplayerAccountServices(initialConfig, {
+        payments: createPaymentManagementService(
+          initialConfig,
+          process.env,
+          sessionManager,
+          sellerApi,
+        ),
+        feedback: createFeedbackManagementService(
+          initialConfig,
+          process.env,
+          sessionManager,
+          sellerApi,
+        ),
+        messages: messageService,
+      }),
       sessionManager,
       discordWebhook: notifications.discordWebhook,
+      marketplaceCredentials,
       sellerRequestMetrics: sellerApi.requests.snapshot,
       executeAddressLabel,
       executePrintTest: executeConfiguredSyntheticPrintTest,
@@ -389,24 +402,22 @@ try {
     });
     try {
       while (!controller.signal.aborted) {
-        if (sessionManager.isConnected()) {
-          try {
-            await orderSync.synchronize("scheduled", {
-              signal: controller.signal,
-            });
-          } catch (error) {
-            jsonLogger.error("service.sync-failed", {
+        try {
+          await marketplaces.workflow.run("scheduled", {
+            signal: controller.signal,
+          });
+        } catch (error) {
+          jsonLogger.error("service.sync-failed", {
+            errorCode: safeErrorCode(error),
+          });
+        }
+        await notificationMonitor
+          .run(controller.signal)
+          .catch((error: unknown) => {
+            jsonLogger.error("notification.monitor-failed", {
               errorCode: safeErrorCode(error),
             });
-          }
-          await notificationMonitor
-            .run(controller.signal)
-            .catch((error: unknown) => {
-              jsonLogger.error("notification.monitor-failed", {
-                errorCode: safeErrorCode(error),
-              });
-            });
-        }
+          });
         const config = await loadConfig(configPath);
         await wait(config.pollIntervalMinutes * 60_000, controller.signal);
       }
@@ -512,4 +523,12 @@ async function waitUntilAborted(signal: AbortSignal): Promise<void> {
   await new Promise<void>((resolvePromise) => {
     signal.addEventListener("abort", () => resolvePromise(), { once: true });
   });
+}
+
+function tcgplayerAccountServices(
+  config: AppConfig,
+  services: MarketplaceAccountServices,
+) {
+  const { connectionId } = primaryTcgplayerConnection(config.providers);
+  return marketplaceAccountServiceMap({ [connectionId]: services });
 }

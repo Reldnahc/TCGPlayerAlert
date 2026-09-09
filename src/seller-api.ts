@@ -1,7 +1,7 @@
 import {
   createTcgplayerSellerClient,
   type TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "./providers/tcgplayer/sdk.js";
 import { ConfigurationError } from "./errors.js";
 import type { SellerCredentialAccess } from "./seller-credentials.js";
 

@@ -1,7 +1,7 @@
 import {
-  SellerPayoutStatus,
-  type SellerPayoutStatus as SellerPayoutStatusCode,
-} from "tcgplayer-private-api";
+  SELLER_PAYOUT_STATUS_VALUES,
+  type SellerPayoutStatusCode,
+} from "../payment-management.js";
 import type {
   ConfigurationRouteContext,
   ConfigurationRouteHandler,
@@ -14,9 +14,11 @@ import {
   sendJson,
   withRequestAbort,
 } from "./http.js";
+import { parseConnectionId } from "../marketplaces/identity.js";
+import type { MarketplaceAccountServices } from "../marketplaces/account-workspaces.js";
 
 const SELLER_PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
-  Object.values(SellerPayoutStatus),
+  SELLER_PAYOUT_STATUS_VALUES,
 );
 
 export const handleSellerAccountRoute: ConfigurationRouteHandler = async (
@@ -30,12 +32,10 @@ export const handleSellerAccountRoute: ConfigurationRouteHandler = async (
 async function handlePaymentRoute(
   context: ConfigurationRouteContext,
 ): Promise<boolean> {
-  const { request, response, url, paymentService } = context;
+  const { request, response, url } = context;
   if (request.method === "GET" && url.pathname === "/api/payments") {
-    if (paymentService === undefined) {
-      sendJson(response, 503, { message: "Payment history is unavailable." });
-      return true;
-    }
+    const paymentService = await workspaceService(context, "payments");
+    if (paymentService === undefined) return true;
     const page = parsePage(url.searchParams.get("page"), "payment");
     const statusValue = url.searchParams.get("status");
     if (
@@ -66,10 +66,8 @@ async function handlePaymentRoute(
   ) {
     return false;
   }
-  if (paymentService === undefined) {
-    sendJson(response, 503, { message: "Payment history is unavailable." });
-    return true;
-  }
+  const paymentService = await workspaceService(context, "payments");
+  if (paymentService === undefined) return true;
   const referenceId = decodeURIComponent(
     url.pathname.slice("/api/payments/".length),
   );
@@ -90,14 +88,12 @@ async function handlePaymentRoute(
 async function handleFeedbackRoute(
   context: ConfigurationRouteContext,
 ): Promise<boolean> {
-  const { request, response, url, feedbackService } = context;
+  const { request, response, url } = context;
   if (request.method !== "GET" || url.pathname !== "/api/feedback") {
     return false;
   }
-  if (feedbackService === undefined) {
-    sendJson(response, 503, { message: "Seller feedback is unavailable." });
-    return true;
-  }
+  const feedbackService = await workspaceService(context, "feedback");
+  if (feedbackService === undefined) return true;
   const page = parsePage(url.searchParams.get("page"), "feedback");
   const ratingValue = url.searchParams.get("rating");
   const rating = ratingValue === null ? undefined : Number(ratingValue);
@@ -145,7 +141,7 @@ async function handleFeedbackRoute(
 async function handleMessageRoute(
   context: ConfigurationRouteContext,
 ): Promise<boolean> {
-  const { request, response, url, messageService } = context;
+  const { request, response, url } = context;
   const markReadMatch =
     request.method === "POST"
       ? /^\/api\/messages\/(\d{1,16})\/mark-read$/u.exec(url.pathname)
@@ -168,10 +164,8 @@ async function handleMessageRoute(
     replyMatch !== null ||
     detailMatch !== null;
   if (!isMessageRoute) return false;
-  if (messageService === undefined) {
-    sendJson(response, 503, { message: "Seller messages are unavailable." });
-    return true;
-  }
+  const messageService = await workspaceService(context, "messages");
+  if (messageService === undefined) return true;
   if (
     request.method === "GET" &&
     url.pathname === "/api/messages/unread-count"
@@ -263,6 +257,97 @@ async function handleMessageRoute(
     return true;
   }
   return false;
+}
+
+async function workspaceService<K extends keyof MarketplaceAccountServices>(
+  context: ConfigurationRouteContext,
+  facet: K,
+): Promise<MarketplaceAccountServices[K] | undefined> {
+  const runtime = context.marketplaces;
+  const accounts = context.marketplaceAccounts ?? {};
+  const requested = context.url.searchParams.get("connectionId");
+  let connectionId: string;
+  if (requested !== null) {
+    try {
+      connectionId = parseConnectionId(requested);
+    } catch {
+      sendJson(context.response, 400, {
+        message: "The marketplace connection is invalid.",
+        code: "INVALID_MARKETPLACE_CONNECTION",
+      });
+      return undefined;
+    }
+    const connection = runtime?.registry.get(connectionId);
+    if (
+      runtime === undefined
+        ? accounts[connectionId]?.[facet] === undefined
+        : connection === undefined
+    ) {
+      sendJson(context.response, 404, {
+        message: "The marketplace connection is unknown or disabled.",
+        code: "UNKNOWN_MARKETPLACE_CONNECTION",
+      });
+      return undefined;
+    }
+    if (connection !== undefined && connection.facets[facet] === undefined) {
+      sendJson(context.response, 409, {
+        message: "This workspace is unsupported by the selected connection.",
+        code: "UNSUPPORTED_PROVIDER_CAPABILITY",
+      });
+      return undefined;
+    }
+  } else {
+    const eligible =
+      runtime === undefined
+        ? Object.keys(accounts).filter(
+            (candidate) => accounts[candidate]?.[facet] !== undefined,
+          )
+        : runtime.registry
+            .list()
+            .filter((candidate) => candidate.facets[facet] !== undefined)
+            .map((candidate) => candidate.descriptor.connectionId);
+    if (eligible.length !== 1) {
+      sendJson(context.response, eligible.length === 0 ? 503 : 409, {
+        message:
+          eligible.length === 0
+            ? "No enabled marketplace connection supplies this workspace."
+            : "Select a marketplace connection for this workspace.",
+        code:
+          eligible.length === 0
+            ? "NO_WORKSPACE_CONNECTIONS"
+            : "AMBIGUOUS_WORKSPACE_CONNECTION",
+      });
+      return undefined;
+    }
+    const selected = eligible[0];
+    if (selected === undefined) return undefined;
+    connectionId = selected;
+  }
+  if (runtime !== undefined) {
+    const health = await runtime.health.check(connectionId);
+    if (health.state !== "connected" && health.state !== "degraded") {
+      const authenticationRequired = health.state === "authentication-required";
+      sendJson(context.response, authenticationRequired ? 401 : 503, {
+        message: authenticationRequired
+          ? "Marketplace authentication is required."
+          : "The marketplace connection is unavailable.",
+        code:
+          health.issueCode ??
+          (authenticationRequired
+            ? "AUTHENTICATION_REQUIRED"
+            : "MARKETPLACE_UNAVAILABLE"),
+      });
+      return undefined;
+    }
+  }
+  const service = accounts[connectionId]?.[facet];
+  if (service === undefined) {
+    sendJson(context.response, 503, {
+      message: "The selected marketplace workspace is unavailable.",
+      code: "WORKSPACE_SERVICE_UNAVAILABLE",
+    });
+  }
+  return service;
 }
 
 function parsePage(value: string | null, label: string): number {

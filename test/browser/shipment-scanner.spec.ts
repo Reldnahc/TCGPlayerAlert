@@ -3,6 +3,10 @@ import { expect, test } from "@playwright/test";
 import { createShipmentAprilTag, shipmentTagId } from "../../src/index.js";
 
 const syntheticOrderNumber = "123-4567890-001";
+const syntheticOrderRef = {
+  connectionId: "tcgplayer-main",
+  remoteId: syntheticOrderNumber,
+} as const;
 
 test("the built Scanner detects an AprilTag and resolves its ready order", async ({
   page,
@@ -49,10 +53,10 @@ test("the built Scanner detects an AprilTag and resolves its ready order", async
   await page.locator('input[type="file"]').setInputFiles({
     name: "synthetic-shipment-tag.png",
     mimeType: "image/png",
-    buffer: renderMarker(shipmentTagId(syntheticOrderNumber)),
+    buffer: renderMarker(shipmentTagId(syntheticOrderRef)),
   });
 
-  await expect(page.getByText("Exact ready-order match")).toBeVisible({
+  await expect(page.getByText("Review matched order")).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByText(/Alex Morgan/u)).toBeVisible();

@@ -4,6 +4,15 @@ import type {
   CatalogSearch,
   FeedbackPage,
   InventoryJob,
+  InventoryList,
+  InventoryMutationResult,
+  LocalInventoryImportPreview,
+  LocalInventoryImportResult,
+  LocalInventoryItemResponse,
+  MarketplaceListingQuoteResponse,
+  MarketplacePublicationJobResponse,
+  MarketplacePublicationPreview,
+  MarketplacePublicationPreviewResponse,
   InventoryQueueResponse,
   InternalJobsResponse,
   JobRunResponse,
@@ -16,6 +25,8 @@ import type {
   MessageMutationResult,
   MessagesPage,
   MessageThread,
+  MarketplaceConnections,
+  Order,
   OrderDetail,
   OrderList,
   PaymentDetail,
@@ -27,9 +38,6 @@ import type {
   PricingRules,
   QueuedJob,
   QueuedJobs,
-  ReadyOrderSnapshot,
-  RefundOptions,
-  RefundResult,
   SellerConnectionStatus,
   SellerPairingChallenge,
   Settings,
@@ -39,7 +47,21 @@ import type {
   TrackingResult,
   UnreadMessages,
 } from "./contracts.js";
+import { parseLocalInventoryItem } from "../local-inventory-contracts.js";
 import {
+  parseCatalogIdentity,
+  parseConnectionDescriptor,
+  parseConnectionHealth,
+  parseInventoryItem,
+  parseMoney,
+  parseOrderDetail,
+  parseOrderSummary,
+  parseProviderIssue,
+} from "../marketplaces/contracts.js";
+import { parseProviderOrderRef } from "../marketplaces/identity.js";
+import { parseMarketplaceConnectionSetup } from "../marketplaces/registry.js";
+import {
+  DecodeError,
   array,
   boolean,
   calendarDate,
@@ -59,6 +81,21 @@ import {
   type Decoder,
 } from "./decoder.js";
 
+function coreDecoder<T>(
+  parse: (value: unknown) => T,
+  expected: string,
+): Decoder<T> {
+  return {
+    decode(value, path = "response") {
+      try {
+        return parse(value);
+      } catch {
+        throw new DecodeError(path, expected);
+      }
+    },
+  };
+}
+
 const condition = enumeration(
   "Near Mint",
   "Lightly Played",
@@ -68,20 +105,6 @@ const condition = enumeration(
   "Unopened",
 );
 const printing = enumeration("Normal", "Foil");
-const orderStatus = enumeration(
-  "Canceled",
-  "Delivered",
-  "PickedUp",
-  "PickupOrderCanceled",
-  "Processing",
-  "Pulling",
-  "ReadyForPickup",
-  "ReadyToShip",
-  "Received",
-  "Shipped",
-  "ShippedOrderCanceled",
-  "Unknown",
-);
 
 const gamePricingModule = object({
   type: literal("magic-rarity-floor"),
@@ -154,6 +177,7 @@ const packingOutput = object({
   type: literal("print-packing-slip"),
   dpi: optional(number),
   scale: optional(enumeration("actual-size", "fit", "shrink")),
+  colorMode: optional(enumeration("black-and-white", "color")),
 });
 
 const pullListBinDimension = object({ field: text, fallback: text });
@@ -242,94 +266,210 @@ export const discordWebhookStatusDecoder: Decoder<DiscordWebhookStatus> =
 export const discordWebhookTestDecoder: Decoder<DiscordWebhookTestResult> =
   object({ delivered: boolean });
 
-export const orderSummaryDecoder = object({
-  orderNumber: text,
-  buyerName: text,
-  orderDate: isoDateTime,
-  status: text,
-  statusCode: orderStatus,
-  canMarkShipped: boolean,
-  shippingType: text,
-  productAmount: number,
-  shippingAmount: number,
-  totalAmount: number,
+export const orderSummaryDecoder: Decoder<Order> = coreDecoder(
+  parseOrderSummary,
+  "a normalized order summary",
+);
+
+const providerIssueDecoder = coreDecoder(
+  parseProviderIssue,
+  "a safe marketplace issue",
+);
+const aggregateOrdersDecoder = object({
+  data: array(orderSummaryDecoder),
+  issues: array(providerIssueDecoder),
+  completedAt: isoDateTime,
 });
 
-export const orderListDecoder: Decoder<OrderList> = object({
-  orders: array(orderSummaryDecoder),
-  fetchedAt: isoDateTime,
+export const orderListDecoder: Decoder<OrderList> = {
+  decode(value, path = "response") {
+    const aggregate = aggregateOrdersDecoder.decode(value, path);
+    return {
+      orders: aggregate.data,
+      issues: aggregate.issues,
+      fetchedAt: aggregate.completedAt,
+    };
+  },
+};
+
+export const orderDetailDecoder: Decoder<OrderDetail> = coreDecoder(
+  parseOrderDetail,
+  "normalized order detail",
+);
+
+const marketplaceFacet = enumeration(
+  "order-pages",
+  "order-details",
+  "fulfillment",
+  "refunds",
+  "native-documents",
+  "pull-lines",
+  "inventory-reader",
+  "inventory-mutator",
+  "inventory-publisher",
+  "listing-quotes",
+  "inventory-additions",
+  "catalog-metadata",
+  "catalog-search",
+  "repricing",
+  "payments",
+  "messages",
+  "feedback",
+);
+const connectionDescriptorDecoder = coreDecoder(
+  parseConnectionDescriptor,
+  "a marketplace connection descriptor",
+);
+const connectionHealthDecoder = coreDecoder(
+  parseConnectionHealth,
+  "marketplace connection health",
+);
+const connectionSetupDecoder = coreDecoder(
+  parseMarketplaceConnectionSetup,
+  "marketplace connection setup",
+);
+const connectionStatusDecoder = object({
+  descriptor: connectionDescriptorDecoder,
+  enabled: boolean,
+  supportedFacets: array(marketplaceFacet),
+  setup: optional(connectionSetupDecoder),
+  health: connectionHealthDecoder,
+});
+export const marketplaceConnectionsDecoder: Decoder<MarketplaceConnections> =
+  object({
+    connections: array(connectionStatusDecoder),
+    completedAt: isoDateTime,
+  });
+
+const marketplaceCredentialFieldStatusDecoder = object({
+  id: text,
+  label: text,
+  inputType: enumeration("email", "password"),
+  configured: boolean,
+  source: optional(enumeration("settings", "environment")),
+});
+export const marketplaceCredentialStatusDecoder = object({
+  connectionId: text,
+  configured: boolean,
+  protectedStorage: boolean,
+  fields: array(marketplaceCredentialFieldStatusDecoder),
 });
 
-export const readyOrderSnapshotDecoder: Decoder<ReadyOrderSnapshot> = object({
-  snapshot: nullable(orderListDecoder),
+const inventoryItemDecoder = coreDecoder(
+  parseInventoryItem,
+  "a normalized inventory item",
+);
+export const inventoryListDecoder: Decoder<InventoryList> = object({
+  items: array(coreDecoder(parseLocalInventoryItem, "a local inventory item")),
+  listings: array(
+    object({
+      descriptor: connectionDescriptorDecoder,
+      item: inventoryItemDecoder,
+      localInventoryId: optional(text),
+    }),
+  ),
+  issues: array(providerIssueDecoder),
+  completedAt: isoDateTime,
 });
-
-const orderTax = object({ code: text, amount: number });
-const orderTransaction = object({
-  productAmount: number,
-  shippingAmount: number,
-  grossAmount: number,
-  feeAmount: number,
-  netAmount: number,
-  directFeeAmount: number,
-  taxes: array(orderTax),
+export const localInventoryItemResponseDecoder: Decoder<LocalInventoryItemResponse> =
+  object({
+    item: coreDecoder(parseLocalInventoryItem, "a local inventory item"),
+  });
+const publicationPreviewDecoder: Decoder<MarketplacePublicationPreview> =
+  object({
+    id: text,
+    expiresAt: isoDateTime,
+    connectionId: text,
+    connectionLabel: text,
+    localInventoryId: text,
+    displayName: text,
+    quantity: integer,
+    price: coreDecoder(parseMoney, "a publication price"),
+    exactIdentity: coreDecoder(
+      parseCatalogIdentity,
+      "an exact catalog identity",
+    ),
+    currentListing: optional(inventoryItemDecoder),
+  });
+const listingQuoteDecoder = object({
+  connectionId: text,
+  connectionLabel: text,
+  exactIdentity: coreDecoder(parseCatalogIdentity, "an exact catalog identity"),
+  price: coreDecoder(parseMoney, "a listing quote price"),
+  source: enumeration("market-low", "market"),
+  availableQuantity: optional(integer),
+  asOf: optional(isoDateTime),
 });
-const orderAddress = object({
-  recipientName: text,
-  addressOne: text,
-  addressTwo: optional(text),
-  city: text,
-  territory: text,
-  country: text,
-  postalCode: text,
-});
-const orderProduct = object({
-  name: text,
-  unitPrice: number,
-  extendedPrice: number,
+export const marketplaceListingQuoteResponseDecoder: Decoder<MarketplaceListingQuoteResponse> =
+  object({
+    quote: optional(listingQuoteDecoder),
+  });
+export const marketplacePublicationPreviewResponseDecoder: Decoder<MarketplacePublicationPreviewResponse> =
+  object({ preview: publicationPreviewDecoder });
+export const marketplacePublicationJobResponseDecoder: Decoder<MarketplacePublicationJobResponse> =
+  object({
+    job: object({
+      id: text,
+      connectionId: text,
+      localInventoryId: text,
+      displayName: text,
+      quantity: integer,
+      price: coreDecoder(parseMoney, "a publication price"),
+      exactIdentity: coreDecoder(
+        parseCatalogIdentity,
+        "an exact catalog identity",
+      ),
+      status: enumeration("running", "submitted", "review-required"),
+      createdAt: isoDateTime,
+      updatedAt: isoDateTime,
+      reasonCode: optional(text),
+    }),
+  });
+const localInventoryImportObservationDecoder = object({
+  connectionId: text,
+  connectionLabel: text,
+  inventoryKey: text,
   quantity: nonNegativeInteger,
-  url: text,
-  productId: text,
-  skuId: text,
-  listoId: optional(union(text, number)),
 });
-const orderRefund = object({
-  shippingAmount: number,
-  products: array(object({ skuId: text, amount: number })),
+const localInventoryImportCandidateDecoder = object({
+  candidateKey: text,
+  displayName: text,
+  suggestedOnHand: nonNegativeInteger,
+  catalogIdentities: array(
+    coreDecoder(parseCatalogIdentity, "a catalog identity"),
+  ),
+  attributes: valueRecord(text),
+  observations: array(localInventoryImportObservationDecoder),
+  crossListed: boolean,
 });
-const trackingNumber = object({
-  createdAt: isoDateTime,
-  carrier: text,
-  trackingNumber: text,
-  status: text,
-});
-
-export const orderDetailDecoder: Decoder<OrderDetail> = object({
-  createdAt: isoDateTime,
-  status: text,
-  statusCode: orderStatus,
-  orderChannel: text,
-  orderFulfillment: text,
-  orderNumber: text,
-  sellerName: text,
-  buyerName: text,
-  paymentType: text,
-  pickupStatus: text,
-  shippingType: text,
-  estimatedDeliveryDate: isoDateTime,
-  transaction: orderTransaction,
-  shippingAddress: orderAddress,
-  products: array(orderProduct),
-  refunds: array(orderRefund),
-  refundStatus: text,
-  refundCapabilities: object({ full: boolean, partial: boolean }),
-  trackingNumbers: array(trackingNumber),
-  canMarkShipped: boolean,
-  fetchedAt: isoDateTime,
-});
+export const localInventoryImportPreviewDecoder: Decoder<LocalInventoryImportPreview> =
+  object({
+    candidates: array(localInventoryImportCandidateDecoder),
+    alreadyLinkedCount: nonNegativeInteger,
+    skippedWithoutExactIdentityCount: nonNegativeInteger,
+    skippedZeroQuantityCount: nonNegativeInteger,
+    conflictingIdentityCount: nonNegativeInteger,
+    issues: array(providerIssueDecoder),
+    completedAt: isoDateTime,
+  });
+export const localInventoryImportResultDecoder: Decoder<LocalInventoryImportResult> =
+  object({
+    createdCount: nonNegativeInteger,
+    createdItems: array(
+      coreDecoder(parseLocalInventoryItem, "a local inventory item"),
+    ),
+    preview: localInventoryImportPreviewDecoder,
+  });
+export const inventoryMutationDecoder: Decoder<InventoryMutationResult> =
+  object({
+    connectionId: text,
+    inventoryKey: text,
+    outcome: enumeration("applied", "already-applied", "review-required"),
+  });
 
 const pullMetadata = object({ label: text, values: array(text) });
 export const pullListRowDecoder = object({
+  rowKey: text,
   productLine: text,
   productName: text,
   condition: text,
@@ -358,10 +498,15 @@ export const masterPullListDecoder: Decoder<MasterPullList> = object({
   pulledQuantity: nonNegativeInteger,
   remainingQuantity: nonNegativeInteger,
   fetchedAt: isoDateTime,
+  issues: array(providerIssueDecoder),
   metadataIssue: optional(text),
 });
 
 const scanResultBase = { tagId: nonNegativeInteger } as const;
+const scannerOrderRefDecoder = coreDecoder(
+  parseProviderOrderRef,
+  "a qualified order reference",
+);
 export const shipmentScanResultDecoder: Decoder<ShipmentScanResult> = union(
   object({
     state: literal("matched"),
@@ -377,7 +522,7 @@ export const shipmentScanResultDecoder: Decoder<ShipmentScanResult> = union(
   object({
     state: literal("already-processed"),
     ...scanResultBase,
-    orderNumber: text,
+    ref: scannerOrderRefDecoder,
   }),
   object({ state: literal("no-match"), ...scanResultBase }),
   object({
@@ -388,7 +533,7 @@ export const shipmentScanResultDecoder: Decoder<ShipmentScanResult> = union(
   object({
     state: literal("review-required"),
     ...scanResultBase,
-    orderNumber: text,
+    ref: scannerOrderRefDecoder,
   }),
 );
 
@@ -426,6 +571,7 @@ export const shipmentScannerStatusDecoder: Decoder<ShipmentScannerStatus> =
     readyTagIds: array(nonNegativeInteger),
     conflictingTagCount: nonNegativeInteger,
     reviewRequiredCount: nonNegativeInteger,
+    issues: array(providerIssueDecoder),
     snapshotFetchedAt: optional(isoDateTime),
     backgroundCamera: cameraStatus,
   });
@@ -600,24 +746,14 @@ export const messageMutationDecoder: Decoder<MessageMutationResult> = object({
 export const markAllMessagesReadDecoder: Decoder<MarkAllMessagesReadResult> =
   object({ markedThreadCount: nonNegativeInteger });
 
-export const trackingResultDecoder: Decoder<TrackingResult> = object({
-  orderNumber: text,
-  carrier: text,
-  outcome: enumeration("applied", "already-applied"),
+const mutationResultDecoder = object({
+  ref: coreDecoder(parseProviderOrderRef, "a qualified order reference"),
+  outcome: enumeration("applied", "already-applied", "review-required"),
 });
-export const shipmentResultDecoder: Decoder<ShipmentResult> = object({
-  orderNumber: text,
-  outcome: enumeration("applied", "already-applied"),
-});
-export const refundOptionsDecoder: Decoder<RefundOptions> = object({
-  origins: array(object({ name: text, value: text })),
-  reasons: array(object({ name: text, value: text })),
-});
-export const refundResultDecoder: Decoder<RefundResult> = object({
-  orderNumber: text,
-  refundType: enumeration("full", "partial"),
-  outcome: literal("submitted"),
-});
+export const trackingResultDecoder: Decoder<TrackingResult> =
+  mutationResultDecoder;
+export const shipmentResultDecoder: Decoder<ShipmentResult> =
+  mutationResultDecoder;
 export const pirateShipDecoder: Decoder<PirateShipResult> = object({
   url: literal("https://ship.pirateship.com/ship/single"),
   pasteAddress: text,

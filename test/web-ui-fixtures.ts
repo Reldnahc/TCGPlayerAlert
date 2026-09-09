@@ -98,6 +98,7 @@ export const settings: Settings = {
       adapterLabel: "Windows PDF",
       dpi: 200,
       scale: "fit",
+      colorMode: "black-and-white",
     },
   ],
   installedPrinters: [
@@ -126,6 +127,124 @@ export function baseFetch(
   options?: RequestInit,
 ): Promise<Response> {
   const path = requestPath(input);
+  if (
+    path === "/api/marketplace-connections" ||
+    path === "/api/marketplace-connections?refresh=1"
+  ) {
+    return Promise.resolve(
+      json({
+        connections: [
+          {
+            descriptor: {
+              connectionId: "manapool-main",
+              providerId: "manapool",
+              providerLabel: "ManaPool",
+              connectionLabel: "ManaPool",
+            },
+            enabled: true,
+            setup: {
+              kind: "managed-credentials",
+              credentialFields: [
+                {
+                  id: "email",
+                  label: "Seller email",
+                  inputType: "email",
+                  secretReference: "MANAPOOL_EMAIL",
+                },
+                {
+                  id: "access-token",
+                  label: "Seller API code",
+                  inputType: "password",
+                  secretReference: "MANAPOOL_ACCESS_TOKEN",
+                },
+              ],
+              secretEnvironmentNames: [
+                "MANAPOOL_EMAIL",
+                "MANAPOOL_ACCESS_TOKEN",
+              ],
+              restartRequired: false,
+            },
+            supportedFacets: [
+              "order-pages",
+              "order-details",
+              "fulfillment",
+              "inventory-reader",
+              "inventory-mutator",
+              "inventory-publisher",
+              "listing-quotes",
+            ],
+            health: {
+              state: "connected",
+              checkedAt: "2026-08-07T12:00:00.000Z",
+            },
+          },
+          {
+            descriptor: {
+              connectionId: "tcgplayer-main",
+              providerId: "tcgplayer",
+              providerLabel: "TCGplayer",
+              connectionLabel: "TCGplayer",
+            },
+            enabled: true,
+            setup: {
+              kind: "browser-session",
+              secretEnvironmentNames: [
+                "TCGPLAYER_AUTH_COOKIE",
+                "TCGPLAYER_SELLER_KEY",
+              ],
+              restartRequired: true,
+            },
+            supportedFacets: [
+              "order-pages",
+              "order-details",
+              "fulfillment",
+              "refunds",
+              "native-documents",
+              "pull-lines",
+              "inventory-reader",
+              "inventory-mutator",
+              "inventory-additions",
+              "catalog-search",
+              "repricing",
+              "payments",
+              "messages",
+              "feedback",
+            ],
+            health: {
+              state: "connected",
+              checkedAt: "2026-08-07T12:00:00.000Z",
+            },
+          },
+        ],
+        completedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+  }
+  if (path === "/api/marketplace-connections/manapool-main/credentials") {
+    return Promise.resolve(
+      json({
+        connectionId: "manapool-main",
+        configured: true,
+        protectedStorage: true,
+        fields: [
+          {
+            id: "email",
+            label: "Seller email",
+            inputType: "email",
+            configured: true,
+            source: "environment",
+          },
+          {
+            id: "access-token",
+            label: "Seller API code",
+            inputType: "password",
+            configured: true,
+            source: "environment",
+          },
+        ],
+      }),
+    );
+  }
   if (path === "/api/auth/status") {
     return Promise.resolve(
       json({
@@ -196,9 +315,21 @@ export function baseFetch(
         },
       }),
     );
+  if (path === "/api/orders/ready" || path === "/api/orders/sync")
+    return Promise.resolve(
+      json({
+        data: [],
+        issues: [],
+        completedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
   if (path.startsWith("/api/orders"))
     return Promise.resolve(
-      json({ orders: [], fetchedAt: "2026-08-07T12:00:00.000Z" }),
+      json({
+        data: [],
+        issues: [],
+        completedAt: "2026-08-07T12:00:00.000Z",
+      }),
     );
   if (path.startsWith("/api/payments"))
     return Promise.resolve(

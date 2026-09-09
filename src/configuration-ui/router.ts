@@ -5,21 +5,26 @@ import type {
   ConfigurationRouteHandler,
 } from "./context.js";
 import { handleInventoryRoute } from "./inventory-routes.js";
-import { handleAddressLabelRoute, handleOrderRoute } from "./order-routes.js";
+import { handleAddressLabelRoute } from "./order-routes.js";
+import { handleMarketplaceOrderRoute } from "./marketplace-order-routes.js";
 import { handleShipmentScannerRoute } from "./scanner-routes.js";
 import { handleSettingsRoute } from "./settings-routes.js";
 import { handleProviderRoute } from "./provider-routes.js";
 import { handleInternalJobRoute } from "./internal-job-routes.js";
 import { handleNotificationRoute } from "./notification-routes.js";
+import { handleMarketplaceCredentialRoute } from "./marketplace-credential-routes.js";
+import { handleLocalInventoryRoute } from "./local-inventory-routes.js";
 
 const ROUTE_HANDLERS: readonly ConfigurationRouteHandler[] = [
   handleSettingsRoute,
   handleAuthenticationRoute,
   handleNotificationRoute,
+  handleMarketplaceCredentialRoute,
   handleProviderRoute,
   handleShipmentScannerRoute,
   handleSellerAccountRoute,
-  handleOrderRoute,
+  handleLocalInventoryRoute,
+  handleMarketplaceOrderRoute,
   handleAddressLabelRoute,
   handleInternalJobRoute,
   handleInventoryRoute,

@@ -61,6 +61,8 @@ Pasted source text, previews, and progress stay in memory in the current browser
 - `fit` - grow or shrink to the printer's available page area.
 - `shrink` - retain actual size unless the page must shrink to fit. This is the recommended packing-slip default.
 
+Windows PDF printing defaults to `black-and-white`. In that mode, the application converts rendered pages to grayscale and requests monochrome output from the printer driver. Select `color` in Settings only when the packing slip's original colors should be preserved.
+
 PDF.js accepts PDFs up to 50 MiB, renders at most 50 pages per document, rejects pages over 40 million pixels, and caps a job at 100 million rendered pixels. These limits bound memory use if a remote document is malformed.
 
 ## Safe setup

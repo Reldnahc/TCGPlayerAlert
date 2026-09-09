@@ -10,6 +10,7 @@ const workspaces = [
   { route: "payments", label: "Payments" },
   { route: "feedback", label: "Feedback" },
   { route: "inventory", label: "Inventory" },
+  { route: "repricing", label: "Repricing" },
   { route: "settings", label: "Settings" },
   { route: "jobs", label: "Jobs" },
 ] as const;

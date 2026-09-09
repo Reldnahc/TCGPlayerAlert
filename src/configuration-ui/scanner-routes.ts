@@ -1,5 +1,6 @@
 import { unavailableBackgroundCameraStatus } from "../background-shipment-scanner.js";
 import { ConfigurationError } from "../errors.js";
+import { parseProviderOrderRef } from "../marketplaces/identity.js";
 import type {
   ConfigurationRouteContext,
   ConfigurationRouteHandler,
@@ -7,7 +8,6 @@ import type {
 import {
   objectValue,
   readJsonBody,
-  safeText,
   sendBytes,
   sendJson,
   withRequestAbort,
@@ -71,22 +71,26 @@ export const handleShipmentScannerRoute: ConfigurationRouteHandler = async (
     if (!response.destroyed) sendJson(response, 200, result);
     return true;
   }
-  const orderNumber = body?.orderNumber;
-  if (!safeText(orderNumber) || orderNumber.length > 128) {
-    throw new ConfigurationError(["A valid order number is required."]);
-  }
+  const expectedRef = parseExpectedRef(body);
   const result = await withRequestAbort(request, response, (signal) =>
     context.backgroundShipmentScanner === undefined
-      ? context.shipmentScannerService.markShipped(tagId, orderNumber, signal)
+      ? context.shipmentScannerService.markShipped(tagId, expectedRef, signal)
       : context.backgroundShipmentScanner.markShipped(
           tagId,
-          orderNumber,
+          expectedRef,
           signal,
         ),
   );
   if (!response.destroyed) sendJson(response, 200, result);
   return true;
 };
+
+function parseExpectedRef(body: Record<string, unknown> | undefined) {
+  if (body?.ref === undefined) {
+    throw new ConfigurationError(["A valid qualified order is required."]);
+  }
+  return parseProviderOrderRef(body.ref);
+}
 
 function requireScanner(
   context: ConfigurationRouteContext,

@@ -11,14 +11,15 @@ import { join } from "node:path";
 
 describe("workflow state", () => {
   it("starts with the versioned empty schema", () => {
-    expect(emptyState()).toEqual({ version: 1, orders: {} });
+    expect(emptyState()).toEqual({ version: 2, baselines: {}, orders: {} });
   });
 
   it("quarantines an interrupted side effect for operator review", () => {
     const state: ApplicationState = {
-      version: 1,
+      version: 2,
+      baselines: {},
       orders: {
-        synthetic: {
+        "synthetic-main/synthetic": {
           firstSeenAt: "2026-01-01T00:00:00.000Z",
           lastSeenAt: "2026-01-01T00:00:00.000Z",
           providerStatus: "ReadyToShip",
@@ -38,8 +39,12 @@ describe("workflow state", () => {
 
     const recovered = recoverInterruptedActions(state);
 
-    expect(recovered.orders.synthetic?.workflowStatus).toBe("review-required");
-    expect(recovered.orders.synthetic?.actions.print).toMatchObject({
+    expect(recovered.orders["synthetic-main/synthetic"]?.workflowStatus).toBe(
+      "review-required",
+    );
+    expect(
+      recovered.orders["synthetic-main/synthetic"]?.actions.print,
+    ).toMatchObject({
       status: "review-required",
       errorCode: "INTERRUPTED_DURING_SIDE_EFFECT",
     });
@@ -93,9 +98,15 @@ describe("workflow state", () => {
         "utf8",
       );
 
-      const state = await new JsonStateStore(path).load();
+      const state = await new JsonStateStore(path, {
+        legacyConnectionId: "tcgplayer-main",
+      }).load();
 
-      expect(state.orders.synthetic).toMatchObject({
+      expect(state.version).toBe(2);
+      expect(state.baselines).toEqual({
+        "tcgplayer-main": "2026-01-01T00:00:00.000Z",
+      });
+      expect(state.orders["tcgplayer-main/synthetic"]).toMatchObject({
         workflowStatus: "pending",
         actions: { print: { status: "pending", attempts: 1 } },
       });

@@ -77,6 +77,8 @@ describe("DiscordWebhookManager", () => {
       type: "inbound-message",
       idempotencyKey: "inbound-message:1:2:1",
       occurredAt: "2026-08-10T12:00:00.000Z",
+      connectionId: "tcgplayer-main",
+      connectionLabel: "TCGplayer",
       threadId: 1,
       unreadMessageCount: 1,
     });

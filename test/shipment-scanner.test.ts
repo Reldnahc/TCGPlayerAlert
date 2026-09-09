@@ -1,25 +1,26 @@
-import { SellerOrderStatus } from "tcgplayer-private-api";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   emptyShipmentScanState,
   JsonShipmentScanStore,
+  JsonShipmentTagRegistry,
   recoverInterruptedMutations,
   shipmentTagId,
   ShipmentScannerService,
-  SHIPMENT_TAG_COUNT,
+  type MutationResult,
+  type OrderSummary,
+  type ProviderOrderRef,
+  type QualifiedReadyOrderSnapshot,
+  type QualifiedReadyOrderSource,
   type ShipmentScanState,
   type ShipmentScanStore,
-  type ShipmentTagAssignment,
-  type ShipmentTagRegistry,
 } from "../src/index.js";
-import type {
-  ManagedOrderList,
-  ManagedOrderSummary,
-  ReadyOrderSource,
-} from "../src/ready-orders.js";
+import { orderRefKey } from "../src/marketplaces/identity.js";
+import { syntheticNormalizedOrder } from "./synthetic-marketplace.js";
+
+const NOW = "2026-08-09T12:00:00.000Z";
 
 class MemoryShipmentScanStore implements ShipmentScanStore {
   state = emptyShipmentScanState();
@@ -36,121 +37,79 @@ class MemoryShipmentScanStore implements ShipmentScanStore {
   }
 }
 
-class MemoryShipmentTagRegistry implements ShipmentTagRegistry {
-  private assignments = new Map<string, ShipmentTagAssignment>();
-
-  assign(orderNumber: string): Promise<number> {
-    return this.reserveAll([orderNumber]).then((values) => {
-      const assignment = values[0];
-      if (assignment === undefined) throw new Error("Assignment is missing.");
-      return assignment.tagId;
-    });
-  }
-
-  reserveAll(
-    orderNumbers: readonly string[],
-  ): Promise<readonly ShipmentTagAssignment[]> {
-    const used = new Set(
-      [...this.assignments.values()].map((assignment) => assignment.tagId),
-    );
-    for (const orderNumber of [...new Set(orderNumbers)].sort()) {
-      if (this.assignments.has(orderNumber)) continue;
-      const preferred = shipmentTagId(orderNumber);
-      for (let offset = 0; offset < SHIPMENT_TAG_COUNT; offset += 1) {
-        const tagId = (preferred + offset) % SHIPMENT_TAG_COUNT;
-        if (used.has(tagId)) continue;
-        this.assignments.set(orderNumber, {
-          orderNumber,
-          tagId,
-          assignedAt: "2026-08-09T12:00:00.000Z",
-          assignedSequence: this.assignments.size + 1,
-        });
-        used.add(tagId);
-        break;
-      }
-    }
-    return this.assigned(orderNumbers);
-  }
-
-  reconcile(
-    orderNumbers: readonly string[],
-  ): Promise<readonly ShipmentTagAssignment[]> {
-    const active = new Set(orderNumbers);
-    this.assignments = new Map(
-      [...this.assignments].filter(([orderNumber]) => active.has(orderNumber)),
-    );
-    return this.reserveAll(orderNumbers);
-  }
-
-  assigned(
-    orderNumbers: readonly string[],
-  ): Promise<readonly ShipmentTagAssignment[]> {
-    return Promise.resolve(
-      orderNumbers.flatMap((orderNumber) => {
-        const assignment = this.assignments.get(orderNumber);
-        return assignment === undefined ? [] : [assignment];
-      }),
-    );
-  }
-}
-
-function managedOrder(orderNumber: string): ManagedOrderSummary {
+function readyOrder(
+  remoteId: string,
+  connectionId = "synthetic-main",
+  totalMinorUnits = 1_149,
+): OrderSummary {
+  const order = syntheticNormalizedOrder({ connectionId, remoteId });
   return {
-    orderNumber,
-    buyerName: `Buyer ${orderNumber}`,
-    orderDate: "2026-08-09T12:00:00.000Z",
-    status: "Ready to Ship",
-    statusCode: SellerOrderStatus.ReadyToShip,
-    canMarkShipped: true,
-    shippingType: "Standard",
-    productAmount: 10,
-    shippingAmount: 1.49,
-    totalAmount: 11.49,
+    ...order,
+    buyerName: `Buyer ${remoteId}`,
+    totals: {
+      subtotal: { currency: "USD", minorUnits: totalMinorUnits - 149 },
+      shipping: { currency: "USD", minorUnits: 149 },
+      total: { currency: "USD", minorUnits: totalMinorUnits },
+    },
+    actions: {
+      ...order.actions,
+      "mark-shipped": { state: "available" },
+    },
   };
 }
 
 function readySource(
-  initial: readonly ManagedOrderSummary[],
-): ReadyOrderSource & {
+  initial: readonly OrderSummary[],
+  successfulConnectionIds: readonly string[] = ["synthetic-main"],
+): QualifiedReadyOrderSource & {
   refreshes: number;
+  current: QualifiedReadyOrderSnapshot;
 } {
-  let current: ManagedOrderList = {
-    orders: [...initial],
-    fetchedAt: "2026-08-09T12:00:00.000Z",
-  };
-  return {
+  const source = {
     refreshes: 0,
-    snapshot: () => current,
+    current: {
+      orders: [...initial],
+      successfulConnectionIds,
+      issues: [],
+      fetchedAt: NOW,
+    } satisfies QualifiedReadyOrderSnapshot,
+    snapshot() {
+      return this.current;
+    },
     refresh() {
       this.refreshes += 1;
-      return Promise.resolve(current);
+      return Promise.resolve(this.current);
     },
-    remove(orderNumber) {
-      current = {
-        ...current,
-        orders: current.orders.filter(
-          (order) => order.orderNumber !== orderNumber,
+    remove(ref: ProviderOrderRef) {
+      const key = orderRefKey(ref);
+      this.current = {
+        ...this.current,
+        orders: this.current.orders.filter(
+          (order) => orderRefKey(order.ref) !== key,
         ),
       };
     },
   };
+  return source;
 }
 
-function service(options: {
-  readonly ready: ReadyOrderSource;
+async function service(options: {
+  readonly orders: readonly OrderSummary[];
+  readonly successfulConnectionIds?: readonly string[];
   readonly store?: MemoryShipmentScanStore;
   readonly automatic?: boolean;
   readonly enabled?: boolean;
-  readonly markShipped?: (orderNumber: string) => Promise<{
-    readonly orderNumber: string;
-    readonly outcome: "applied" | "already-applied";
-  }>;
+  readonly markShipped?: (input: {
+    readonly ref: ProviderOrderRef;
+  }) => Promise<MutationResult>;
 }) {
+  const directory = await mkdtemp(join(tmpdir(), "scanner-tags-"));
   const store = options.store ?? new MemoryShipmentScanStore();
+  const source = readySource(options.orders, options.successfulConnectionIds);
   const markShipped =
     options.markShipped ??
-    ((orderNumber: string) =>
-      Promise.resolve({ orderNumber, outcome: "applied" as const }));
+    ((input: { readonly ref: ProviderOrderRef }) =>
+      Promise.resolve({ ref: input.ref, outcome: "applied" as const }));
   return {
     scanner: new ShipmentScannerService({
       settings: () =>
@@ -161,178 +120,124 @@ function service(options: {
           camera: { enabled: false, deviceId: "" },
           stateFile: ".data/test-shipment-scans.json",
         }),
-      readyOrders: options.ready,
+      readyOrders: source,
       orders: { markShipped },
       store,
-      tags: new MemoryShipmentTagRegistry(),
-      now: () => new Date("2026-08-09T12:00:00.000Z"),
+      tags: new JsonShipmentTagRegistry(join(directory, "tags.json"), {
+        now: () => new Date(NOW),
+      }),
+      now: () => new Date(NOW),
     }),
     store,
+    source,
+    markShipped,
   };
 }
 
-function collidingOrderNumbers(): readonly [string, string] {
-  const seen = new Map<number, string>();
-  for (let index = 0; index <= SHIPMENT_TAG_COUNT; index += 1) {
-    const orderNumber = `COLLISION-${String(index)}`;
-    const tagId = shipmentTagId(orderNumber);
-    const previous = seen.get(tagId);
-    if (previous !== undefined) return [previous, orderNumber];
-    seen.set(tagId, orderNumber);
-  }
-  throw new Error("Expected a deterministic tag collision.");
-}
-
-describe("shipment scanner", () => {
-  it("maps an order number to one stable tag without embedding the order", () => {
-    const first = shipmentTagId("SYNTHETIC-ORDER-1");
-    expect(shipmentTagId("SYNTHETIC-ORDER-1")).toBe(first);
-    expect(first).toBeGreaterThanOrEqual(0);
-    expect(first).toBeLessThan(SHIPMENT_TAG_COUNT);
-    expect(shipmentTagId("SYNTHETIC-ORDER-2")).not.toBe(first);
-  });
-
-  it("reserves distinct tags for the in-memory ready pool without refreshing the seller", async () => {
-    const [first, second] = collidingOrderNumbers();
-    const ready = readySource([
-      managedOrder(first),
-      managedOrder(second),
-      managedOrder("UNIQUE-ORDER"),
-    ]);
-    const { scanner } = service({ ready });
-
-    await expect(scanner.status()).resolves.toMatchObject({
-      enabled: true,
-      readyOrderCount: 3,
-      conflictingTagCount: 0,
-      reviewRequiredCount: 0,
+describe("qualified shipment scanner", () => {
+  it("reserves unique tags for duplicate remote IDs across connections", async () => {
+    const first = readyOrder("DUPLICATE", "first-main");
+    const second = readyOrder("DUPLICATE", "second-main");
+    const { scanner } = await service({
+      orders: [first, second],
+      successfulConnectionIds: ["first-main", "second-main"],
     });
-    expect(ready.refreshes).toBe(0);
+
+    const status = await scanner.status();
+
+    expect(status.readyOrderCount).toBe(2);
+    expect(new Set(status.readyTagIds).size).toBe(2);
   });
 
-  it("refreshes authoritatively and returns an exact match without mutating in review mode", async () => {
-    const order = managedOrder("REVIEW-MATCH");
-    const ready = readySource([order]);
+  it("returns an exact qualified match without mutating in review mode", async () => {
+    const order = readyOrder("REVIEW-MATCH");
     const markShipped = vi.fn();
-    const { scanner } = service({ ready, markShipped });
+    const { scanner, source } = await service({ orders: [order], markShipped });
 
-    await expect(
-      scanner.scan(shipmentTagId(order.orderNumber)),
-    ).resolves.toEqual({
+    await expect(scanner.scan(shipmentTagId(order.ref))).resolves.toEqual({
       state: "matched",
-      tagId: shipmentTagId(order.orderNumber),
+      tagId: shipmentTagId(order.ref),
       order,
     });
-    expect(ready.refreshes).toBe(1);
+    expect(source.refreshes).toBe(1);
     expect(markShipped).not.toHaveBeenCalled();
   });
 
-  it("revalidates the expected review match before an explicit mutation", async () => {
-    const order = managedOrder("EXPLICIT-MATCH");
-    const ready = readySource([order]);
-    const markShipped = vi.fn((orderNumber: string) =>
-      Promise.resolve({ orderNumber, outcome: "applied" as const }),
+  it("revalidates the expected qualified reference before mutation", async () => {
+    const order = readyOrder("EXPLICIT-MATCH", "second-main");
+    const markShipped = vi.fn((input: { readonly ref: ProviderOrderRef }) =>
+      Promise.resolve({ ref: input.ref, outcome: "applied" as const }),
     );
-    const { scanner } = service({ ready, markShipped });
-    const tagId = shipmentTagId(order.orderNumber);
+    const { scanner } = await service({
+      orders: [order],
+      successfulConnectionIds: ["second-main"],
+      markShipped,
+    });
+    const tagId = shipmentTagId(order.ref);
 
-    await expect(
-      scanner.markShipped(tagId, order.orderNumber),
-    ).resolves.toMatchObject({ state: "shipped", tagId, outcome: "applied" });
-    expect(ready.refreshes).toBe(1);
-    expect(markShipped).toHaveBeenCalledWith(order.orderNumber, undefined);
+    await expect(scanner.markShipped(tagId, order.ref)).resolves.toMatchObject({
+      state: "shipped",
+      outcome: "applied",
+    });
+    expect(markShipped).toHaveBeenCalledWith({ ref: order.ref }, undefined);
   });
 
-  it("marks an automatic exact match once and durably suppresses a duplicate", async () => {
-    const order = managedOrder("AUTO-MATCH");
-    const ready = readySource([order]);
-    const markShipped = vi.fn((orderNumber: string) =>
-      Promise.resolve({ orderNumber, outcome: "applied" as const }),
+  it("marks an automatic exact match once and suppresses a duplicate", async () => {
+    const order = readyOrder("AUTO-MATCH");
+    const markShipped = vi.fn((input: { readonly ref: ProviderOrderRef }) =>
+      Promise.resolve({ ref: input.ref, outcome: "applied" as const }),
     );
-    const { scanner, store } = service({
-      ready,
+    const { scanner, store } = await service({
+      orders: [order],
       automatic: true,
       markShipped,
     });
-    const tagId = shipmentTagId(order.orderNumber);
+    const tagId = shipmentTagId(order.ref);
 
     await expect(scanner.scan(tagId)).resolves.toMatchObject({
       state: "shipped",
-      tagId,
       outcome: "applied",
     });
     await expect(scanner.scan(tagId)).resolves.toEqual({
       state: "already-processed",
       tagId,
-      orderNumber: order.orderNumber,
+      ref: order.ref,
     });
-    expect(markShipped).toHaveBeenCalledTimes(1);
-    expect(store.state.records[order.orderNumber]).toMatchObject({
+    expect(markShipped).toHaveBeenCalledOnce();
+    expect(store.state.records[orderRefKey(order.ref)]).toMatchObject({
+      ref: order.ref,
       status: "succeeded",
-      outcome: "applied",
     });
   });
 
   it("stops a $50 automatic match for tracking review", async () => {
-    const order = {
-      ...managedOrder("TRACKING-REQUIRED"),
-      productAmount: 48.51,
-      totalAmount: 50,
-    };
-    const ready = readySource([order]);
+    const order = readyOrder("TRACKING-REQUIRED", "synthetic-main", 5_000);
     const markShipped = vi.fn();
-    const { scanner, store } = service({
-      ready,
+    const { scanner, store } = await service({
+      orders: [order],
       automatic: true,
       markShipped,
     });
 
-    await expect(
-      scanner.scan(shipmentTagId(order.orderNumber)),
-    ).resolves.toEqual({
-      state: "matched",
-      tagId: shipmentTagId(order.orderNumber),
-      order,
-    });
+    await expect(scanner.scan(shipmentTagId(order.ref))).resolves.toMatchObject(
+      {
+        state: "matched",
+        order,
+      },
+    );
     expect(markShipped).not.toHaveBeenCalled();
     expect(store.saves).toBe(0);
   });
 
-  it("resolves hash collisions before either ready order can share a tag", async () => {
-    const [first, second] = collidingOrderNumbers();
-    const ready = readySource([managedOrder(first), managedOrder(second)]);
-    const markShipped = vi.fn((orderNumber: string) =>
-      Promise.resolve({ orderNumber, outcome: "applied" as const }),
-    );
-    const { scanner } = service({
-      ready,
-      automatic: true,
-      markShipped,
-    });
-
-    const status = await scanner.status();
-    expect(status.readyTagIds).toHaveLength(2);
-    expect(new Set(status.readyTagIds).size).toBe(2);
-
-    await expect(
-      scanner.scan(status.readyTagIds[0] ?? -1),
-    ).resolves.toMatchObject({ state: "shipped" });
-    await expect(
-      scanner.scan(status.readyTagIds[1] ?? -1),
-    ).resolves.toMatchObject({ state: "shipped" });
-    expect(markShipped).toHaveBeenCalledTimes(2);
-  });
-
   it("quarantines an uncertain mutation and never retries it", async () => {
-    const order = managedOrder("UNCERTAIN-MATCH");
-    const ready = readySource([order]);
+    const order = readyOrder("UNCERTAIN");
     const markShipped = vi.fn(() => Promise.reject(new Error("socket closed")));
-    const { scanner, store } = service({
-      ready,
+    const { scanner, store } = await service({
+      orders: [order],
       automatic: true,
       markShipped,
     });
-    const tagId = shipmentTagId(order.orderNumber);
+    const tagId = shipmentTagId(order.ref);
 
     await expect(scanner.scan(tagId)).rejects.toMatchObject({
       code: "REVIEW_REQUIRED",
@@ -340,68 +245,105 @@ describe("shipment scanner", () => {
     await expect(scanner.scan(tagId)).resolves.toEqual({
       state: "review-required",
       tagId,
-      orderNumber: order.orderNumber,
+      ref: order.ref,
     });
-    expect(markShipped).toHaveBeenCalledTimes(1);
-    expect(store.state.records[order.orderNumber]?.status).toBe(
+    expect(markShipped).toHaveBeenCalledOnce();
+    expect(store.state.records[orderRefKey(order.ref)]?.status).toBe(
       "review-required",
     );
   });
 
-  it("requires the scanner opt-in before contacting the ready-order source", async () => {
-    const order = managedOrder("DISABLED-MATCH");
-    const ready = readySource([order]);
-    const { scanner } = service({ ready, enabled: false });
-
-    await expect(
-      scanner.scan(shipmentTagId(order.orderNumber)),
-    ).rejects.toMatchObject({ code: "CONFIGURATION_ERROR" });
-    expect(ready.refreshes).toBe(0);
+  it("requires scanner opt-in before refreshing any connection", async () => {
+    const order = readyOrder("DISABLED");
+    const { scanner, source } = await service({
+      orders: [order],
+      enabled: false,
+    });
+    await expect(scanner.scan(shipmentTagId(order.ref))).rejects.toMatchObject({
+      code: "CONFIGURATION_ERROR",
+    });
+    expect(source.refreshes).toBe(0);
   });
 
-  it("recovers an interrupted side effect as review-required", () => {
+  it("recovers interrupted qualified side effects for review", () => {
+    const order = readyOrder("INTERRUPTED");
+    const key = orderRefKey(order.ref);
     const recovered = recoverInterruptedMutations(
       {
-        version: 1,
+        version: 2,
         records: {
-          "INTERRUPTED-ORDER": {
-            orderNumber: "INTERRUPTED-ORDER",
+          [key]: {
+            ref: order.ref,
             tagId: 11,
             status: "running",
             updatedAt: "2026-08-09T11:59:00.000Z",
           },
         },
       },
-      () => new Date("2026-08-09T12:00:00.000Z"),
+      () => new Date(NOW),
     );
-
-    expect(recovered.records["INTERRUPTED-ORDER"]).toEqual({
-      orderNumber: "INTERRUPTED-ORDER",
-      tagId: 11,
+    expect(recovered.records[key]).toMatchObject({
+      ref: order.ref,
       status: "review-required",
-      updatedAt: "2026-08-09T12:00:00.000Z",
+      updatedAt: NOW,
     });
   });
 
-  it("persists the mutation ledger atomically without buyer data", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "shipment-scanner-test-"));
-    const store = new JsonShipmentScanStore(join(directory, "scans.json"));
-    const state: ShipmentScanState = {
+  it("migrates v1 state purely and atomically writes v2 on save", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shipment-scan-v1-"));
+    const path = join(directory, "scans.json");
+    const legacy = {
       version: 1,
       records: {
-        "PERSISTED-ORDER": {
-          orderNumber: "PERSISTED-ORDER",
-          tagId: 51,
-          status: "succeeded",
-          updatedAt: "2026-08-09T12:00:00.000Z",
-          outcome: "applied",
+        LEGACY: {
+          orderNumber: "LEGACY",
+          tagId: 12,
+          status: "review-required",
+          updatedAt: NOW,
         },
       },
     };
+    await writeFile(path, JSON.stringify(legacy), "utf8");
+    const store = new JsonShipmentScanStore(path, {
+      legacyConnectionId: "tcgplayer-main",
+    });
 
-    await expect(store.load()).resolves.toEqual(emptyShipmentScanState());
-    await store.save(state);
-    await expect(store.load()).resolves.toEqual(state);
-    expect(JSON.stringify(await store.load())).not.toContain("Buyer");
+    const migrated = await store.load();
+
+    expect(migrated).toMatchObject({
+      version: 2,
+      records: {
+        "tcgplayer-main/LEGACY": {
+          ref: { connectionId: "tcgplayer-main", remoteId: "LEGACY" },
+          status: "review-required",
+        },
+      },
+    });
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(legacy);
+    await store.save(migrated);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(migrated);
+  });
+
+  it("rejects malformed qualified state instead of starting empty", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shipment-scan-bad-"));
+    const path = join(directory, "scans.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 2,
+        records: {
+          "first-main/ORDER": {
+            ref: { connectionId: "second-main", remoteId: "ORDER" },
+            tagId: 1,
+            status: "succeeded",
+            updatedAt: NOW,
+          },
+        },
+      }),
+      "utf8",
+    );
+    await expect(new JsonShipmentScanStore(path).load()).rejects.toMatchObject({
+      code: "PERSISTENCE_ERROR",
+    });
   });
 });

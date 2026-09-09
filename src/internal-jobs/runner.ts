@@ -1,4 +1,4 @@
-import { isTcgplayerApiError } from "tcgplayer-private-api";
+import { isTcgplayerApiError } from "../providers/tcgplayer/sdk.js";
 import type { AppConfig, RepricingProfileConfig } from "../config.js";
 import { ApplicationError, safeErrorCode } from "../errors.js";
 import type {

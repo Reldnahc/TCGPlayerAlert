@@ -6,7 +6,7 @@ import {
   isTcgplayerApiError,
   type SellerPriceUpdate,
   type TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "./providers/tcgplayer/sdk.js";
 import type { AppConfig, PriceUpdateQueueConfig } from "./config.js";
 import {
   ApplicationError,
@@ -19,6 +19,7 @@ import {
   environmentSellerCredentialAccess,
   type SellerCredentialAccess,
 } from "./seller-credentials.js";
+import { primaryTcgplayerConnection } from "./providers/tcgplayer/configuration.js";
 import { FileSyncLease, type SyncLease } from "./sync-lease.js";
 
 export type PriceUpdateJobStatus =
@@ -525,11 +526,12 @@ export function createTcgplayerPriceUpdateExecutor(
   credentials?: SellerCredentialAccess,
   sharedClient?: TcgplayerSellerClient,
 ): PriceUpdateExecutor {
+  const { settings } = primaryTcgplayerConnection(config.providers);
   const access =
     credentials ??
     environmentSellerCredentialAccess(
-      config.provider.authCookieEnv,
-      config.provider.sellerKeyEnv,
+      settings.authCookieEnv,
+      settings.sellerKeyEnv,
       environment,
     );
   const client =

@@ -15,6 +15,7 @@ import {
   Spinner,
 } from "../components/ui.js";
 import type { MasterPullList } from "../contracts.js";
+import { orderKey } from "../contracts.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { useReadyOrderSnapshotPolling } from "../useReadyOrderSnapshotPolling.js";
 import { dateTime, errorMessage } from "../utils.js";
@@ -133,7 +134,7 @@ function replacePullListRow(
   updated: PullListRow,
 ): MasterPullList {
   const rows = list.rows.map((row) =>
-    row.skuId === updated.skuId ? updated : row,
+    row.rowKey === updated.rowKey ? updated : row,
   );
   const pulledQuantity = rows.reduce(
     (total, row) => total + row.pulledQuantity,
@@ -177,7 +178,7 @@ function SortableHeader({
 }
 
 export function MasterPullListPage() {
-  const { lists, shipmentsPendingReconciliation } = useOrders();
+  const { lists, connections, shipmentsPendingReconciliation } = useOrders();
   useReadyOrderSnapshotPolling();
   const [pullList, setPullList] = useState<MasterPullList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -185,14 +186,25 @@ export function MasterPullListPage() {
   const [mutationError, setMutationError] = useState("");
   const [sort, setSort] = useState<PullListSort | null>(readPullListSort);
   const [showPulled, setShowPulled] = useState(false);
-  const [updatingSkuId, setUpdatingSkuId] = useState<string | null>(null);
-  const previousReadyOrderNumbers = useRef<ReadonlySet<string>>();
-  const readyOrderNumbers = useMemo(() => {
+  const [updatingRowKey, setUpdatingRowKey] = useState<string | null>(null);
+  const previousReadyOrderKeys = useRef<ReadonlySet<string>>();
+  const readyOrderKeys = useMemo(() => {
     const readyOrders = lists["ready-to-ship"];
+    const pullConnectionIds = new Set(
+      connections?.connections
+        .filter((connection) =>
+          connection.supportedFacets.includes("order-details"),
+        )
+        .map((connection) => connection.descriptor.connectionId) ?? [],
+    );
     return readyOrders === null
       ? undefined
-      : new Set(readyOrders.orders.map((order) => order.orderNumber));
-  }, [lists]);
+      : new Set(
+          readyOrders.orders
+            .filter((order) => pullConnectionIds.has(order.ref.connectionId))
+            .map(orderKey),
+        );
+  }, [connections, lists]);
 
   const sortedRows = useMemo(() => {
     const visibleRows =
@@ -254,29 +266,27 @@ export function MasterPullListPage() {
   }, [load]);
 
   useEffect(() => {
-    if (readyOrderNumbers === undefined) return;
-    const previous = previousReadyOrderNumbers.current;
-    previousReadyOrderNumbers.current = readyOrderNumbers;
+    if (readyOrderKeys === undefined) return;
+    const previous = previousReadyOrderKeys.current;
+    previousReadyOrderKeys.current = readyOrderKeys;
     if (previous === undefined) return;
-    const removedOrderNumbers = [...previous].filter(
-      (orderNumber) => !readyOrderNumbers.has(orderNumber),
+    const removedOrderKeys = [...previous].filter(
+      (key) => !readyOrderKeys.has(key),
     );
-    const addedOrder = [...readyOrderNumbers].some(
-      (orderNumber) => !previous.has(orderNumber),
-    );
-    if (removedOrderNumbers.length === 0 && !addedOrder) return;
-    const locallyAcceptedShipment = removedOrderNumbers.some((orderNumber) =>
-      shipmentsPendingReconciliation.has(orderNumber),
+    const addedOrder = [...readyOrderKeys].some((key) => !previous.has(key));
+    if (removedOrderKeys.length === 0 && !addedOrder) return;
+    const locallyAcceptedShipment = removedOrderKeys.some((key) =>
+      shipmentsPendingReconciliation.has(key),
     );
     void load(!locallyAcceptedShipment);
-  }, [load, readyOrderNumbers, shipmentsPendingReconciliation]);
+  }, [load, readyOrderKeys, shipmentsPendingReconciliation]);
 
   const setRowPulled = useCallback(
     async (row: PullListRow, pulled: boolean) => {
-      setUpdatingSkuId(row.skuId);
+      setUpdatingRowKey(row.rowKey);
       setMutationError("");
       try {
-        const updated = await uiApi.setPullListRowPulled(row.skuId, pulled);
+        const updated = await uiApi.setPullListRowPulled(row.rowKey, pulled);
         setPullList((current) =>
           current === null ? current : replacePullListRow(current, updated),
         );
@@ -286,7 +296,7 @@ export function MasterPullListPage() {
           errorMessage(cause, "Pull progress could not be updated."),
         );
       } finally {
-        setUpdatingSkuId(null);
+        setUpdatingRowKey(null);
       }
     },
     [],
@@ -343,6 +353,18 @@ export function MasterPullListPage() {
             {pullList.metadataIssue === undefined ? null : (
               <Notice tone="warning">{pullList.metadataIssue}</Notice>
             )}
+            {pullList.issues.map((issue) => (
+              <Notice
+                key={`${issue.connectionId}:${issue.operation}:${issue.code}`}
+                tone="warning"
+              >
+                {(connections?.connections.find(
+                  (connection) =>
+                    connection.descriptor.connectionId === issue.connectionId,
+                )?.descriptor.connectionLabel ?? issue.connectionId) +
+                  ` could not fully contribute to this pull list (${issue.code}).`}
+              </Notice>
+            ))}
             <section class="surface pull-list-summary">
               <div>
                 <span>Session orders</span>
@@ -357,7 +379,7 @@ export function MasterPullListPage() {
                 <strong>{String(pullList.pulledQuantity)}</strong>
               </div>
               <div>
-                <span>SKUs to pull</span>
+                <span>Variants to pull</span>
                 <strong>{String(remainingSkuCount)}</strong>
               </div>
               <div>
@@ -368,7 +390,7 @@ export function MasterPullListPage() {
             <p class="pull-list-print-meta">
               {String(pullList.orderCount)} ready orders ·{" "}
               {String(pullList.remainingQuantity)} cards ·{" "}
-              {String(remainingSkuCount)} unique SKUs
+              {String(remainingSkuCount)} exact variants
             </p>
             <section class="surface pull-list-sheet">
               <header class="surface__header pull-list-sheet__header">
@@ -468,7 +490,7 @@ export function MasterPullListPage() {
                     </thead>
                     <tbody>
                       {sortedRows.map((row) => (
-                        <tr key={row.skuId} class={pullListRowClass(row)}>
+                        <tr key={row.rowKey} class={pullListRowClass(row)}>
                           <td class="pull-list-col-check">
                             <input
                               type="checkbox"
@@ -476,13 +498,13 @@ export function MasterPullListPage() {
                               checked={row.pulled}
                               disabled={
                                 !row.canTrackPullProgress ||
-                                updatingSkuId !== null
+                                updatingRowKey !== null
                               }
                               aria-label={`Mark ${row.productName} as ${row.pulled ? "not pulled" : "pulled"}`}
                               title={
                                 row.canTrackPullProgress
                                   ? undefined
-                                  : "TCGplayer did not provide per-order allocation details for this row."
+                                  : "The marketplace did not provide safe per-order allocation details for this row."
                               }
                               onChange={(event) =>
                                 void setRowPulled(

@@ -40,21 +40,28 @@ describe("browser API response validation", () => {
   it("rejects an invalid nested order without exposing response values", async () => {
     mockResponse(
       jsonResponse({
-        orders: [
+        data: [
           {
-            orderNumber: "PRIVATE-ORDER-NUMBER",
+            ref: {
+              connectionId: "tcgplayer-main",
+              remoteId: "PRIVATE-ORDER-NUMBER",
+            },
+            displayOrderNumber: "PRIVATE-ORDER-NUMBER",
             buyerName: "Private Buyer",
-            orderDate: null,
-            status: "Ready to Ship",
-            statusCode: "ReadyToShip",
-            canMarkShipped: true,
-            shippingType: "Standard",
-            productAmount: 1,
-            shippingAmount: 1.49,
-            totalAmount: 2.49,
+            createdAt: null,
+            providerStatus: "Ready to Ship",
+            lifecycle: "ready-to-ship",
+            shippingMethod: "Standard",
+            totals: {
+              subtotal: { currency: "USD", minorUnits: 100 },
+              shipping: { currency: "USD", minorUnits: 149 },
+              total: { currency: "USD", minorUnits: 249 },
+            },
+            actions: {},
           },
         ],
-        fetchedAt: "2026-08-10T12:00:00.000Z",
+        issues: [],
+        completedAt: "2026-08-10T12:00:00.000Z",
       }),
     );
 
@@ -63,7 +70,7 @@ describe("browser API response validation", () => {
     );
 
     expect(error.code).toBe("INVALID_RESPONSE");
-    expect(error.message).toContain("response.orders[0].orderDate");
+    expect(error.message).toContain("response.data[0]");
     expect(error.message).not.toContain("PRIVATE-ORDER-NUMBER");
     expect(error.message).not.toContain("Private Buyer");
   });

@@ -2,7 +2,7 @@ import {
   createTcgplayerSellerClient,
   isTcgplayerApiError,
   type TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "../providers/tcgplayer/sdk.js";
 import type { AppConfig, InventoryAdditionQueueConfig } from "../config.js";
 import { ApplicationError, safeErrorCode } from "../errors.js";
 import type { Logger } from "../logger.js";
@@ -11,6 +11,7 @@ import {
   environmentSellerCredentialAccess,
   type SellerCredentialAccess,
 } from "../seller-credentials.js";
+import { primaryTcgplayerConnection } from "../providers/tcgplayer/configuration.js";
 import type { SyncLease } from "../sync-lease.js";
 import type {
   InventoryAdditionExecutor,
@@ -156,11 +157,12 @@ export function createTcgplayerInventoryAdditionExecutor(
   credentials?: SellerCredentialAccess,
   sharedClient?: TcgplayerSellerClient,
 ): InventoryAdditionExecutor {
+  const { settings } = primaryTcgplayerConnection(config.providers);
   const access =
     credentials ??
     environmentSellerCredentialAccess(
-      config.provider.authCookieEnv,
-      config.provider.sellerKeyEnv,
+      settings.authCookieEnv,
+      settings.sellerKeyEnv,
       environment,
     );
   const client =

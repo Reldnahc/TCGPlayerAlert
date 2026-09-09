@@ -4,19 +4,19 @@ import type {
   InventoryAdditionQueueStore,
   InventoryAdditionService,
 } from "../inventory-additions.js";
-import type { MessageManagementService } from "../message-management.js";
-import type { OrderManagementService } from "../order-management.js";
-import type { OrderSyncCoordinator } from "../order-sync.js";
-import type { PaymentManagementService } from "../payment-management.js";
 import type { PriceUpdateQueueStore } from "../price-update-queue.js";
 import type { RepricingService } from "../repricing.js";
 import type { SellerSessionService } from "../seller-session.js";
 import type { ShipmentScannerService } from "../shipment-scanner.js";
 import type { BackgroundShipmentScanner } from "../background-shipment-scanner.js";
-import type { FeedbackManagementService } from "../feedback-management.js";
 import type { SellerRequestMetrics } from "../seller-api.js";
 import type { InternalJobStore } from "../internal-jobs/index.js";
 import type { DiscordWebhookStatus } from "../notifications/index.js";
+import type { MarketplaceOrderRuntime } from "../marketplaces/order-runtime.js";
+import type { MarketplaceAccountServiceMap } from "../marketplaces/account-workspaces.js";
+import type { MarketplaceCredentialManager } from "../marketplaces/credentials.js";
+import type { LocalInventoryService } from "../local-inventory.js";
+import type { MarketplacePublicationService } from "../marketplace-publications.js";
 
 export interface ConfigurationRouteService {
   read(): Promise<unknown>;
@@ -53,11 +53,10 @@ export interface ConfigurationRouteContext {
   readonly inventoryQueue: InventoryAdditionQueueStore | undefined;
   readonly inventoryWorkerRunning: boolean;
   readonly inventoryService: InventoryAdditionService | undefined;
-  readonly orderService: OrderManagementService | undefined;
-  readonly orderSync: OrderSyncCoordinator | undefined;
-  readonly paymentService: PaymentManagementService | undefined;
-  readonly feedbackService: FeedbackManagementService | undefined;
-  readonly messageService: MessageManagementService | undefined;
+  readonly localInventory: LocalInventoryService | undefined;
+  readonly marketplacePublications?: MarketplacePublicationService;
+  readonly marketplaces: MarketplaceOrderRuntime | undefined;
+  readonly marketplaceAccounts: MarketplaceAccountServiceMap | undefined;
   readonly shipmentScannerService: ShipmentScannerService | undefined;
   readonly backgroundShipmentScanner: BackgroundShipmentScanner | undefined;
   readonly sessionManager: SellerSessionService | undefined;
@@ -67,6 +66,8 @@ export interface ConfigurationRouteContext {
   readonly internalJobs: InternalJobStore | undefined;
   readonly internalJobRunnerRunning: boolean;
   readonly discordWebhook: DiscordWebhookRouteService | undefined;
+  readonly marketplaceCredentials: MarketplaceCredentialManager | undefined;
+  readonly catalogConnectionId: string | undefined;
 }
 
 export type ConfigurationRouteHandler = (

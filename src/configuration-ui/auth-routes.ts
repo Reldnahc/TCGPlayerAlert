@@ -19,15 +19,7 @@ export const handleAuthenticationRoute: ConfigurationRouteHandler = async (
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/auth/status") {
-    sendJson(
-      response,
-      200,
-      context.sessionManager?.connectionStatus() ?? {
-        state: "disconnected",
-        automaticRenewal: false,
-        protectedStorage: false,
-      },
-    );
+    sendJson(response, 200, aggregateConnectionStatus(context));
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/auth/pairing") {
@@ -43,7 +35,8 @@ export const handleAuthenticationRoute: ConfigurationRouteHandler = async (
   if (request.method === "POST" && url.pathname === "/api/auth/disconnect") {
     if (!requireSessionManager(context)) return true;
     await readJsonBody(request);
-    sendJson(response, 200, await context.sessionManager.disconnect());
+    const tcgplayer = await context.sessionManager.disconnect();
+    sendJson(response, 200, aggregateConnectionStatus(context, tcgplayer));
     return true;
   }
   if (request.method !== "POST" || url.pathname !== "/api/auth/session") {
@@ -79,6 +72,17 @@ export const handleAuthenticationRoute: ConfigurationRouteHandler = async (
   }
   return true;
 };
+
+function aggregateConnectionStatus(
+  context: ConfigurationRouteContext,
+  tcgplayer = context.sessionManager?.connectionStatus() ?? {
+    state: "disconnected" as const,
+    automaticRenewal: false,
+    protectedStorage: false,
+  },
+) {
+  return tcgplayer;
+}
 
 function requireSessionManager(
   context: ConfigurationRouteContext,

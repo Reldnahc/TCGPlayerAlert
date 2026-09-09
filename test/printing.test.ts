@@ -200,6 +200,7 @@ describe("Windows printer adapters", () => {
           timeoutSeconds: 10,
           dpi: 150,
           scale: "shrink",
+          colorMode: "black-and-white",
         },
         directory,
         {
@@ -238,7 +239,14 @@ describe("Windows printer adapters", () => {
         kind: "raster-pages",
         printerName: "Synthetic Office Printer",
         scale: "shrink",
+        colorMode: "black-and-white",
       });
+      expect(WINDOWS_PRINT_SCRIPT).toContain(
+        "$document.DefaultPageSettings.Color = $payload.colorMode -eq 'color'",
+      );
+      expect(WINDOWS_PRINT_SCRIPT).toContain(
+        "$payload.colorMode -eq 'black-and-white'",
+      );
       expect(await readdir(directory)).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });

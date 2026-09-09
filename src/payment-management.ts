@@ -6,15 +6,20 @@ import {
   type ListSellerPayoutsResult,
   type SellerPaymentExperience,
   type SellerPayoutDetail,
-  type SellerPayoutStatus as SellerPayoutStatusCode,
+  type SellerPayoutStatus as TcgplayerSellerPayoutStatusCode,
   type SellerUnpaidBalance,
   type TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "./providers/tcgplayer/sdk.js";
 import { ApplicationError } from "./errors.js";
 import {
   resolveSellerKey,
   type SellerKeySource,
 } from "./seller-credentials.js";
+
+export type SellerPayoutStatusCode = TcgplayerSellerPayoutStatusCode;
+export type ManagedSellerPayoutDetail = SellerPayoutDetail;
+export const SELLER_PAYOUT_STATUS_VALUES: readonly SellerPayoutStatusCode[] =
+  Object.values(SellerPayoutStatus);
 
 export interface ManagedMoneyMovementPaymentsPage {
   readonly experience: "money-movement";
@@ -70,7 +75,7 @@ interface Cached<T> {
 }
 
 const PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
-  Object.values(SellerPayoutStatus),
+  SELLER_PAYOUT_STATUS_VALUES,
 );
 
 export class PaymentManagementService {

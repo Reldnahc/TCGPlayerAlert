@@ -4,7 +4,7 @@ import type {
   SellerMessageThread,
   SellerMessageThreadSummary,
   TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "./providers/tcgplayer/sdk.js";
 import { ApplicationError } from "./errors.js";
 import {
   resolveSellerKey,

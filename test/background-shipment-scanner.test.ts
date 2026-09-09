@@ -189,6 +189,7 @@ function resolver(scan: ShipmentTagResolver["scan"]): ShipmentTagResolver {
         readyTagIds: [7, 18],
         conflictingTagCount: 0,
         reviewRequiredCount: 0,
+        issues: [],
       }),
     scan,
     markShipped: vi.fn(),

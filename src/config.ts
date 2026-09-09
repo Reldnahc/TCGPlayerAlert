@@ -11,6 +11,10 @@ import type {
 } from "./repricing.js";
 import type { DiscordNotificationSettings } from "./notifications/contracts.js";
 import {
+  parseMarketplaceConfiguration,
+  type MarketplaceProvidersConfiguration,
+} from "./marketplaces/configuration.js";
+import {
   DEFAULT_PULL_LIST_BINNING_CONFIG,
   parsePullListBinningConfig,
   type PullListGroupingSettings,
@@ -64,6 +68,7 @@ export interface WindowsPdfPrinterConfig {
   readonly timeoutSeconds: number;
   readonly dpi: number;
   readonly scale: "actual-size" | "fit" | "shrink";
+  readonly colorMode: "black-and-white" | "color";
 }
 
 export type PrinterConfig =
@@ -171,7 +176,7 @@ export interface RepricingProfileConfig {
   readonly ranges: readonly RepricingRangeConfig[];
 }
 
-export const CURRENT_CONFIG_VERSION = 5 as const;
+export const CURRENT_CONFIG_VERSION = 6 as const;
 
 export interface AppConfig {
   readonly version: typeof CURRENT_CONFIG_VERSION;
@@ -193,13 +198,7 @@ export interface AppConfig {
   readonly notifications: {
     readonly discord: DiscordNotificationSettings;
   };
-  readonly provider: {
-    readonly type: "tcgplayer";
-    readonly authCookieEnv: string;
-    readonly sellerKeyEnv: string;
-    readonly pageSize: number;
-    readonly maximumPages: number;
-  };
+  readonly providers: MarketplaceProvidersConfiguration;
   readonly printers: Readonly<Record<string, PrinterConfig>>;
   readonly actions: Readonly<Record<string, ActionConfig>>;
   readonly rules: readonly RuleConfig[];
@@ -791,7 +790,7 @@ function requireField(
   key: string,
   path: string,
   issues: string[],
-  version: 2 | 3 | 4 | 5,
+  version: 2 | 3 | 4 | 5 | 6,
 ): void {
   if (source?.[key] === undefined) {
     issues.push(
@@ -803,7 +802,7 @@ function requireField(
 function validateVersionTwoShape(
   root: UnknownRecord | undefined,
   issues: string[],
-  version: 2 | 3 | 4 | 5,
+  version: 2 | 3 | 4 | 5 | 6,
 ): void {
   for (const key of [
     "pricingProfileDefaultsVersion",
@@ -899,7 +898,7 @@ function validateVersionTwoShape(
 function validateVersionThreeShape(
   root: UnknownRecord | undefined,
   issues: string[],
-  version: 3 | 4 | 5,
+  version: 3 | 4 | 5 | 6,
 ): void {
   requireField(root, "notifications", "config", issues, version);
   const notifications = record(root?.notifications);
@@ -934,7 +933,7 @@ function validateVersionThreeShape(
 function validateVersionFourShape(
   root: UnknownRecord | undefined,
   issues: string[],
-  version: 4 | 5,
+  version: 4 | 5 | 6,
 ): void {
   requireField(root, "masterPullList", "config", issues, version);
   const masterPullList = record(root?.masterPullList);
@@ -965,13 +964,15 @@ export function parseConfig(value: unknown): AppConfig {
   const isVersionTwo = sourceVersion === 2;
   const isVersionThree = sourceVersion === 3;
   const isVersionFour = sourceVersion === 4;
-  const isVersionFive = sourceVersion === CURRENT_CONFIG_VERSION;
+  const isVersionFive = sourceVersion === 5;
+  const isVersionSix = sourceVersion === CURRENT_CONFIG_VERSION;
   if (
     !isVersionOne &&
     !isVersionTwo &&
     !isVersionThree &&
     !isVersionFour &&
-    !isVersionFive
+    !isVersionFive &&
+    !isVersionSix
   ) {
     issues.push(
       "config.version must be between 1 and " +
@@ -983,12 +984,16 @@ export function parseConfig(value: unknown): AppConfig {
   if (isVersionThree) validateVersionTwoShape(root, issues, 3);
   if (isVersionFour) validateVersionTwoShape(root, issues, 4);
   if (isVersionFive) validateVersionTwoShape(root, issues, 5);
+  if (isVersionSix) validateVersionTwoShape(root, issues, 6);
   if (isVersionThree) validateVersionThreeShape(root, issues, 3);
   if (isVersionFour) validateVersionThreeShape(root, issues, 4);
   if (isVersionFive) validateVersionThreeShape(root, issues, 5);
+  if (isVersionSix) validateVersionThreeShape(root, issues, 6);
   if (isVersionFour) validateVersionFourShape(root, issues, 4);
   if (isVersionFive) validateVersionFourShape(root, issues, 5);
+  if (isVersionSix) validateVersionFourShape(root, issues, 6);
   if (isVersionFive) validateVersionFiveShape(root, issues);
+  if (isVersionSix) validateVersionFiveShape(root, issues);
   const disableLegacySideEffects = isVersionOne && root?.dryRun === true;
   if (
     root?.pricingProfileDefaultsVersion !== undefined &&
@@ -997,9 +1002,26 @@ export function parseConfig(value: unknown): AppConfig {
     issues.push("config.pricingProfileDefaultsVersion must be 1.");
   }
 
-  const provider = record(root?.provider);
-  if (provider?.type !== "tcgplayer") {
-    issues.push("config.provider.type must be tcgplayer.");
+  let marketplaceConfiguration: ReturnType<
+    typeof parseMarketplaceConfiguration
+  >;
+  try {
+    marketplaceConfiguration = parseMarketplaceConfiguration(
+      root?.providers === undefined
+        ? { ...root, version: 5 }
+        : { ...root, version: CURRENT_CONFIG_VERSION },
+      { providerLabel: () => "TCGplayer" },
+    );
+  } catch (error) {
+    if (error instanceof ConfigurationError) issues.push(...error.issues);
+    else issues.push("config marketplace provider identity is invalid.");
+    marketplaceConfiguration = {
+      version: CURRENT_CONFIG_VERSION,
+      providers: {
+        synchronizationConcurrency: 2,
+        connections: {},
+      },
+    };
   }
   const priceUpdateQueue = record(root?.priceUpdateQueue);
   if (priceUpdateQueue === undefined) {
@@ -1198,12 +1220,17 @@ export function parseConfig(value: unknown): AppConfig {
       if (scale !== "actual-size" && scale !== "fit" && scale !== "shrink") {
         issues.push(`${path}.scale must be actual-size, fit, or shrink.`);
       }
+      const colorMode = source.colorMode ?? "black-and-white";
+      if (colorMode !== "black-and-white" && colorMode !== "color") {
+        issues.push(`${path}.colorMode must be black-and-white or color.`);
+      }
       printers[id] = {
         adapter: "windows-pdf",
         printerName,
         timeoutSeconds,
         dpi: integer(source, "dpi", path, 72, 600, issues),
         scale: scale as WindowsPdfPrinterConfig["scale"],
+        colorMode: colorMode as WindowsPdfPrinterConfig["colorMode"],
       };
     } else {
       issues.push(
@@ -1496,34 +1523,6 @@ export function parseConfig(value: unknown): AppConfig {
   const stateFile = text(root, "stateFile", "config", issues);
   const spoolDirectory = text(root, "spoolDirectory", "config", issues);
   const timezoneOffsetMinutes = timezoneOffset(root, issues);
-  const authCookieEnv = text(
-    provider,
-    "authCookieEnv",
-    "config.provider",
-    issues,
-  );
-  const sellerKeyEnv = text(
-    provider,
-    "sellerKeyEnv",
-    "config.provider",
-    issues,
-  );
-  const pageSize = integer(
-    provider,
-    "pageSize",
-    "config.provider",
-    1,
-    500,
-    issues,
-  );
-  const maximumPages = integer(
-    provider,
-    "maximumPages",
-    "config.provider",
-    1,
-    1000,
-    issues,
-  );
   const discordNotificationConfig: DiscordNotificationSettings =
     discordNotifications === undefined
       ? DEFAULT_DISCORD_NOTIFICATIONS
@@ -1699,7 +1698,7 @@ export function parseConfig(value: unknown): AppConfig {
   }
 
   if (issues.length > 0) throw new ConfigurationError(issues);
-  return {
+  const config: AppConfig = {
     version: CURRENT_CONFIG_VERSION,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes,
@@ -1717,17 +1716,12 @@ export function parseConfig(value: unknown): AppConfig {
     repricingProfiles,
     defaultRepricingProfileId,
     notifications: { discord: discordNotificationConfig },
-    provider: {
-      type: "tcgplayer",
-      authCookieEnv,
-      sellerKeyEnv,
-      pageSize,
-      maximumPages,
-    },
+    providers: marketplaceConfiguration.providers,
     printers,
     actions: effectiveActions,
     rules,
   };
+  return config;
 }
 
 export async function loadConfig(path: string): Promise<AppConfig> {

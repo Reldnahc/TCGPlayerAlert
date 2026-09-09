@@ -13,12 +13,16 @@ describe("JSON state persistence", () => {
       await store.save(emptyState());
       await store.save({
         ...emptyState(),
-        baselineCompletedAt: "2026-01-02T03:04:05.000Z",
+        baselines: {
+          "synthetic-main": "2026-01-02T03:04:05.000Z",
+        },
       });
 
       await expect(store.load()).resolves.toMatchObject({
-        version: 1,
-        baselineCompletedAt: "2026-01-02T03:04:05.000Z",
+        version: 2,
+        baselines: {
+          "synthetic-main": "2026-01-02T03:04:05.000Z",
+        },
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

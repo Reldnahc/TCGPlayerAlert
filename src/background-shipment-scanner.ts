@@ -10,6 +10,7 @@ import type {
   ShipmentScannerStatus,
   ShipmentScanResult,
 } from "./shipment-scanner.js";
+import type { ProviderOrderRef } from "./marketplaces/identity.js";
 import {
   emptyShipmentTagConsensus,
   observeShipmentTagDetection,
@@ -59,7 +60,7 @@ export interface ShipmentTagResolver {
   scan(tagId: number, signal?: AbortSignal): Promise<ShipmentScanResult>;
   markShipped(
     tagId: number,
-    orderNumber: string,
+    ref: ProviderOrderRef,
     signal?: AbortSignal,
   ): Promise<ShipmentScanResult>;
 }
@@ -200,10 +201,10 @@ export class BackgroundShipmentScanner {
 
   async markShipped(
     tagId: number,
-    orderNumber: string,
+    ref: ProviderOrderRef,
     signal?: AbortSignal,
   ): Promise<ShipmentScanResult> {
-    const result = await this.scanner.markShipped(tagId, orderNumber, signal);
+    const result = await this.scanner.markShipped(tagId, ref, signal);
     this.recordResult(result);
     if (this.statusValue.state === "waiting-for-review") {
       this.statusValue = {

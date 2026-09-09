@@ -639,10 +639,10 @@ export function JobRunsPanel({
                                   ? run.payload.pricingProfileId
                                   : "",
                               );
-                              window.location.hash = "inventory";
+                              window.location.hash = "repricing";
                             }}
                           >
-                            Review in Inventory
+                            Review in Repricing
                           </Button>
                         ) : null}
                       </td>

@@ -4,7 +4,7 @@ import {
   TcgplayerApiError,
   type TcgplayerAuthenticationRequiredContext,
   type TcgplayerSession,
-} from "tcgplayer-private-api";
+} from "./providers/tcgplayer/sdk.js";
 import type {
   SellerCredentialStore,
   StoredSellerSession,

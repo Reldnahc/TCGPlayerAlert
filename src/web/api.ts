@@ -4,6 +4,14 @@ import type {
   CatalogSearch,
   FeedbackPage,
   InventoryJob,
+  InventoryList,
+  InventoryMutationResult,
+  LocalInventoryImportPreview,
+  LocalInventoryImportResult,
+  LocalInventoryItemResponse,
+  MarketplaceListingQuoteResponse,
+  MarketplacePublicationJobResponse,
+  MarketplacePublicationPreviewResponse,
   InventoryQueueResponse,
   InternalJobsResponse,
   JobRunResponse,
@@ -17,6 +25,8 @@ import type {
   MessageMutationResult,
   MarkAllMessagesReadResult,
   MessageThread,
+  MarketplaceConnections,
+  MarketplaceCredentialStatus,
   OrderList,
   OrderDetail,
   MasterPullList,
@@ -28,10 +38,6 @@ import type {
   PricingPreview,
   PricingProgress,
   PricingRules,
-  RefundOptions,
-  RefundRequest,
-  RefundResult,
-  ReadyOrderSnapshot,
   QueuedJob,
   QueuedJobs,
   Settings,
@@ -44,12 +50,21 @@ import type {
   TrackingResult,
   UnreadMessages,
 } from "./contracts.js";
+import type { ProviderOrderRef } from "../marketplaces/identity.js";
 import {
   additionPreviewDecoder,
   catalogProductDecoder,
   catalogSearchDecoder,
   feedbackPageDecoder,
   inventoryQueueDecoder,
+  inventoryListDecoder,
+  localInventoryImportPreviewDecoder,
+  localInventoryImportResultDecoder,
+  localInventoryItemResponseDecoder,
+  marketplacePublicationJobResponseDecoder,
+  marketplaceListingQuoteResponseDecoder,
+  marketplacePublicationPreviewResponseDecoder,
+  inventoryMutationDecoder,
   internalJobsDecoder,
   jobRunResponseDecoder,
   jobScheduleResponseDecoder,
@@ -62,6 +77,8 @@ import {
   messageMutationDecoder,
   messagesPageDecoder,
   messageThreadDecoder,
+  marketplaceConnectionsDecoder,
+  marketplaceCredentialStatusDecoder,
   orderDetailDecoder,
   orderListDecoder,
   paymentDetailDecoder,
@@ -73,9 +90,6 @@ import {
   queuedInventoryJobsDecoder,
   queuedPriceJobDecoder,
   queuedPriceJobsDecoder,
-  readyOrderSnapshotDecoder,
-  refundOptionsDecoder,
-  refundResultDecoder,
   sellerConnectionDecoder,
   sellerPairingDecoder,
   settingsDecoder,
@@ -358,14 +372,142 @@ export const uiApi = {
     }),
   markScannedShipment: (
     tagId: number,
-    orderNumber: string,
+    ref: ProviderOrderRef,
   ): Promise<ShipmentScanResult> =>
     requestJson(
       "/api/shipment-scanner/mark-shipped",
       shipmentScanResultDecoder,
       {
         method: "POST",
-        body: JSON.stringify({ tagId, orderNumber }),
+        body: JSON.stringify({ tagId, ref }),
+      },
+    ),
+  marketplaceConnections: (force = false): Promise<MarketplaceConnections> =>
+    requestJson(
+      `/api/marketplace-connections${force ? "?refresh=1" : ""}`,
+      marketplaceConnectionsDecoder,
+    ),
+  marketplaceCredentials: (
+    connectionId: string,
+  ): Promise<MarketplaceCredentialStatus> =>
+    requestJson(
+      `/api/marketplace-connections/${encodeURIComponent(connectionId)}/credentials`,
+      marketplaceCredentialStatusDecoder,
+    ),
+  saveMarketplaceCredentials: (
+    connectionId: string,
+    values: Readonly<Record<string, string>>,
+  ): Promise<MarketplaceCredentialStatus> =>
+    requestJson(
+      `/api/marketplace-connections/${encodeURIComponent(connectionId)}/credentials`,
+      marketplaceCredentialStatusDecoder,
+      { method: "PUT", body: JSON.stringify({ values }) },
+    ),
+  removeMarketplaceCredentials: (
+    connectionId: string,
+  ): Promise<MarketplaceCredentialStatus> =>
+    requestJson(
+      `/api/marketplace-connections/${encodeURIComponent(connectionId)}/credentials`,
+      marketplaceCredentialStatusDecoder,
+      { method: "DELETE" },
+    ),
+  inventory: (connectionId?: string): Promise<InventoryList> => {
+    const query = new URLSearchParams();
+    if (connectionId !== undefined) query.set("connectionId", connectionId);
+    const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+    return requestJson(`/api/inventory${suffix}`, inventoryListDecoder);
+  },
+  localInventoryImportPreview: (): Promise<LocalInventoryImportPreview> =>
+    requestJson(
+      "/api/local-inventory/import-preview",
+      localInventoryImportPreviewDecoder,
+    ),
+  importMarketplaceInventory: (): Promise<LocalInventoryImportResult> =>
+    requestJson(
+      "/api/local-inventory/import",
+      localInventoryImportResultDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          confirmation: "IMPORT_MARKETPLACE_STOCK",
+        }),
+      },
+    ),
+  addLocalInventory: (
+    connectionId: string,
+    input: {
+      readonly productId: number;
+      readonly productConditionId: number;
+      readonly quantity: number;
+    },
+  ): Promise<LocalInventoryItemResponse> =>
+    requestJson(
+      `/api/local-inventory/catalog-items?connectionId=${encodeURIComponent(connectionId)}`,
+      localInventoryItemResponseDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
+  setLocalInventoryQuantity: (
+    localInventoryId: string,
+    onHand: number,
+  ): Promise<LocalInventoryItemResponse> =>
+    requestJson(
+      `/api/local-inventory/items/${encodeURIComponent(localInventoryId)}`,
+      localInventoryItemResponseDecoder,
+      {
+        method: "PUT",
+        body: JSON.stringify({ onHand }),
+      },
+    ),
+  previewMarketplacePublication: (input: {
+    readonly connectionId: string;
+    readonly localInventoryId: string;
+    readonly quantity: number;
+    readonly price: { readonly currency: string; readonly minorUnits: number };
+  }): Promise<MarketplacePublicationPreviewResponse> =>
+    requestJson(
+      "/api/local-inventory/publications/preview",
+      marketplacePublicationPreviewResponseDecoder,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  quoteMarketplaceListing: (input: {
+    readonly connectionId: string;
+    readonly exactIdentity: {
+      readonly namespace: string;
+      readonly value: string;
+      readonly precision: "exact-variant" | "product";
+    };
+  }): Promise<MarketplaceListingQuoteResponse> =>
+    requestJson(
+      "/api/local-inventory/publications/quote",
+      marketplaceListingQuoteResponseDecoder,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  publishMarketplacePublication: (
+    previewId: string,
+  ): Promise<MarketplacePublicationJobResponse> =>
+    requestJson(
+      `/api/local-inventory/publications/previews/${encodeURIComponent(previewId)}/publish`,
+      marketplacePublicationJobResponseDecoder,
+      { method: "POST", body: "{}" },
+    ),
+  updateInventory: (
+    connectionId: string,
+    inventoryKey: string,
+    quantity: number,
+    price?: { readonly currency: string; readonly minorUnits: number },
+  ): Promise<InventoryMutationResult> =>
+    requestJson(
+      `/api/connections/${encodeURIComponent(connectionId)}/inventory/${encodeURIComponent(inventoryKey)}`,
+      inventoryMutationDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quantity,
+          ...(price === undefined ? {} : { price }),
+        }),
       },
     ),
   orders: (force = false): Promise<OrderList> => {
@@ -373,20 +515,20 @@ export const uiApi = {
     if (force) query.set("refresh", "1");
     return requestJson(`/api/orders?${query.toString()}`, orderListDecoder);
   },
-  readyOrders: (): Promise<ReadyOrderSnapshot> =>
-    requestJson("/api/orders?status=ready-to-ship", readyOrderSnapshotDecoder),
+  readyOrders: (): Promise<OrderList> =>
+    requestJson("/api/orders/ready", orderListDecoder),
   synchronizeReadyOrders: (): Promise<OrderList> =>
     requestJson("/api/orders/sync", orderListDecoder, {
       method: "POST",
       body: JSON.stringify({}),
     }),
   order: (
-    orderNumber: string,
+    ref: ProviderOrderRef,
     force = false,
     signal?: AbortSignal,
   ): Promise<OrderDetail> =>
     requestJson(
-      `/api/orders/${encodeURIComponent(orderNumber)}${force ? "?refresh=1" : ""}`,
+      providerOrderApiPath(ref, undefined, force),
       orderDetailDecoder,
       signal === undefined ? {} : { signal },
     ),
@@ -400,11 +542,11 @@ export const uiApi = {
       signal === undefined ? {} : { signal },
     ),
   setPullListRowPulled: (
-    skuId: string,
+    rowKey: string,
     pulled: boolean,
   ): Promise<MasterPullList["rows"][number]> =>
     requestJson(
-      `/api/orders/pull-list/items/${encodeURIComponent(skuId)}`,
+      `/api/orders/pull-list/items/${encodeURIComponent(rowKey)}`,
       pullListRowDecoder,
       {
         method: "POST",
@@ -514,59 +656,35 @@ export const uiApi = {
         body: JSON.stringify({ body }),
       },
     ),
-  printOrder: (orderNumber: string, actionType: string): Promise<void> =>
-    requestJson(
-      `/api/orders/${encodeURIComponent(orderNumber)}/print`,
-      discard,
-      {
-        method: "POST",
-        body: JSON.stringify({ actionType }),
-      },
-    ),
+  printOrder: (
+    ref: ProviderOrderRef,
+    actionType: "print-address-label" | "print-packing-slip",
+  ): Promise<void> =>
+    requestJson(providerOrderApiPath(ref, "print"), discard, {
+      method: "POST",
+      body: JSON.stringify({ actionType }),
+    }),
   addTracking: (
-    orderNumber: string,
+    ref: ProviderOrderRef,
     trackingNumber: string,
   ): Promise<TrackingResult> =>
+    requestJson(providerOrderApiPath(ref, "tracking"), trackingResultDecoder, {
+      method: "POST",
+      body: JSON.stringify({ trackingNumber }),
+    }),
+  markShipped: (ref: ProviderOrderRef): Promise<ShipmentResult> =>
     requestJson(
-      `/api/orders/${encodeURIComponent(orderNumber)}/tracking`,
-      trackingResultDecoder,
-      {
-        method: "POST",
-        body: JSON.stringify({ trackingNumber }),
-      },
-    ),
-  markShipped: (orderNumber: string): Promise<ShipmentResult> =>
-    requestJson(
-      `/api/orders/${encodeURIComponent(orderNumber)}/mark-shipped`,
+      providerOrderApiPath(ref, "mark-shipped"),
       shipmentResultDecoder,
       {
         method: "POST",
         body: "{}",
       },
     ),
-  refundOptions: (force = false): Promise<RefundOptions> =>
-    requestJson(
-      `/api/orders/refunds/options${force ? "?refresh=1" : ""}`,
-      refundOptionsDecoder,
-    ),
-  refundOrder: (
-    orderNumber: string,
-    refund: RefundRequest,
-  ): Promise<RefundResult> =>
-    requestJson(
-      `/api/orders/${encodeURIComponent(orderNumber)}/refund`,
-      refundResultDecoder,
-      {
-        method: "POST",
-        body: JSON.stringify(refund),
-      },
-    ),
-  pirateShip: (orderNumber: string): Promise<PirateShipResult> =>
-    requestJson(
-      `/api/orders/${encodeURIComponent(orderNumber)}/pirate-ship`,
-      pirateShipDecoder,
-    ),
+  pirateShip: (ref: ProviderOrderRef): Promise<PirateShipResult> =>
+    requestJson(providerOrderApiPath(ref, "pirate-ship"), pirateShipDecoder),
   catalogSearch: (
+    connectionId: string,
     query: string,
     productLine: string,
     setName: string,
@@ -574,6 +692,7 @@ export const uiApi = {
     signal?: AbortSignal,
   ): Promise<CatalogSearch> => {
     const parameters = new URLSearchParams({
+      connectionId,
       q: query,
       offset: String(offset),
     });
@@ -585,19 +704,32 @@ export const uiApi = {
       signal === undefined ? {} : { signal },
     );
   },
-  catalogProduct: (productId: number): Promise<CatalogProduct> =>
+  catalogProduct: (
+    connectionId: string,
+    productId: number,
+  ): Promise<CatalogProduct> =>
     requestJson(
-      `/api/catalog/products/${String(productId)}`,
+      `/api/catalog/products/${String(productId)}?connectionId=${encodeURIComponent(connectionId)}`,
       catalogProductDecoder,
     ),
-  previewAddition: (body: unknown): Promise<AdditionPreview> =>
-    requestJson("/api/inventory-additions/preview", additionPreviewDecoder, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  queueAddition: (previewId: string): Promise<QueuedJobs<InventoryJob>> =>
+  previewAddition: (
+    connectionId: string,
+    body: unknown,
+  ): Promise<AdditionPreview> =>
     requestJson(
-      `/api/inventory-additions/previews/${encodeURIComponent(previewId)}/queue`,
+      `/api/inventory-additions/preview?connectionId=${encodeURIComponent(connectionId)}`,
+      additionPreviewDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+  queueAddition: (
+    connectionId: string,
+    previewId: string,
+  ): Promise<QueuedJobs<InventoryJob>> =>
+    requestJson(
+      `/api/inventory-additions/previews/${encodeURIComponent(previewId)}/queue?connectionId=${encodeURIComponent(connectionId)}`,
       queuedInventoryJobsDecoder,
       {
         method: "POST",
@@ -699,16 +831,28 @@ export const uiApi = {
     ),
 };
 
-export function packingSlipUrl(orderNumber: string): string {
-  return `/api/orders/${encodeURIComponent(orderNumber)}/packing-slip`;
+export function packingSlipUrl(ref: ProviderOrderRef): string {
+  return providerOrderApiPath(ref, "packing-slip");
 }
 
 export function sellerPortalOrderUrl(orderNumber: string): string {
   return `https://sellerportal.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}`;
 }
 
-export function orderDetailUrl(orderNumber: string): string {
-  return `#orders/${encodeURIComponent(orderNumber)}`;
+export function orderDetailUrl(ref: ProviderOrderRef): string {
+  return `#orders/${encodeURIComponent(ref.connectionId)}/${encodeURIComponent(ref.remoteId)}`;
+}
+
+function providerOrderApiPath(
+  ref: ProviderOrderRef,
+  action?: string,
+  force = false,
+): string {
+  const suffix = action === undefined ? "" : `/${action}`;
+  const query = new URLSearchParams();
+  if (force) query.set("refresh", "1");
+  const serialized = query.toString();
+  return `/api/connections/${encodeURIComponent(ref.connectionId)}/orders/${encodeURIComponent(ref.remoteId)}${suffix}${serialized === "" ? "" : `?${serialized}`}`;
 }
 
 export function masterPullListUrl(): string {

@@ -13,7 +13,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-import { isTcgplayerApiError } from "tcgplayer-private-api";
 import type {
   ActionConfig,
   AppConfig,
@@ -23,7 +22,7 @@ import type {
   WindowsPdfPrinterConfig,
 } from "./config.js";
 import { parseConfig } from "./config.js";
-import { ConfigurationError } from "./errors.js";
+import { ConfigurationError, safeErrorCode } from "./errors.js";
 import { parseGamePricingModules } from "./game-pricing.js";
 import { parsePullListBinningConfig } from "./pull-list-binning.js";
 import type { PriceUpdateQueueStore } from "./price-update-queue.js";
@@ -36,11 +35,10 @@ import {
   type PrinterDiscoveryResult,
 } from "./printer-discovery.js";
 import type { RepricingService } from "./repricing.js";
-import type { OrderManagementService } from "./order-management.js";
-import type { OrderSyncCoordinator } from "./order-sync.js";
-import type { PaymentManagementService } from "./payment-management.js";
-import type { FeedbackManagementService } from "./feedback-management.js";
-import type { MessageManagementService } from "./message-management.js";
+import {
+  JsonLocalInventoryStore,
+  LocalInventoryService,
+} from "./local-inventory.js";
 import type { SellerSessionService } from "./seller-session.js";
 import type { ShipmentScannerService } from "./shipment-scanner.js";
 import type { BackgroundShipmentScanner } from "./background-shipment-scanner.js";
@@ -61,6 +59,10 @@ import { dispatchConfigurationRoute } from "./configuration-ui/router.js";
 import type { SellerRequestMetrics } from "./seller-api.js";
 import type { InternalJobStore } from "./internal-jobs/index.js";
 import type { DiscordWebhookRouteService } from "./configuration-ui/context.js";
+import type { MarketplaceOrderRuntime } from "./marketplaces/order-runtime.js";
+import type { MarketplaceAccountServiceMap } from "./marketplaces/account-workspaces.js";
+import type { MarketplaceCredentialManager } from "./marketplaces/credentials.js";
+import { MarketplacePublicationService } from "./marketplace-publications.js";
 
 interface OutputSettingsBase {
   readonly actionId: string;
@@ -83,6 +85,7 @@ export interface PackingSlipOutputSettings extends OutputSettingsBase {
   readonly type: "print-packing-slip";
   readonly dpi?: number;
   readonly scale?: WindowsPdfPrinterConfig["scale"];
+  readonly colorMode?: WindowsPdfPrinterConfig["colorMode"];
 }
 
 export type OutputSettings =
@@ -172,6 +175,7 @@ export interface OutputSettingsUpdate {
   readonly fontSize?: number;
   readonly dpi?: number;
   readonly scale?: WindowsPdfPrinterConfig["scale"];
+  readonly colorMode?: WindowsPdfPrinterConfig["colorMode"];
 }
 
 export interface ConfigurationServiceOptions {
@@ -326,11 +330,9 @@ export interface StartConfigurationUiOptions {
   readonly inventoryQueue?: InventoryAdditionQueueStore;
   readonly inventoryWorkerRunning?: boolean;
   readonly inventoryService?: InventoryAdditionService;
-  readonly orderService?: OrderManagementService;
-  readonly orderSync?: OrderSyncCoordinator;
-  readonly paymentService?: PaymentManagementService;
-  readonly feedbackService?: FeedbackManagementService;
-  readonly messageService?: MessageManagementService;
+  readonly localInventory?: LocalInventoryService;
+  readonly marketplaces?: MarketplaceOrderRuntime;
+  readonly marketplaceAccounts?: MarketplaceAccountServiceMap;
   readonly shipmentScannerService?: ShipmentScannerService;
   readonly backgroundShipmentScanner?: BackgroundShipmentScanner;
   readonly sessionManager?: SellerSessionService;
@@ -340,6 +342,7 @@ export interface StartConfigurationUiOptions {
   readonly internalJobs?: InternalJobStore;
   readonly internalJobRunnerRunning?: boolean;
   readonly discordWebhook?: DiscordWebhookRouteService;
+  readonly marketplaceCredentials?: MarketplaceCredentialManager;
   /** Built Vite application directory. Defaults to dist/web from the process working directory. */
   readonly webDirectory?: string;
 }
@@ -367,6 +370,21 @@ export async function startConfigurationUi(
   const webAssets = await loadConfigurationUiAssets(
     options.webDirectory ?? resolve("dist/web"),
   );
+  const localInventory =
+    options.localInventory ??
+    new LocalInventoryService(
+      new JsonLocalInventoryStore(
+        resolve(`${options.configPath}.local-inventory.json`),
+      ),
+    );
+  const marketplacePublications =
+    options.marketplaces === undefined
+      ? undefined
+      : new MarketplacePublicationService(
+          resolve(`${options.configPath}.marketplace-publications.json`),
+          localInventory,
+          options.marketplaces.registry,
+        );
   const runtime: ConfigurationUiRuntime = {
     service,
     priceQueue: options.priceQueue,
@@ -375,11 +393,12 @@ export async function startConfigurationUi(
     inventoryQueue: options.inventoryQueue,
     inventoryWorkerRunning: options.inventoryWorkerRunning === true,
     inventoryService: options.inventoryService,
-    orderService: options.orderService,
-    orderSync: options.orderSync,
-    paymentService: options.paymentService,
-    feedbackService: options.feedbackService,
-    messageService: options.messageService,
+    localInventory,
+    ...(marketplacePublications === undefined
+      ? {}
+      : { marketplacePublications }),
+    marketplaces: options.marketplaces,
+    marketplaceAccounts: options.marketplaceAccounts,
     shipmentScannerService: options.shipmentScannerService,
     backgroundShipmentScanner: options.backgroundShipmentScanner,
     sessionManager: options.sessionManager,
@@ -389,6 +408,8 @@ export async function startConfigurationUi(
     internalJobs: options.internalJobs,
     internalJobRunnerRunning: options.internalJobRunnerRunning === true,
     discordWebhook: options.discordWebhook,
+    marketplaceCredentials: options.marketplaceCredentials,
+    catalogConnectionId: singleCatalogConnectionId(options.marketplaces),
   };
   const server = createServer((request, response) => {
     void handleRequest(request, response, runtime, webAssets);
@@ -416,6 +437,17 @@ export async function startConfigurationUi(
         });
       }),
   };
+}
+
+function singleCatalogConnectionId(
+  marketplaces: MarketplaceOrderRuntime | undefined,
+): string | undefined {
+  const capable =
+    marketplaces?.registry
+      .list()
+      .filter((connection) => connection.facets.catalogSearch !== undefined) ??
+    [];
+  return capable.length === 1 ? capable[0]?.descriptor.connectionId : undefined;
 }
 
 class ConfigurationConflictError extends Error {
@@ -456,7 +488,11 @@ function outputSettings(
     ...base,
     type: action.type,
     ...(printer.adapter === "windows-pdf"
-      ? { dpi: printer.dpi, scale: printer.scale }
+      ? {
+          dpi: printer.dpi,
+          scale: printer.scale,
+          colorMode: printer.colorMode,
+        }
       : {}),
   };
 }
@@ -1061,10 +1097,15 @@ function parseOutputUpdate(
     if (scale !== "actual-size" && scale !== "fit" && scale !== "shrink") {
       issues.push(`${path} has an invalid page scaling mode.`);
     }
+    const colorMode = source?.colorMode ?? "black-and-white";
+    if (colorMode !== "black-and-white" && colorMode !== "color") {
+      issues.push(`${path} has an invalid color mode.`);
+    }
     return {
       ...result,
       dpi: boundedInteger(source?.dpi, 72, 600, `${path} DPI`, issues),
       scale: scale as WindowsPdfPrinterConfig["scale"],
+      colorMode: colorMode as WindowsPdfPrinterConfig["colorMode"],
     };
   }
   return result;
@@ -1109,6 +1150,9 @@ function applyUpdate(
             ...(associatedUpdate.scale === undefined
               ? {}
               : { scale: associatedUpdate.scale }),
+            ...(associatedUpdate.colorMode === undefined
+              ? {}
+              : { colorMode: associatedUpdate.colorMode }),
           },
         ];
       }
@@ -1298,25 +1342,23 @@ async function handleRequest(
       sendJson(response, 400, {
         message: "The request body must contain valid JSON.",
       });
-    } else if (isTcgplayerApiError(error)) {
+    } else if (error instanceof Error && "code" in error) {
+      const code = safeErrorCode(error);
       const status =
-        error.code === "AUTHENTICATION_REQUIRED"
+        code === "AUTHENTICATION_REQUIRED"
           ? 401
-          : error.code === "FORBIDDEN"
+          : code === "FORBIDDEN"
             ? 403
-            : error.code === "NOT_FOUND"
+            : code === "NOT_FOUND"
               ? 404
-              : error.code === "INVALID_ARGUMENT"
+              : code === "INVALID_ARGUMENT"
                 ? 400
-                : 502;
+                : code === "UNKNOWN_ERROR"
+                  ? 409
+                  : 502;
       sendJson(response, status, {
         message: error.message,
-        code: error.code,
-      });
-    } else if (error instanceof Error && "code" in error) {
-      sendJson(response, 409, {
-        message: error.message,
-        code: String(error.code),
+        code,
       });
     } else {
       sendJson(response, 500, {

@@ -142,7 +142,7 @@ function competitorText(row: PreviewRow): string {
   return `${money(row.lowestPrice)}${displayedShipping}${pricingShipping}${gap}${support}${sample}${exact}`;
 }
 
-export function InventoryPage() {
+export function RepricingInventoryPage() {
   const { settings } = useSettings();
   const toast = useToast();
   const profiles = settings?.repricingProfiles ?? [];
@@ -319,7 +319,7 @@ export function InventoryPage() {
   return (
     <main class="page page--fixed">
       <PageHeader
-        title="Inventory"
+        title="Repricing"
         description="Review your live listings and stage price or quantity changes."
         actions={
           <>
@@ -446,7 +446,7 @@ export function InventoryPage() {
                   }
                 />
               ) : (
-                <table class="data-table inventory-table">
+                <table class="data-table inventory-table repricing-inventory-table">
                   <thead>
                     <tr>
                       <th>

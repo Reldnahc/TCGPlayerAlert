@@ -117,6 +117,7 @@ async function handleCatalogRoute(
       });
       return true;
     }
+    if (!validateCatalogDestination(context)) return true;
     const query = url.searchParams.get("q")?.trim() ?? "";
     const isProductNumber = /^\d+$/u.test(query);
     if ((!isProductNumber && query.length < 2) || query.length > 200) {
@@ -162,6 +163,7 @@ async function handleCatalogRoute(
     });
     return true;
   }
+  if (!validateCatalogDestination(context)) return true;
   sendJson(
     response,
     200,
@@ -191,6 +193,7 @@ async function handleInventoryQueueRoute(
       });
       return true;
     }
+    if (!validateCatalogDestination(context)) return true;
     sendJson(
       response,
       200,
@@ -211,6 +214,7 @@ async function handleInventoryQueueRoute(
       });
       return true;
     }
+    if (!validateCatalogDestination(context)) return true;
     sendJson(response, 202, {
       jobs: await inventoryQueue.enqueue(
         inventoryService.takeAddition(queueMatch[1] ?? ""),
@@ -263,6 +267,30 @@ async function handleInventoryQueueRoute(
   sendJson(response, 200, {
     job: await inventoryQueue.cancel(cancelMatch[1] ?? ""),
   });
+  return true;
+}
+
+function validateCatalogDestination(
+  context: ConfigurationRouteContext,
+): boolean {
+  const requested = context.url.searchParams.get("connectionId");
+  if (requested === null) {
+    if (context.catalogConnectionId === undefined) return true;
+    sendJson(context.response, 400, {
+      message: "Choose a destination marketplace connection.",
+    });
+    return false;
+  }
+  if (
+    context.catalogConnectionId === undefined ||
+    requested !== context.catalogConnectionId
+  ) {
+    sendJson(context.response, 409, {
+      message:
+        "The selected marketplace connection does not support this add-card workflow.",
+    });
+    return false;
+  }
   return true;
 }
 

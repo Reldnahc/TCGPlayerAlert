@@ -7,7 +7,7 @@ import {
   useState,
 } from "preact/hooks";
 import { uiApi } from "../api.js";
-import { useAuthentication } from "./AuthenticationContext.js";
+import { useMarketplaceConnections } from "./MarketplaceConnectionsContext.js";
 
 interface MessagesContextValue {
   readonly unreadCount: number;
@@ -25,13 +25,12 @@ export function MessagesProvider({
 }: {
   readonly children: ComponentChildren;
 }) {
-  const { status: sellerConnection } = useAuthentication();
-  const connected = sellerConnection?.state === "connected";
   const [unreadCount, setUnreadCount] = useState(0);
+  const { hasAvailableFacet } = useMarketplaceConnections();
+  const messagesAvailable = hasAvailableFacet("messages");
 
   const refreshUnreadCount = useCallback(
     async (force = false, signal?: AbortSignal) => {
-      if (!connected) return;
       try {
         const result = await uiApi.messageCount(force, signal);
         if (signal?.aborted !== true) setUnreadCount(result.unreadCount);
@@ -40,11 +39,11 @@ export function MessagesProvider({
         // disrupt unrelated operator workflows.
       }
     },
-    [connected],
+    [],
   );
 
   useEffect(() => {
-    if (!connected) {
+    if (!messagesAvailable) {
       setUnreadCount(0);
       return;
     }
@@ -58,7 +57,7 @@ export function MessagesProvider({
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [connected, refreshUnreadCount]);
+  }, [messagesAvailable, refreshUnreadCount]);
 
   const value = useMemo(
     () => ({ unreadCount, setUnreadCount, refreshUnreadCount }),

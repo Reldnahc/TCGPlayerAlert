@@ -1,10 +1,13 @@
-export function money(value: number | undefined): string {
-  return value === undefined
-    ? "—"
-    : new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-      }).format(value);
+import type { Money } from "../marketplaces/contracts.js";
+
+export function money(value: number | Money | undefined): string {
+  if (value === undefined) return "—";
+  const currency = typeof value === "number" ? "USD" : value.currency;
+  const majorUnits = typeof value === "number" ? value : value.minorUnits / 100;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+  }).format(majorUnits);
 }
 
 export function moneyFromCents(value: number | undefined): string {

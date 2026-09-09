@@ -23,7 +23,7 @@ export class NotificationService implements NotificationPublisher {
   async publish(event: NotificationEvent, signal?: AbortSignal): Promise<void> {
     if (event.type === "shipment-mark-attempt" && event.outcome !== "failed") {
       await this.options.state
-        .removeReadyOrderNumber(event.orderNumber)
+        .removeReadyOrderRef(event.ref)
         .catch((error: unknown) => this.logFailure(event, error));
     }
     let settings: DiscordNotificationSettings;

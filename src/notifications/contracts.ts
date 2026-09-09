@@ -9,26 +9,37 @@ interface NotificationEventBase {
   readonly occurredAt: string;
 }
 
+interface ConnectionNotificationEvent {
+  readonly connectionId: string;
+  readonly connectionLabel: string;
+}
+
 export type NotificationEvent =
-  | (NotificationEventBase & {
-      readonly type: "authentication-required";
-    })
-  | (NotificationEventBase & {
-      readonly type: "inbound-message";
-      readonly threadId: number;
-      readonly unreadMessageCount: number;
-    })
-  | (NotificationEventBase & {
-      readonly type: "order-canceled";
-      readonly orderNumber: string;
-      readonly providerStatus: string;
-    })
-  | (NotificationEventBase & {
-      readonly type: "shipment-mark-attempt";
-      readonly orderNumber: string;
-      readonly outcome: "applied" | "already-applied" | "failed";
-      readonly errorCode?: string;
-    });
+  | (NotificationEventBase &
+      ConnectionNotificationEvent & {
+        readonly type: "authentication-required";
+      })
+  | (NotificationEventBase &
+      ConnectionNotificationEvent & {
+        readonly type: "inbound-message";
+        readonly threadId: number;
+        readonly unreadMessageCount: number;
+      })
+  | (NotificationEventBase &
+      ConnectionNotificationEvent & {
+        readonly type: "order-canceled";
+        readonly ref: ProviderOrderRef;
+        readonly displayOrderNumber: string;
+        readonly providerStatus: string;
+      })
+  | (NotificationEventBase &
+      ConnectionNotificationEvent & {
+        readonly type: "shipment-mark-attempt";
+        readonly ref: ProviderOrderRef;
+        readonly displayOrderNumber: string;
+        readonly outcome: "applied" | "already-applied" | "failed";
+        readonly errorCode?: string;
+      });
 
 export interface NotificationEventSettings {
   readonly authenticationRequired: boolean;
@@ -51,3 +62,4 @@ export interface NotificationSink {
   isConfigured(): boolean;
   send(event: NotificationEvent, signal?: AbortSignal): Promise<void>;
 }
+import type { ProviderOrderRef } from "../marketplaces/identity.js";

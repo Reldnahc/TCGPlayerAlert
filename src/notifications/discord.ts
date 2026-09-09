@@ -218,43 +218,36 @@ function eventPresentation(event: NotificationEvent): {
 } {
   if (event.type === "authentication-required") {
     return {
-      title: "TCGplayer session expired",
-      description: "Reconnect the seller session in the local application.",
+      title: `${event.connectionLabel} authentication required`,
+      description: "Reconnect this marketplace in the local application.",
       color: 0xc0392b,
     };
   }
   if (event.type === "inbound-message") {
     return {
-      title: "New TCGplayer message",
+      title: `New ${event.connectionLabel} message`,
       description: `${String(event.unreadMessageCount)} unread message${event.unreadMessageCount === 1 ? "" : "s"} in this conversation. Message subjects and bodies are not sent to Discord.`,
       color: 0x3498db,
-      url: `https://sellerportal.tcgplayer.com/messages/${String(event.threadId)}`,
     };
   }
   if (event.type === "order-canceled") {
     return {
       title: "Order canceled",
-      description: `Order ${event.orderNumber} is now ${event.providerStatus}.`,
+      description: `${event.connectionLabel} order ${event.displayOrderNumber} is now ${event.providerStatus}.`,
       color: 0xe67e22,
-      url: orderUrl(event.orderNumber),
     };
   }
   const outcome =
     event.outcome === "applied"
-      ? "TCGplayer accepted the shipment update."
+      ? `${event.connectionLabel} accepted the shipment update.`
       : event.outcome === "already-applied"
-        ? "TCGplayer reported the order was already shipped."
+        ? `${event.connectionLabel} reported the order was already shipped.`
         : `The shipment update failed${event.errorCode === undefined ? "." : ` (${event.errorCode}).`}`;
   return {
     title: "Mark-shipped attempt",
-    description: `Order ${event.orderNumber}\n${outcome}`,
+    description: `Order ${event.displayOrderNumber}\n${outcome}`,
     color: event.outcome === "failed" ? 0xc0392b : 0x2e8b57,
-    url: orderUrl(event.orderNumber),
   };
-}
-
-function orderUrl(orderNumber: string): string {
-  return `https://sellerportal.tcgplayer.com/orders/${encodeURIComponent(orderNumber)}`;
 }
 
 function invalidWebhook(): ApplicationError {

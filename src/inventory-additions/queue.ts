@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import type {
   SellerInventoryAddition,
   SellerInventoryRemoval,
-} from "tcgplayer-private-api";
+} from "../providers/tcgplayer/sdk.js";
 import { ApplicationError, ConfigurationError } from "../errors.js";
 import { FileSyncLease, type SyncLease } from "../sync-lease.js";
 

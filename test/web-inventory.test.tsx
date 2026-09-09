@@ -8,356 +8,225 @@ import {
   baseFetch,
   json,
   requestPath,
-  settings,
   resetWebUiTest,
 } from "./web-ui-fixtures.js";
 
 afterEach(resetWebUiTest);
 
-describe("catalog and inventory", () => {
-  it("adds an exact catalog SKU directly from the search row", async () => {
-    const fetchMock = vi.fn(
-      (input: RequestInfo | URL, options?: RequestInit) => {
+const completedAt = "2026-08-07T12:00:00.000Z";
+
+describe("provider-neutral inventory", () => {
+  it("derives workspaces from a ManaPool-only connection's facets", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
-        if (path.startsWith("/api/catalog/search"))
+        if (
+          path === "/api/marketplace-connections" ||
+          path === "/api/marketplace-connections?refresh=1"
+        ) {
           return Promise.resolve(
             json({
-              totalProducts: 1,
-              productLines: [{ name: "Magic: The Gathering", count: 1 }],
-              sets: [{ name: "Synthetic Set", count: 1 }],
-              products: [
-                {
-                  productId: 123,
-                  imageUrl: "https://product-images.tcgplayer.com/123.jpg",
-                  productName: "Synthetic Card",
-                  productLineName: "Magic: The Gathering",
-                  setName: "Synthetic Set",
-                  rarityName: "Rare",
-                  cardNumber: "42",
-                  marketPrice: 3.5,
-                  foilMarketPrice: 8.25,
-                  sellerListable: true,
-                  matchKind: "exact",
-                  matchRank: [0],
-                },
+              connections: [
+                connection(
+                  "manapool-main",
+                  "manapool",
+                  "ManaPool",
+                  "ManaPool Store",
+                  ["order-pages", "inventory-reader", "inventory-mutator"],
+                ),
               ],
-              nextOffset: 1,
-              hasMore: false,
-            }),
-          );
-        if (path === "/api/catalog/products/123")
-          return Promise.resolve(
-            json({
-              productId: 123,
-              imageUrl: "https://product-images.tcgplayer.com/123.jpg",
-              productName: "Synthetic Card",
-              productLineName: "Magic: The Gathering",
-              setName: "Synthetic Set",
-              rarityName: "Rare",
-              cardNumber: "42",
-              marketPrice: 3.5,
-              foilMarketPrice: 8.25,
-              sellerListable: true,
-              skus: [
-                {
-                  productConditionId: 456,
-                  conditionId: 1,
-                  condition: "Near Mint",
-                  printing: "Normal",
-                  language: "English",
-                },
-                {
-                  productConditionId: 457,
-                  conditionId: 2,
-                  condition: "Lightly Played",
-                  printing: "Normal",
-                  language: "English",
-                },
-              ],
-            }),
-          );
-        if (path === "/api/inventory-additions/preview") {
-          if (typeof options?.body !== "string")
-            throw new Error("Expected an addition preview body.");
-          const request = JSON.parse(options.body) as {
-            productConditionId: number;
-          };
-          const lightlyPlayed = request.productConditionId === 457;
-          return Promise.resolve(
-            json({
-              id: "00000000-0000-4000-8000-000000000001",
-              createdAt: "2026-08-07T12:00:00.000Z",
-              expiresAt: "2026-08-07T12:10:00.000Z",
-              product: {
-                productId: 123,
-                imageUrl: "https://product-images.tcgplayer.com/123.jpg",
-                productName: "Synthetic Card",
-                productLineName: "Magic: The Gathering",
-                setName: "Synthetic Set",
-                rarityName: "Rare",
-                cardNumber: "42",
-                marketPrice: 3.5,
-                foilMarketPrice: 8.25,
-                sellerListable: true,
-              },
-              sku: {
-                productConditionId: lightlyPlayed ? 457 : 456,
-                conditionId: lightlyPlayed ? 2 : 1,
-                condition: lightlyPlayed ? "Lightly Played" : "Near Mint",
-                printing: "Normal",
-                language: "English",
-              },
-              currentQuantity: 0,
-              addQuantity: 1,
-              proposedPrice: lightlyPlayed ? 2.99 : 3.49,
-              effectiveShippingPrice: 1.49,
-              proposedDeliveredPrice: lightlyPlayed ? 4.48 : 4.98,
-              competitorPrice: lightlyPlayed ? 2.99 : 3.49,
-              competitorShipping: 1.49,
-              competitorCondition: "Near Mint",
-              minimumApplied: false,
-              queueable: true,
-              reason: "Uses the marketplace reference.",
-              rules: {
-                ...settings.repricingProfiles[0],
-                estimatedShippingPrice: 1.49,
-              },
+              completedAt,
             }),
           );
         }
-        if (path.includes("/api/inventory-additions/previews/"))
+        if (path === "/api/auth/status") {
           return Promise.resolve(
-            json(
-              {
-                jobs: [
-                  {
-                    id: "job",
-                    createdAt: "2026-08-07T12:00:00.000Z",
-                    updatedAt: "2026-08-07T12:00:00.000Z",
-                    attempts: 0,
-                    status: "pending",
-                    operation: "add",
-                    addition: {
-                      productId: 123,
-                      productName: "Synthetic Card",
-                      productConditionId: 456,
-                      conditionId: 1,
-                      channelId: 0,
-                      categoryName: "Magic: The Gathering",
-                      currentQuantity: 0,
-                      addQuantity: 1,
-                      price: 3.49,
-                      storePriceCustomId: null,
-                      reserveQuantity: 0,
-                    },
-                  },
-                ],
-              },
-              202,
-            ),
+            json({
+              state: "disconnected",
+              automaticRenewal: false,
+              protectedStorage: true,
+            }),
           );
-        return baseFetch(input, options);
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<App />);
-    await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
-    await user.type(
-      screen.getByLabelText("Card name or product #"),
-      "Synthetic Card",
-    );
-    await user.click(screen.getByRole("button", { name: "Search" }));
-    expect(await screen.findByText("Synthetic Card")).toBeTruthy();
-
-    expect(
-      fetchMock.mock.calls.filter(
-        ([input]) => requestPath(input) === "/api/inventory-additions/preview",
-      ),
-    ).toHaveLength(0);
-    await user.click(
-      screen.getByRole("button", {
-        name: "Show listing price for Synthetic Card",
+        }
+        return inventoryFetch(input, options);
       }),
     );
-    expect(await screen.findByText("$3.49")).toBeTruthy();
+    render(<App />);
 
-    await user.selectOptions(
-      screen.getByLabelText("Condition for Synthetic Card"),
-      "Damaged",
-    );
-    expect(await screen.findByText("Unavailable")).toBeTruthy();
-    expect(
-      fetchMock.mock.calls.filter(
-        ([input]) => requestPath(input) === "/api/inventory-additions/preview",
-      ),
-    ).toHaveLength(1);
-
-    await user.selectOptions(
-      screen.getByLabelText("Condition for Synthetic Card"),
-      "Lightly Played",
-    );
-    expect(await screen.findByText("$2.99")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "+1" }));
-    expect((await screen.findAllByText("Queued +1 at $2.99.")).length).toBe(2);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/inventory-additions/preview",
-      expect.objectContaining({ method: "POST" }),
-    );
+    await screen.findByRole("heading", { name: "Dashboard" });
+    expect(screen.getByRole("link", { name: "Orders" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Scanner" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Inventory" })).toBeTruthy();
+    for (const hidden of [
+      "Add cards",
+      "Repricing",
+      "Jobs",
+      "Payments",
+      "Messages",
+      "Feedback",
+    ]) {
+      expect(screen.queryByRole("link", { name: hidden })).toBeNull();
+    }
   });
 
-  it("schedules an exact catalog SKU without pricing or queueing it immediately", async () => {
-    const fetchMock = vi.fn(
-      (input: RequestInfo | URL, options?: RequestInit) => {
-        const path = requestPath(input);
-        if (path.startsWith("/api/catalog/search")) {
-          return Promise.resolve(
-            json({
-              totalProducts: 1,
-              productLines: [{ name: "Magic: The Gathering", count: 1 }],
-              sets: [{ name: "Synthetic Set", count: 1 }],
-              products: [
-                {
-                  productId: 123,
-                  imageUrl: "https://product-images.tcgplayer.com/123.jpg",
-                  productName: "Synthetic Card",
-                  productLineName: "Magic: The Gathering",
-                  setName: "Synthetic Set",
-                  rarityName: "Rare",
-                  cardNumber: "42",
-                  marketPrice: 3.5,
-                  foilMarketPrice: 8.25,
-                  sellerListable: true,
-                  matchKind: "exact",
-                  matchRank: [0],
-                },
-              ],
-              nextOffset: 1,
-              hasMore: false,
-            }),
-          );
-        }
-        if (path === "/api/catalog/products/123") {
-          return Promise.resolve(
-            json({
-              productId: 123,
-              imageUrl: "https://product-images.tcgplayer.com/123.jpg",
-              productName: "Synthetic Card",
-              productLineName: "Magic: The Gathering",
-              setName: "Synthetic Set",
-              rarityName: "Rare",
-              cardNumber: "42",
-              marketPrice: 3.5,
-              foilMarketPrice: 8.25,
-              sellerListable: true,
-              skus: [
-                {
-                  productConditionId: 456,
-                  conditionId: 1,
-                  condition: "Near Mint",
-                  printing: "Normal",
-                  language: "English",
-                },
-              ],
-            }),
-          );
-        }
-        if (
-          path === "/api/internal-jobs/listings" &&
-          options?.method === "POST"
-        ) {
-          if (typeof options.body !== "string")
-            throw new Error("Expected a scheduled listing body.");
-          const submitted = JSON.parse(options.body) as {
-            runAt: string;
-            merchandiseProfileId: string;
-            item: Record<string, unknown>;
-          };
-          return Promise.resolve(
-            json(
-              {
-                schedule: {
-                  id: "00000000-0000-4000-8000-000000000200",
-                  name: "List 1 card",
-                  enabled: true,
-                  timing: { kind: "once", runAt: submitted.runAt },
-                  payload: {
-                    type: "list-inventory",
-                    merchandiseProfileId: submitted.merchandiseProfileId,
-                    items: [submitted.item],
-                  },
-                  createdAt: "2026-08-10T12:00:00.000Z",
-                  updatedAt: "2026-08-10T12:00:00.000Z",
-                  nextRunAt: submitted.runAt,
-                },
-              },
-              202,
-            ),
-          );
-        }
-        return baseFetch(input, options);
-      },
+  it("shows local stock and filters it independently from marketplace observations", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Inventory" }));
+
+    const localStock = screen
+      .getByRole("heading", { name: "Local stock" })
+      .closest("section");
+    if (localStock === null) throw new Error("Missing local stock section.");
+    expect(await within(localStock).findByText("Lightning Bolt")).toBeTruthy();
+    expect(screen.getByText("Unlisted Card")).toBeTruthy();
+    expect(screen.queryByText("Booster Box")).toBeNull();
+    await user.selectOptions(
+      screen.getByLabelText("Listing status"),
+      "unlisted",
     );
+    expect(within(localStock).queryByText("Lightning Bolt")).toBeNull();
+    expect(screen.getByText("Unlisted Card")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Search inventory"), "missing");
+    expect(
+      screen.getByText("No local inventory matches these filters"),
+    ).toBeTruthy();
+
+    await user.clear(screen.getByLabelText("Search inventory"));
+    await user.click(
+      screen.getByRole("tab", { name: /Marketplace listings/u }),
+    );
+    expect(screen.queryByRole("heading", { name: "Local stock" })).toBeNull();
+    expect(screen.getByText("Marketplace observations")).toBeTruthy();
+    expect(screen.getByText("Booster Box")).toBeTruthy();
+    expect(screen.queryByLabelText("Listing status")).toBeNull();
+    await user.type(screen.getByLabelText("Search inventory"), "missing");
+    expect(screen.getByText("No marketplace listings observed")).toBeTruthy();
+  });
+
+  it("exposes TCGplayer repricing as its own workspace", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Repricing" }));
+
+    expect(screen.getByRole("heading", { name: "Repricing" })).toBeTruthy();
+    expect(screen.getByLabelText("Pricing profile")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update preview" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Local stock" })).toBeNull();
+    expect(window.location.hash).toBe("#repricing");
+  });
+
+  it("updates only the exact local inventory item and refreshes", async () => {
+    const fetchMock = vi.fn(inventoryFetch);
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
-    await user.selectOptions(
-      screen.getByLabelText("Listing time"),
-      "scheduled",
-    );
-    await user.type(
-      screen.getByLabelText("Card name or product #"),
-      "Synthetic Card",
-    );
-    await user.click(screen.getByRole("button", { name: "Search" }));
-    await screen.findByText("Synthetic Card");
-    await user.click(screen.getByRole("button", { name: "+1" }));
 
-    expect((await screen.findAllByText(/Scheduled \+1 for/u)).length).toBe(2);
-    const call = fetchMock.mock.calls.find(
-      ([input]) => requestPath(input) === "/api/internal-jobs/listings",
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Inventory" }));
+    const localStock = screen
+      .getByRole("heading", { name: "Local stock" })
+      .closest("section");
+    if (localStock === null) throw new Error("Missing local stock section.");
+    const item = await within(localStock).findByText("Lightning Bolt");
+    const row = item.closest("tr");
+    if (row === null) throw new Error("Missing local inventory row.");
+    const quantity = within(row).getByLabelText(
+      "Local on-hand quantity for Lightning Bolt",
     );
-    expect(call).toBeDefined();
+    await user.clear(quantity);
+    await user.type(quantity, "5");
+    await user.click(within(row).getByRole("button", { name: "Save local" }));
+
+    expect(await within(row).findByText("Local stock saved.")).toBeTruthy();
+    const mutation = fetchMock.mock.calls.find(
+      ([input]) =>
+        requestPath(input) ===
+        "/api/local-inventory/items/00000000-0000-4000-8000-000000000001",
+    );
+    expect(mutation?.[1]).toEqual(
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ onHand: 5 }),
+      }),
+    );
     expect(
-      fetchMock.mock.calls.some(
-        ([input]) => requestPath(input) === "/api/inventory-additions/preview",
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/inventory",
       ),
-    ).toBe(false);
+    ).toHaveLength(2);
   });
 
-  it("reports inventory loading progress and filters to proposed changes", async () => {
-    let emitPreviewEvent:
-      | ((value: unknown, options?: { readonly close?: boolean }) => void)
-      | undefined;
+  it("keeps a partial provider failure visible without hiding good data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+        if (requestPath(input) === "/api/inventory") {
+          const payload = inventoryPayload();
+          return Promise.resolve(
+            json({
+              ...payload,
+              listings: payload.listings.filter(
+                (listing) =>
+                  listing.descriptor.connectionId === "tcgplayer-main",
+              ),
+              issues: [
+                {
+                  connectionId: "manapool-main",
+                  operation: "inventory",
+                  code: "PROVIDER_UNAVAILABLE",
+                  retryable: true,
+                },
+              ],
+            }),
+          );
+        }
+        return inventoryFetch(input, options);
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Inventory" }));
+
+    const localStock = screen
+      .getByRole("heading", { name: "Local stock" })
+      .closest("section");
+    if (localStock === null) throw new Error("Missing local stock section.");
+    expect(await within(localStock).findByText("Lightning Bolt")).toBeTruthy();
+    expect(
+      screen.getByText(/manapool-main inventory is unavailable/u),
+    ).toBeTruthy();
+  });
+
+  it("reviews and confirms a conservative one-time marketplace import", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
-        if (path === "/api/repricing/preview" && options?.method === "POST") {
-          const encoder = new TextEncoder();
+        if (path === "/api/local-inventory/import-preview") {
+          return Promise.resolve(json(importPreviewPayload()));
+        }
+        if (
+          path === "/api/local-inventory/import" &&
+          options?.method === "POST"
+        ) {
           return Promise.resolve(
-            new Response(
-              new ReadableStream<Uint8Array>({
-                start(controller) {
-                  emitPreviewEvent = (value, eventOptions) => {
-                    controller.enqueue(
-                      encoder.encode(`${JSON.stringify(value)}\n`),
-                    );
-                    if (eventOptions?.close === true) controller.close();
-                  };
-                },
-              }),
-              {
-                headers: {
-                  "Content-Type": "application/x-ndjson; charset=utf-8",
-                },
-              },
-            ),
+            json({
+              createdCount: 1,
+              createdItems: [inventoryPayload().items[1]],
+              preview: importPreviewPayload(),
+            }),
           );
         }
-        return baseFetch(input, options);
+        return inventoryFetch(input, options);
       },
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -365,134 +234,243 @@ describe("catalog and inventory", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Inventory" }));
+    await user.click(
+      screen.getByRole("tab", { name: /Marketplace listings/u }),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Update preview" }));
-
+    await user.click(
+      screen.getByRole("button", { name: "Import marketplace stock" }),
+    );
     expect(
-      screen.getByRole("progressbar", { name: "Building inventory preview" }),
+      await screen.findByRole("dialog", { name: "Import marketplace stock" }),
     ).toBeTruthy();
-    if (emitPreviewEvent === undefined) {
-      throw new Error("Expected the inventory preview request to start.");
-    }
-    emitPreviewEvent({
-      type: "progress",
-      progress: {
-        phase: "inventory",
-        completed: 200,
-        total: 400,
-        unit: "products",
-        detail: "Loading seller inventory",
-      },
-    });
-    expect(await screen.findByText("200 / 400 products")).toBeTruthy();
+    expect(await screen.findByText("Cross-listed Card")).toBeTruthy();
     expect(
-      screen
-        .getByRole("progressbar", { name: "Building inventory preview" })
-        .getAttribute("aria-valuenow"),
-    ).toBe("200");
-    emitPreviewEvent(
-      {
-        type: "complete",
-        preview: {
-          id: "00000000-0000-4000-8000-000000000002",
-          createdAt: "2026-08-07T12:00:00.000Z",
-          expiresAt: "2026-08-07T12:15:00.000Z",
-          rules: settings.repricingProfiles[0],
-          rows: [
-            {
-              id: "change-row",
-              productId: 1,
-              productConditionId: 11,
-              productName: "Price Change Card",
-              productLineName: "Magic: The Gathering",
-              setName: "Synthetic Set",
-              condition: "Near Mint",
-              printing: "Normal",
-              language: "English",
-              quantity: 1,
-              currentPrice: 2,
-              currentShipping: 1.49,
-              proposedPrice: 1.75,
-              marketPrice: 2,
-              minimumApplied: false,
-              status: "ready",
-              reason: "Uses the marketplace reference.",
-              queueable: true,
-              removable: true,
-            },
-            {
-              id: "stable-row",
-              productId: 2,
-              productConditionId: 22,
-              productName: "Stable Card",
-              productLineName: "Magic: The Gathering",
-              setName: "Synthetic Set",
-              condition: "Near Mint",
-              printing: "Normal",
-              language: "English",
-              quantity: 2,
-              currentPrice: 3,
-              currentShipping: 1.49,
-              proposedPrice: 3,
-              marketPrice: 3,
-              minimumApplied: false,
-              status: "unchanged",
-              reason: "The current price already matches.",
-              queueable: false,
-              removable: true,
-            },
-          ],
-          counts: { ready: 1, unchanged: 1, skipped: 0 },
-          totals: {
-            listingCount: 2,
-            totalQuantity: 3,
-            currentListingValue: 8,
-          },
-          marketplaceSnapshot: {
-            capturedAt: "2026-08-07T12:00:00.000Z",
-            expiresAt: "2026-08-07T12:10:00.000Z",
-            source: "fresh",
-          },
-        },
-      },
-      { close: true },
+      screen.getByText("Cross-listed; using highest quantity"),
+    ).toBeTruthy();
+    expect(screen.getByText("First store: 4 · Second store: 2")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Import missing stock" }),
     );
 
-    expect(await screen.findByText("Price Change Card")).toBeTruthy();
-    expect(screen.getByText("Stable Card")).toBeTruthy();
-    const table = screen.getByRole("table");
-    const changedRow = screen.getByText("Price Change Card").closest("tr");
-    if (changedRow === null) throw new Error("Missing changed inventory row.");
-    expect(changedRow.classList.contains("is-large-price-change")).toBe(true);
-    expect(within(changedRow).getByText("-$0.25")).toBeTruthy();
-    expect(within(changedRow).getByText("-12.5%")).toBeTruthy();
     expect(
-      within(changedRow)
-        .getByText("$1.75")
-        .classList.contains("price-change--decrease"),
-    ).toBe(true);
-    const inventoryOrder = () =>
-      within(table)
-        .getAllByRole("row")
-        .slice(1)
-        .map((row) =>
-          row.textContent.includes("Price Change Card") ? "changed" : "stable",
-        );
-    await user.click(
-      screen.getByRole("button", { name: "Sort by price change" }),
+      await screen.findByText(
+        "Imported 1 local stock item. No marketplace was changed.",
+      ),
+    ).toBeTruthy();
+    const request = fetchMock.mock.calls.find(
+      ([input]) => requestPath(input) === "/api/local-inventory/import",
     );
-    expect(inventoryOrder()).toEqual(["stable", "changed"]);
-    await user.click(
-      screen.getByRole("button", {
-        name: "Sort by price change, currently descending",
-      }),
-    );
-    expect(inventoryOrder()).toEqual(["changed", "stable"]);
-    await user.click(
-      screen.getByRole("button", { name: "Proposed changes (1)" }),
-    );
-    expect(screen.getByText("Price Change Card")).toBeTruthy();
-    expect(screen.queryByText("Stable Card")).toBeNull();
-    expect(screen.getByText("1 of 2 listings")).toBeTruthy();
+    expect(request?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ confirmation: "IMPORT_MARKETPLACE_STOCK" }),
+    });
   });
 });
+
+function importPreviewPayload() {
+  return {
+    candidates: [
+      {
+        candidateKey: '["shared.sku","42","exact-variant"]',
+        displayName: "Cross-listed Card",
+        suggestedOnHand: 4,
+        catalogIdentities: [
+          {
+            namespace: "shared.sku",
+            value: "42",
+            precision: "exact-variant",
+          },
+        ],
+        attributes: { set: "Synthetic Set", condition: "Near Mint" },
+        observations: [
+          {
+            connectionId: "first-main",
+            connectionLabel: "First store",
+            inventoryKey: "first-listing",
+            quantity: 4,
+          },
+          {
+            connectionId: "second-main",
+            connectionLabel: "Second store",
+            inventoryKey: "second-listing",
+            quantity: 2,
+          },
+        ],
+        crossListed: true,
+      },
+    ],
+    alreadyLinkedCount: 1,
+    skippedWithoutExactIdentityCount: 0,
+    skippedZeroQuantityCount: 0,
+    conflictingIdentityCount: 0,
+    issues: [],
+    completedAt,
+  };
+}
+
+function inventoryFetch(
+  input: RequestInfo | URL,
+  options?: RequestInit,
+): Promise<Response> {
+  const path = requestPath(input);
+  if (
+    path === "/api/marketplace-connections" ||
+    path === "/api/marketplace-connections?refresh=1"
+  ) {
+    return Promise.resolve(json(connectionPayload()));
+  }
+  if (path === "/api/inventory") {
+    return Promise.resolve(json(inventoryPayload()));
+  }
+  if (
+    path ===
+      "/api/local-inventory/items/00000000-0000-4000-8000-000000000001" &&
+    options?.method === "PUT"
+  ) {
+    return Promise.resolve(
+      json({
+        item: {
+          ...inventoryPayload().items[0],
+          onHand: 5,
+          updatedAt: completedAt,
+        },
+      }),
+    );
+  }
+  return baseFetch(input, options);
+}
+
+function connectionPayload() {
+  return {
+    connections: [
+      connection(
+        "tcgplayer-main",
+        "tcgplayer",
+        "TCGplayer",
+        "TCGplayer Store",
+        ["order-pages", "inventory-reader", "inventory-mutator", "repricing"],
+      ),
+      connection("manapool-main", "manapool", "ManaPool", "ManaPool Store", [
+        "order-pages",
+        "inventory-reader",
+        "inventory-mutator",
+      ]),
+    ],
+    completedAt,
+  };
+}
+
+function connection(
+  connectionId: string,
+  providerId: string,
+  providerLabel: string,
+  connectionLabel: string,
+  supportedFacets: readonly string[],
+) {
+  return {
+    descriptor: {
+      connectionId,
+      providerId,
+      providerLabel,
+      connectionLabel,
+    },
+    enabled: true,
+    supportedFacets,
+    health: { state: "connected", checkedAt: completedAt },
+  };
+}
+
+function inventoryPayload() {
+  const connections = connectionPayload().connections;
+  const tcgplayer = connections[0];
+  const manapool = connections[1];
+  if (tcgplayer === undefined || manapool === undefined) {
+    throw new Error("Expected two synthetic marketplace connections.");
+  }
+  return {
+    items: [
+      {
+        localInventoryId: "00000000-0000-4000-8000-000000000001",
+        displayName: "Lightning Bolt",
+        onHand: 3,
+        catalogIdentities: [
+          {
+            namespace: "tcgplayer.sku",
+            value: "101",
+            precision: "exact-variant",
+          },
+        ],
+        attributes: {
+          productLine: "Magic: The Gathering",
+          set: "Masters",
+          condition: "Near Mint",
+        },
+        createdAt: completedAt,
+        updatedAt: completedAt,
+      },
+      {
+        localInventoryId: "00000000-0000-4000-8000-000000000002",
+        displayName: "Unlisted Card",
+        onHand: 1,
+        catalogIdentities: [
+          {
+            namespace: "tcgplayer.sku",
+            value: "999",
+            precision: "exact-variant",
+          },
+        ],
+        attributes: { set: "Local Set", condition: "Near Mint" },
+        createdAt: completedAt,
+        updatedAt: completedAt,
+      },
+    ],
+    listings: [
+      {
+        descriptor: tcgplayer.descriptor,
+        localInventoryId: "00000000-0000-4000-8000-000000000001",
+        item: {
+          inventoryKey: "sku/101/channel/0",
+          displayName: "Lightning Bolt",
+          quantity: 3,
+          price: { currency: "USD", minorUnits: 199 },
+          catalogIdentities: [
+            {
+              namespace: "tcgplayer.sku",
+              value: "101",
+              precision: "exact-variant",
+            },
+          ],
+          attributes: {
+            productLine: "Magic: The Gathering",
+            set: "Masters",
+            condition: "Near Mint",
+          },
+          quantityMutation: "increase-or-clear",
+          priceMutable: true,
+        },
+      },
+      {
+        descriptor: manapool.descriptor,
+        item: {
+          inventoryKey: "sku/MP-SKU/item/22",
+          displayName: "Booster Box",
+          quantity: 2,
+          price: { currency: "USD", minorUnits: 11999 },
+          catalogIdentities: [
+            {
+              namespace: "manapool.sku",
+              value: "MP-SKU",
+              precision: "exact-variant",
+            },
+          ],
+          attributes: { productType: "Sealed", set: "Synthetic Set" },
+          quantityMutation: "absolute",
+          priceMutable: true,
+        },
+      },
+    ],
+    issues: [],
+    completedAt,
+  };
+}

@@ -137,8 +137,6 @@ describe("bulk address labels", () => {
       await screen.findByRole("heading", { name: "Bulk labels" }),
     ).toBeTruthy();
     expect(screen.queryByText("Connect TCGplayer to use Labels")).toBeNull();
-    expect(
-      requestedPaths.filter((path) => path.startsWith("/api/orders")),
-    ).toHaveLength(0);
+    expect(requestedPaths).toContain("/api/orders/ready");
   });
 });

@@ -14,31 +14,53 @@ import {
   Toggle,
 } from "../components/ui.js";
 import { useOrders } from "../state/OrdersContext.js";
-import { useAuthentication } from "../state/AuthenticationContext.js";
 import { useSettings } from "../state/SettingsContext.js";
 import { useToast } from "../state/ToastContext.js";
 import { compactDate, dateTime, errorMessage, money } from "../utils.js";
 import { useReadyOrderSnapshotPolling } from "../useReadyOrderSnapshotPolling.js";
+import { orderKey, type Order } from "../contracts.js";
+
+function sumMoney(
+  orders: readonly Order[] | undefined,
+  field: "subtotal" | "shipping" | "total",
+) {
+  if (orders === undefined || orders.length === 0) return undefined;
+  const currency = orders[0]?.totals[field].currency;
+  if (
+    currency === undefined ||
+    orders.some((order) => order.totals[field].currency !== currency)
+  ) {
+    return undefined;
+  }
+  return {
+    currency,
+    minorUnits: orders.reduce(
+      (total, order) => total + order.totals[field].minorUnits,
+      0,
+    ),
+  };
+}
 
 export function DashboardPage() {
-  const { status: sellerConnection } = useAuthentication();
-  const checkingConnection = sellerConnection === null;
-  const connected = sellerConnection?.state === "connected";
   const { settings, update } = useSettings();
-  const { lists, loading, errors, synchronizeReadyOrders } = useOrders();
+  const { lists, loading, errors, connections, synchronizeReadyOrders } =
+    useOrders();
   const toast = useToast();
   const [address, setAddress] = useState("");
   const [printingAddress, setPrintingAddress] = useState(false);
   const list = lists["ready-to-ship"];
-  useReadyOrderSnapshotPolling(connected);
-  const totals = list?.orders.reduce(
-    (result, order) => ({
-      products: result.products + order.productAmount,
-      shipping: result.shipping + order.shippingAmount,
-      total: result.total + order.totalAmount,
-    }),
-    { products: 0, shipping: 0, total: 0 },
+  useReadyOrderSnapshotPolling();
+  const connectionLabels = new Map(
+    connections?.connections.map((connection) => [
+      connection.descriptor.connectionId,
+      connection.descriptor.connectionLabel,
+    ]) ?? [],
   );
+  const totals = {
+    products: sumMoney(list?.orders, "subtotal"),
+    shipping: sumMoney(list?.orders, "shipping"),
+    total: sumMoney(list?.orders, "total"),
+  };
   const outputs = settings?.outputs ?? [];
   const addressOutput = outputs.find(
     (output) => output.type === "print-address-label",
@@ -87,7 +109,6 @@ export function DashboardPage() {
             <Button
               icon="refresh"
               busy={loading["ready-to-ship"]}
-              disabled={!connected}
               onClick={() => void synchronizeReadyOrders()}
             >
               Sync now
@@ -102,9 +123,9 @@ export function DashboardPage() {
               label="Ready orders"
               value={String(list?.orders.length ?? 0)}
             />
-            <Metric label="Products" value={money(totals?.products)} />
-            <Metric label="Shipping" value={money(totals?.shipping)} />
-            <Metric label="Order total" value={money(totals?.total)} />
+            <Metric label="Products" value={money(totals.products)} />
+            <Metric label="Shipping" value={money(totals.shipping)} />
+            <Metric label="Order total" value={money(totals.total)} />
           </div>
           <div class="dashboard-control-grid">
             <section class="surface">
@@ -199,29 +220,21 @@ export function DashboardPage() {
               </div>
             </div>
             <div class="data-region data-region--embedded">
-              {connected && list === null && loading["ready-to-ship"] ? (
+              {list === null && loading["ready-to-ship"] ? (
                 <div class="empty-state">
                   <Spinner label="Loading orders" />
                 </div>
               ) : list === null || list.orders.length === 0 ? (
                 <EmptyState
                   title={
-                    connected
-                      ? list === null
-                        ? "No synchronized order snapshot yet"
-                        : "No orders are ready to ship"
-                      : checkingConnection
-                        ? "Checking TCGplayer connection"
-                        : "Connect TCGplayer to load orders"
+                    list === null
+                      ? "No synchronized order snapshot yet"
+                      : "No orders are ready to ship"
                   }
                   detail={
-                    connected
-                      ? list === null
-                        ? "Wait for scheduled polling or select Sync now to run fulfillment explicitly."
-                        : "Sync now to check TCGplayer again."
-                      : checkingConnection
-                        ? "Seller requests remain paused until the connection is confirmed."
-                        : "Seller requests remain paused while logged out."
+                    list === null
+                      ? "Select Sync now to query every enabled marketplace connection."
+                      : "Sync now to check connected providers again."
                   }
                 />
               ) : (
@@ -239,27 +252,36 @@ export function DashboardPage() {
                   </thead>
                   <tbody>
                     {list.orders.map((order) => (
-                      <tr key={order.orderNumber}>
+                      <tr key={orderKey(order)}>
                         <td>
                           <span class="cell-stack">
                             <strong>{order.buyerName}</strong>
                             <small>
                               <OrderNumberLink
-                                orderNumber={order.orderNumber}
+                                orderNumber={order.displayOrderNumber}
+                                orderRef={order.ref}
                               />
                             </small>
                           </span>
                         </td>
-                        <td>{compactDate(order.orderDate)}</td>
-                        <td>{order.shippingType}</td>
-                        <td class="align-right numeric">
-                          {money(order.productAmount)}
+                        <td>{compactDate(order.createdAt)}</td>
+                        <td>
+                          <span class="cell-stack">
+                            <strong>
+                              {connectionLabels.get(order.ref.connectionId) ??
+                                order.ref.connectionId}
+                            </strong>
+                            <small>{order.shippingMethod}</small>
+                          </span>
                         </td>
                         <td class="align-right numeric">
-                          {money(order.shippingAmount)}
+                          {money(order.totals.subtotal)}
                         </td>
                         <td class="align-right numeric">
-                          <strong>{money(order.totalAmount)}</strong>
+                          {money(order.totals.shipping)}
+                        </td>
+                        <td class="align-right numeric">
+                          <strong>{money(order.totals.total)}</strong>
                         </td>
                         <td class="cell-actions">
                           <OrderActions

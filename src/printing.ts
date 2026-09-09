@@ -218,6 +218,7 @@ interface WindowsLabelPayload extends WindowsSpoolPayloadBase {
 interface WindowsRasterPayload extends WindowsSpoolPayloadBase {
   readonly kind: "raster-pages";
   readonly scale: WindowsPdfPrinterConfig["scale"];
+  readonly colorMode: WindowsPdfPrinterConfig["colorMode"];
   readonly pages: readonly {
     readonly path: string;
     readonly widthPoints: number;
@@ -311,6 +312,7 @@ export class WindowsPdfPrinter implements Printer {
           printerName: this.config.printerName,
           jobName: safeJobName(job.jobName),
           scale: this.config.scale,
+          colorMode: this.config.colorMode,
           pages: pageMetadata,
         };
         const payloadPath = join(directory, "payload.json");
@@ -647,6 +649,7 @@ try {
     }
   } elseif ($payload.kind -eq 'raster-pages') {
     if (@($payload.pages).Count -lt 1) { throw 'No rendered pages.' }
+    $document.DefaultPageSettings.Color = $payload.colorMode -eq 'color'
     $pageState = @{ Index = 0 }
     $handler = [System.Drawing.Printing.PrintPageEventHandler]{
       param($sender, $eventArgs)
@@ -667,7 +670,28 @@ try {
         $x = [single]($available.Left + ($available.Width - $targetWidth) / 2)
         $y = [single]($available.Top + ($available.Height - $targetHeight) / 2)
         $target = New-Object System.Drawing.RectangleF($x, $y, $targetWidth, $targetHeight)
-        $eventArgs.Graphics.DrawImage($image, $target)
+        if ($payload.colorMode -eq 'black-and-white') {
+          $matrix = New-Object System.Drawing.Imaging.ColorMatrix
+          $matrix.Matrix00 = 0.299
+          $matrix.Matrix01 = 0.299
+          $matrix.Matrix02 = 0.299
+          $matrix.Matrix10 = 0.587
+          $matrix.Matrix11 = 0.587
+          $matrix.Matrix12 = 0.587
+          $matrix.Matrix20 = 0.114
+          $matrix.Matrix21 = 0.114
+          $matrix.Matrix22 = 0.114
+          $attributes = New-Object System.Drawing.Imaging.ImageAttributes
+          try {
+            $attributes.SetColorMatrix($matrix)
+            $destination = [System.Drawing.Rectangle]::Round($target)
+            $eventArgs.Graphics.DrawImage($image, $destination, 0, 0, $image.Width, $image.Height, [System.Drawing.GraphicsUnit]::Pixel, $attributes)
+          } finally {
+            $attributes.Dispose()
+          }
+        } else {
+          $eventArgs.Graphics.DrawImage($image, $target)
+        }
       } finally {
         $image.Dispose()
       }

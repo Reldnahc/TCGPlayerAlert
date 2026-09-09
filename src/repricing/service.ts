@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   SellerInventoryRemoval,
   SellerPriceUpdate,
-} from "tcgplayer-private-api";
+} from "../providers/tcgplayer/sdk.js";
 import { ConfigurationError } from "../errors.js";
 import {
   resolveSellerKey,

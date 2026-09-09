@@ -9,6 +9,7 @@ import {
   requestPath,
   resetWebUiTest,
 } from "./web-ui-fixtures.js";
+import { marketplaceOrder } from "./marketplace-ui-fixtures.js";
 
 afterEach(resetWebUiTest);
 
@@ -25,6 +26,7 @@ const pullList = {
       quantity: 10,
       mainPhotoUrl: "",
       setReleaseDate: "2026-01-01",
+      rowKey: "tcgplayer.sku:synthetic-sku",
       skuId: "synthetic-sku",
       orderQuantity: 2,
       productId: 123,
@@ -41,9 +43,43 @@ const pullList = {
   pulledQuantity: 0,
   remainingQuantity: 2,
   fetchedAt: "2026-08-07T12:00:00.000Z",
+  issues: [],
 };
 
 describe("master pull list", () => {
+  it("shows connection-scoped pull issues without hiding healthy rows", async () => {
+    window.location.hash = "orders/pull-list";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, options?: RequestInit) =>
+        requestPath(input) === "/api/orders/pull-list"
+          ? Promise.resolve(
+              json({
+                ...pullList,
+                issues: [
+                  {
+                    connectionId: "tcgplayer-main",
+                    operation: "pull-lines",
+                    code: "CATALOG_METADATA_FAILED",
+                    retryable: true,
+                  },
+                ],
+              }),
+            )
+          : baseFetch(input, options),
+      ),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("Synthetic Cached Card")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "TCGplayer could not fully contribute to this pull list (CATALOG_METADATA_FAILED).",
+      ),
+    ).toBeTruthy();
+  });
+
   it("keeps the loaded list mounted when window focus refreshes authentication", async () => {
     window.location.hash = "orders/pull-list";
     const fetchMock = vi.fn(
@@ -91,18 +127,9 @@ describe("master pull list", () => {
       }
       return 1 as unknown as ReturnType<typeof window.setInterval>;
     });
-    const readyOrder = {
-      orderNumber: "SYNTHETIC-READY-ORDER",
-      buyerName: "Synthetic Buyer",
-      orderDate: "2026-08-07T12:00:00.000Z",
-      status: "Ready to Ship",
-      statusCode: "ReadyToShip",
-      canMarkShipped: true,
-      shippingType: "Standard",
-      productAmount: 12,
-      shippingAmount: 1.49,
-      totalAmount: 13.49,
-    };
+    const readyOrder = marketplaceOrder({
+      remoteId: "SYNTHETIC-READY-ORDER",
+    });
     const emptyPullList = {
       ...pullList,
       orderCount: 0,
@@ -121,14 +148,13 @@ describe("master pull list", () => {
             json(pullListReads === 1 ? pullList : emptyPullList),
           );
         }
-        if (path === "/api/orders?status=ready-to-ship") {
+        if (path === "/api/orders/ready") {
           readyOrderReads += 1;
           return Promise.resolve(
             json({
-              snapshot: {
-                orders: readyOrderReads === 1 ? [readyOrder] : [],
-                fetchedAt: "2026-08-07T12:00:00.000Z",
-              },
+              data: readyOrderReads === 1 ? [readyOrder] : [],
+              issues: [],
+              completedAt: "2026-08-07T12:00:00.000Z",
             }),
           );
         }

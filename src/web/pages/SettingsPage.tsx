@@ -4,11 +4,12 @@ import { useSettings } from "../state/SettingsContext.js";
 import { MerchandiseProfiles } from "./settings/MerchandiseProfiles.js";
 import { PricingProfiles } from "./settings/PricingProfiles.js";
 import { PrintingSettings } from "./settings/PrintingSettings.js";
-import { SellerConnectionCard } from "../components/SellerConnectionCard.js";
+import { MarketplaceConnectionsSettings } from "../components/MarketplaceConnectionsSettings.js";
 import { DiscordNotifications } from "./settings/DiscordNotifications.js";
 import { PullListSettings } from "./settings/PullListSettings.js";
 
 type SettingsSection =
+  | "connections"
   | "general"
   | "pull-list"
   | "pricing"
@@ -21,6 +22,7 @@ const sections: readonly {
   readonly id: SettingsSection;
   readonly label: string;
 }[] = [
+  { id: "connections", label: "Connections" },
   { id: "general", label: "General" },
   { id: "pull-list", label: "Pull list" },
   { id: "pricing", label: "Pricing" },
@@ -33,7 +35,7 @@ const sections: readonly {
 
 export function SettingsPage() {
   const { settings, update } = useSettings();
-  const [section, setSection] = useState<SettingsSection>("general");
+  const [section, setSection] = useState<SettingsSection>("connections");
   if (settings === null) return null;
   return (
     <main class="page">
@@ -55,9 +57,10 @@ export function SettingsPage() {
           ))}
         </nav>
         <div class="settings-content">
-          {section === "general" ? (
+          {section === "connections" ? (
+            <MarketplaceConnectionsSettings />
+          ) : section === "general" ? (
             <>
-              <SellerConnectionCard />
               <section class="editor-section settings-editor settings-editor--single">
                 <div class="editor-section__head">
                   <div>

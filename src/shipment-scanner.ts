@@ -3,31 +3,58 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ShipmentScannerConfig } from "./config.js";
 import { ApplicationError } from "./errors.js";
-import type { ManagedOrderSummary, ReadyOrderSource } from "./ready-orders.js";
+import {
+  parseMutationResult,
+  parseOrderSummary,
+  type MutationResult,
+  type OrderSummary,
+  type ProviderIssue,
+} from "./marketplaces/contracts.js";
+import {
+  orderRefKey,
+  parseConnectionId,
+  parseOrderRefKey,
+  parseProviderOrderRef,
+  sameOrderRef,
+  type ProviderOrderRef,
+} from "./marketplaces/identity.js";
 import {
   SHIPMENT_TAG_COUNT,
   type ShipmentTagRegistry,
 } from "./shipment-tags.js";
-import { requiresShipmentTracking } from "./shipment-policy.js";
 
 const MAXIMUM_SHIPMENT_RECORDS = 10_000;
+
+export interface QualifiedReadyOrderSnapshot {
+  readonly orders: readonly OrderSummary[];
+  /** Connections whose complete ready queue contributed to this snapshot. */
+  readonly successfulConnectionIds: readonly string[];
+  readonly issues: readonly ProviderIssue[];
+  readonly fetchedAt: string;
+}
+
+export interface QualifiedReadyOrderSource {
+  snapshot(): QualifiedReadyOrderSnapshot | undefined;
+  refresh(signal?: AbortSignal): Promise<QualifiedReadyOrderSnapshot>;
+  remove(ref: ProviderOrderRef): void;
+}
 
 export type ShipmentScanResult =
   | {
       readonly state: "matched";
       readonly tagId: number;
-      readonly order: ManagedOrderSummary;
+      readonly order: OrderSummary;
     }
   | {
       readonly state: "shipped";
       readonly tagId: number;
-      readonly order: ManagedOrderSummary;
+      readonly order: OrderSummary;
       readonly outcome: "applied" | "already-applied";
     }
   | {
       readonly state: "already-processed";
       readonly tagId: number;
-      readonly orderNumber: string;
+      readonly ref: ProviderOrderRef;
     }
   | {
       readonly state: "no-match";
@@ -41,7 +68,7 @@ export type ShipmentScanResult =
   | {
       readonly state: "review-required";
       readonly tagId: number;
-      readonly orderNumber: string;
+      readonly ref: ProviderOrderRef;
     };
 
 export interface ShipmentScannerStatus {
@@ -52,11 +79,12 @@ export interface ShipmentScannerStatus {
   readonly readyTagIds: readonly number[];
   readonly conflictingTagCount: number;
   readonly reviewRequiredCount: number;
+  readonly issues: readonly ProviderIssue[];
   readonly snapshotFetchedAt?: string;
 }
 
 export interface ShipmentMutationRecord {
-  readonly orderNumber: string;
+  readonly ref: ProviderOrderRef;
   readonly tagId: number;
   readonly status: "running" | "succeeded" | "review-required";
   readonly updatedAt: string;
@@ -64,7 +92,7 @@ export interface ShipmentMutationRecord {
 }
 
 export interface ShipmentScanState {
-  readonly version: 1;
+  readonly version: 2;
   readonly records: Readonly<Record<string, ShipmentMutationRecord>>;
 }
 
@@ -75,17 +103,14 @@ export interface ShipmentScanStore {
 
 export interface ShipmentMutationService {
   markShipped(
-    orderNumber: string,
+    input: { readonly ref: ProviderOrderRef },
     signal?: AbortSignal,
-  ): Promise<{
-    readonly orderNumber: string;
-    readonly outcome: "applied" | "already-applied";
-  }>;
+  ): Promise<MutationResult>;
 }
 
 export interface ShipmentScannerServiceOptions {
   readonly settings: () => Promise<ShipmentScannerConfig>;
-  readonly readyOrders: ReadyOrderSource;
+  readonly readyOrders: QualifiedReadyOrderSource;
   readonly orders: ShipmentMutationService;
   readonly store: ShipmentScanStore;
   readonly tags: ShipmentTagRegistry;
@@ -93,29 +118,21 @@ export interface ShipmentScannerServiceOptions {
 }
 
 export class ShipmentScannerService {
-  private readonly settings: ShipmentScannerServiceOptions["settings"];
-  private readonly readyOrders: ReadyOrderSource;
-  private readonly orders: ShipmentMutationService;
-  private readonly store: ShipmentScanStore;
-  private readonly tags: ShipmentTagRegistry;
   private readonly now: () => Date;
   private mutationTail: Promise<void> = Promise.resolve();
 
-  constructor(options: ShipmentScannerServiceOptions) {
-    this.settings = options.settings;
-    this.readyOrders = options.readyOrders;
-    this.orders = options.orders;
-    this.store = options.store;
-    this.tags = options.tags;
+  constructor(private readonly options: ShipmentScannerServiceOptions) {
     this.now = options.now ?? (() => new Date());
   }
 
   async status(): Promise<ShipmentScannerStatus> {
-    const settings = await this.settings();
-    const snapshot = this.readyOrders.snapshot();
-    const scanState = recoverInterruptedMutations(await this.store.load());
-    const assignments = await this.tags.reserveAll(
-      (snapshot?.orders ?? []).map((order) => order.orderNumber),
+    const settings = await this.options.settings();
+    const snapshot = this.options.readyOrders.snapshot();
+    const scanState = recoverInterruptedMutations(
+      await this.options.store.load(),
+    );
+    const assignments = await this.options.tags.reserveAll(
+      (snapshot?.orders ?? []).map((order) => order.ref),
     );
     return {
       enabled: settings.enabled,
@@ -129,6 +146,7 @@ export class ShipmentScannerService {
       reviewRequiredCount: Object.values(scanState.records).filter(
         (record) => record.status === "review-required",
       ).length,
+      issues: snapshot?.issues ?? [],
       ...(snapshot === undefined
         ? {}
         : { snapshotFetchedAt: snapshot.fetchedAt }),
@@ -140,7 +158,10 @@ export class ShipmentScannerService {
     const resolution = await this.resolve(tagId, signal);
     if (resolution.state !== "matched") return resolution;
     if (!settings.automaticallyMarkShipped) return resolution;
-    if (requiresShipmentTracking(resolution.order.totalAmount)) {
+    if (
+      requiresTracking(resolution.order) ||
+      resolution.order.actions["mark-shipped"].state !== "available"
+    ) {
       return resolution;
     }
     return this.mutate(resolution.order, resolution.tagId, signal);
@@ -148,14 +169,14 @@ export class ShipmentScannerService {
 
   async markShipped(
     tagId: number,
-    expectedOrderNumber: string,
+    expectedRef: ProviderOrderRef,
     signal?: AbortSignal,
   ): Promise<ShipmentScanResult> {
     await this.requireEnabled();
-    const normalizedOrderNumber = safeOrderNumber(expectedOrderNumber);
+    const ref = parseProviderOrderRef(expectedRef);
     const resolution = await this.resolve(tagId, signal);
     if (resolution.state !== "matched") return resolution;
-    if (resolution.order.orderNumber !== normalizedOrderNumber) {
+    if (!sameOrderRef(resolution.order.ref, ref)) {
       throw new ApplicationError(
         "PROVIDER_ERROR",
         "The ready-order match changed. Scan the parcel again.",
@@ -165,7 +186,7 @@ export class ShipmentScannerService {
   }
 
   private async requireEnabled(): Promise<ShipmentScannerConfig> {
-    const settings = await this.settings();
+    const settings = await this.options.settings();
     if (!settings.enabled) {
       throw new ApplicationError(
         "CONFIGURATION_ERROR",
@@ -180,22 +201,24 @@ export class ShipmentScannerService {
     signal?: AbortSignal,
   ): Promise<ShipmentScanResult> {
     const normalizedTagId = validTagId(tagId);
-    const snapshot = await this.readyOrders.refresh(signal);
-    const assignments = await this.tags.reconcile(
-      snapshot.orders.map((order) => order.orderNumber),
+    const snapshot = await this.options.readyOrders.refresh(signal);
+    const orders = snapshot.orders.map(parseOrderSummary);
+    const assignments = await this.options.tags.reconcile(
+      orders.map((order) => order.ref),
+      new Set(snapshot.successfulConnectionIds),
       signal,
     );
     const tagByOrder = new Map(
       assignments.map((assignment) => [
-        assignment.orderNumber,
+        orderRefKey(assignment.ref),
         assignment.tagId,
       ]),
     );
-    const matches = snapshot.orders.filter(
-      (order) => tagByOrder.get(order.orderNumber) === normalizedTagId,
+    const matches = orders.filter(
+      (order) => tagByOrder.get(orderRefKey(order.ref)) === normalizedTagId,
     );
     const scanState = recoverInterruptedMutations(
-      await this.store.load(),
+      await this.options.store.load(),
       this.now,
     );
     if (matches.length > 1) {
@@ -207,19 +230,19 @@ export class ShipmentScannerService {
     }
     const order = matches[0];
     if (order !== undefined) {
-      const record = scanState.records[order.orderNumber];
+      const record = scanState.records[orderRefKey(order.ref)];
       if (record?.status === "succeeded") {
         return {
           state: "already-processed",
           tagId: normalizedTagId,
-          orderNumber: order.orderNumber,
+          ref: record.ref,
         };
       }
       if (record?.status === "review-required") {
         return {
           state: "review-required",
           tagId: normalizedTagId,
-          orderNumber: order.orderNumber,
+          ref: record.ref,
         };
       }
       return { state: "matched", tagId: normalizedTagId, order };
@@ -230,21 +253,21 @@ export class ShipmentScannerService {
       return {
         state: "already-processed",
         tagId: normalizedTagId,
-        orderNumber: previous.orderNumber,
+        ref: previous.ref,
       };
     }
     if (previous?.status === "review-required") {
       return {
         state: "review-required",
         tagId: normalizedTagId,
-        orderNumber: previous.orderNumber,
+        ref: previous.ref,
       };
     }
     return { state: "no-match", tagId: normalizedTagId };
   }
 
   private mutate(
-    order: ManagedOrderSummary,
+    order: OrderSummary,
     tagId: number,
     signal?: AbortSignal,
   ): Promise<ShipmentScanResult> {
@@ -265,54 +288,63 @@ export class ShipmentScannerService {
   }
 
   private async performMutation(
-    order: ManagedOrderSummary,
+    order: OrderSummary,
     tagId: number,
     signal?: AbortSignal,
   ): Promise<ShipmentScanResult> {
     const state = recoverInterruptedMutations(
-      await this.store.load(),
+      await this.options.store.load(),
       this.now,
     );
-    const existing = state.records[order.orderNumber];
+    const key = orderRefKey(order.ref);
+    const existing = state.records[key];
     if (existing?.status === "succeeded") {
-      return {
-        state: "already-processed",
-        tagId,
-        orderNumber: order.orderNumber,
-      };
+      return { state: "already-processed", tagId, ref: existing.ref };
     }
     if (existing?.status === "review-required") {
-      return {
-        state: "review-required",
-        tagId,
-        orderNumber: order.orderNumber,
-      };
+      return { state: "review-required", tagId, ref: existing.ref };
     }
 
-    await this.store.save(
+    await this.options.store.save(
       withRecord(state, {
-        orderNumber: order.orderNumber,
+        ref: order.ref,
         tagId,
         status: "running",
         updatedAt: this.now().toISOString(),
       }),
     );
     try {
-      const result = await this.orders.markShipped(order.orderNumber, signal);
-      await this.store.save(
-        withRecord(await this.store.load(), {
-          orderNumber: order.orderNumber,
+      const result = parseMutationResult(
+        await this.options.orders.markShipped({ ref: order.ref }, signal),
+      );
+      if (!sameOrderRef(result.ref, order.ref)) {
+        throw new ApplicationError(
+          "PROVIDER_ERROR",
+          "The marketplace returned a shipment result for another order.",
+        );
+      }
+      if (result.outcome === "review-required") {
+        throw new ApplicationError(
+          "REVIEW_REQUIRED",
+          "The marketplace could not confirm the shipment result.",
+        );
+      }
+      await this.options.store.save(
+        withRecord(await this.options.store.load(), {
+          ref: order.ref,
           tagId,
           status: "succeeded",
           updatedAt: this.now().toISOString(),
           outcome: result.outcome,
         }),
       );
+      this.options.readyOrders.remove(order.ref);
       return { state: "shipped", tagId, order, outcome: result.outcome };
     } catch (cause) {
-      await this.store.save(
-        withRecord(await this.store.load(), {
-          orderNumber: order.orderNumber,
+      signal?.throwIfAborted();
+      await this.options.store.save(
+        withRecord(await this.options.store.load(), {
+          ref: order.ref,
           tagId,
           status: "review-required",
           updatedAt: this.now().toISOString(),
@@ -329,23 +361,25 @@ export class ShipmentScannerService {
 
 export class JsonShipmentScanStore implements ShipmentScanStore {
   private readonly absolutePath: string;
+  private readonly legacyConnectionId: string | undefined;
 
-  constructor(path: string) {
+  constructor(
+    path: string,
+    options: { readonly legacyConnectionId?: string } = {},
+  ) {
     this.absolutePath = resolve(path);
+    this.legacyConnectionId =
+      options.legacyConnectionId === undefined
+        ? undefined
+        : parseConnectionId(options.legacyConnectionId);
   }
 
   async load(): Promise<ShipmentScanState> {
     try {
-      const value = JSON.parse(
-        await readFile(this.absolutePath, "utf8"),
-      ) as unknown;
-      if (!isShipmentScanState(value)) {
-        throw new ApplicationError(
-          "PERSISTENCE_ERROR",
-          "The shipment-scan state schema is unsupported.",
-        );
-      }
-      return value;
+      return parseShipmentScanState(
+        JSON.parse(await readFile(this.absolutePath, "utf8")) as unknown,
+        this.legacyConnectionId,
+      );
     } catch (error) {
       if (isMissingFile(error)) return emptyShipmentScanState();
       if (error instanceof ApplicationError) throw error;
@@ -358,14 +392,15 @@ export class JsonShipmentScanStore implements ShipmentScanStore {
   }
 
   async save(state: ShipmentScanState): Promise<void> {
+    const validated = parseVersionTwoState(state);
     const temporaryPath = `${this.absolutePath}.${randomUUID()}.tmp`;
     try {
       await mkdir(dirname(this.absolutePath), { recursive: true });
-      await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600,
-      });
+      await writeFile(
+        temporaryPath,
+        `${JSON.stringify(validated, null, 2)}\n`,
+        { encoding: "utf8", flag: "wx", mode: 0o600 },
+      );
       await rename(temporaryPath, this.absolutePath);
     } catch (error) {
       await unlink(temporaryPath).catch(() => undefined);
@@ -379,7 +414,7 @@ export class JsonShipmentScanStore implements ShipmentScanStore {
 }
 
 export function emptyShipmentScanState(): ShipmentScanState {
-  return { version: 1, records: {} };
+  return { version: 2, records: {} };
 }
 
 export function recoverInterruptedMutations(
@@ -387,8 +422,8 @@ export function recoverInterruptedMutations(
   now: () => Date = () => new Date(),
 ): ShipmentScanState {
   const records = Object.fromEntries(
-    Object.entries(state.records).map(([orderNumber, record]) => [
-      orderNumber,
+    Object.entries(state.records).map(([key, record]) => [
+      key,
       record.status === "running"
         ? {
             ...record,
@@ -398,28 +433,30 @@ export function recoverInterruptedMutations(
         : record,
     ]),
   );
-  return { version: 1, records };
+  return { version: 2, records };
 }
 
 function withRecord(
   state: ShipmentScanState,
   record: ShipmentMutationRecord,
 ): ShipmentScanState {
+  const key = orderRefKey(record.ref);
   const records: Record<string, ShipmentMutationRecord> = {
     ...state.records,
-    [record.orderNumber]: record,
+    [key]: record,
   };
   const excess = Object.keys(records).length - MAXIMUM_SHIPMENT_RECORDS;
   if (excess > 0) {
-    const removable = Object.values(records)
+    const removable = Object.entries(records)
       .filter(
-        (candidate) =>
-          candidate.status === "succeeded" &&
-          candidate.orderNumber !== record.orderNumber,
+        ([candidateKey, candidate]) =>
+          candidate.status === "succeeded" && candidateKey !== key,
       )
-      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
-    for (const candidate of removable.slice(0, excess)) {
-      Reflect.deleteProperty(records, candidate.orderNumber);
+      .sort((left, right) =>
+        left[1].updatedAt.localeCompare(right[1].updatedAt),
+      );
+    for (const [candidateKey] of removable.slice(0, excess)) {
+      Reflect.deleteProperty(records, candidateKey);
     }
   }
   if (Object.keys(records).length > MAXIMUM_SHIPMENT_RECORDS) {
@@ -428,10 +465,7 @@ function withRecord(
       "Shipment-scan review history requires operator cleanup.",
     );
   }
-  return {
-    version: 1,
-    records,
-  };
+  return { version: 2, records };
 }
 
 function latestRecordForTag(
@@ -441,6 +475,118 @@ function latestRecordForTag(
   return Object.values(state.records)
     .filter((record) => record.tagId === tagId)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function parseShipmentScanState(
+  value: unknown,
+  legacyConnectionId?: string,
+): ShipmentScanState {
+  if (!isRecord(value)) throw invalidState();
+  if (value.version === 1) {
+    if (legacyConnectionId === undefined) throw invalidState();
+    return migrateVersionOneState(value, legacyConnectionId);
+  }
+  if (value.version === 2) return parseVersionTwoState(value);
+  throw invalidState();
+}
+
+function migrateVersionOneState(
+  value: Record<string, unknown>,
+  legacyConnectionId: string,
+): ShipmentScanState {
+  if (!isRecord(value.records)) throw invalidState();
+  const records: Record<string, ShipmentMutationRecord> = {};
+  if (Object.keys(value.records).length > MAXIMUM_SHIPMENT_RECORDS) {
+    throw invalidState();
+  }
+  for (const [orderNumber, raw] of Object.entries(value.records)) {
+    if (!isLegacyRecord(raw, orderNumber)) throw invalidState();
+    const ref = { connectionId: legacyConnectionId, remoteId: orderNumber };
+    records[orderRefKey(ref)] = {
+      ref,
+      tagId: raw.tagId,
+      status: raw.status,
+      updatedAt: raw.updatedAt,
+      ...(raw.outcome === undefined ? {} : { outcome: raw.outcome }),
+    };
+  }
+  return { version: 2, records };
+}
+
+function parseVersionTwoState(value: unknown): ShipmentScanState {
+  if (!isRecord(value) || value.version !== 2 || !isRecord(value.records)) {
+    throw invalidState();
+  }
+  const entries = Object.entries(value.records);
+  if (entries.length > MAXIMUM_SHIPMENT_RECORDS) throw invalidState();
+  const records: Record<string, ShipmentMutationRecord> = {};
+  for (const [key, raw] of entries) {
+    if (!isRecord(raw)) throw invalidState();
+    let ref: ProviderOrderRef;
+    try {
+      ref = parseProviderOrderRef(raw.ref);
+      if (!sameOrderRef(parseOrderRefKey(key), ref)) throw invalidState();
+    } catch {
+      throw invalidState();
+    }
+    if (!isRecordFields(raw)) throw invalidState();
+    records[key] = {
+      ref,
+      tagId: raw.tagId,
+      status: raw.status,
+      updatedAt: raw.updatedAt,
+      ...(raw.outcome === undefined ? {} : { outcome: raw.outcome }),
+    };
+  }
+  return { version: 2, records };
+}
+
+function isLegacyRecord(
+  value: unknown,
+  orderNumber: string,
+): value is Record<string, unknown> & {
+  tagId: number;
+  status: ShipmentMutationRecord["status"];
+  updatedAt: string;
+  outcome?: ShipmentMutationRecord["outcome"];
+} {
+  return (
+    isRecord(value) &&
+    value.orderNumber === orderNumber &&
+    isSafeLegacyOrderNumber(orderNumber) &&
+    isRecordFields(value)
+  );
+}
+
+function isRecordFields(value: Record<string, unknown>): value is Record<
+  string,
+  unknown
+> & {
+  tagId: number;
+  status: ShipmentMutationRecord["status"];
+  updatedAt: string;
+  outcome?: ShipmentMutationRecord["outcome"];
+} {
+  return (
+    Number.isSafeInteger(value.tagId) &&
+    Number(value.tagId) >= 0 &&
+    Number(value.tagId) < SHIPMENT_TAG_COUNT &&
+    (value.status === "running" ||
+      value.status === "succeeded" ||
+      value.status === "review-required") &&
+    typeof value.updatedAt === "string" &&
+    Number.isFinite(Date.parse(value.updatedAt)) &&
+    (value.outcome === undefined ||
+      value.outcome === "applied" ||
+      value.outcome === "already-applied")
+  );
+}
+
+function requiresTracking(order: OrderSummary): boolean {
+  return (
+    order.totals.total.currency !== "USD" ||
+    order.totals.total.minorUnits >= 5_000
+  );
 }
 
 function validTagId(value: number): number {
@@ -453,66 +599,16 @@ function validTagId(value: number): number {
   return value;
 }
 
-function safeOrderNumber(value: string): string {
-  const normalized = value.trim();
-  if (
-    normalized.length < 1 ||
-    normalized.length > 128 ||
-    containsControlCharacter(normalized)
-  ) {
-    throw new ApplicationError(
-      "CONFIGURATION_ERROR",
-      "The order number is invalid.",
-    );
-  }
-  return normalized;
-}
-
-function isShipmentScanState(value: unknown): value is ShipmentScanState {
-  if (!isRecord(value) || value.version !== 1 || !isRecord(value.records)) {
-    return false;
-  }
-  const records = Object.entries(value.records);
-  if (records.length > MAXIMUM_SHIPMENT_RECORDS) return false;
-  return records.every(([orderNumber, raw]) => {
-    if (!isRecord(raw)) return false;
-    return (
-      isSafeOrderNumberValue(orderNumber) &&
-      raw.orderNumber === orderNumber &&
-      typeof raw.tagId === "number" &&
-      Number.isInteger(raw.tagId) &&
-      raw.tagId >= 0 &&
-      raw.tagId < SHIPMENT_TAG_COUNT &&
-      (raw.status === "running" ||
-        raw.status === "succeeded" ||
-        raw.status === "review-required") &&
-      typeof raw.updatedAt === "string" &&
-      Number.isFinite(Date.parse(raw.updatedAt)) &&
-      (raw.outcome === undefined ||
-        raw.outcome === "applied" ||
-        raw.outcome === "already-applied")
-    );
-  });
-}
-
-function isSafeOrderNumberValue(value: string): boolean {
+function isSafeLegacyOrderNumber(value: string): boolean {
   return (
     value.length >= 1 &&
-    value.length <= 128 &&
-    !containsControlCharacter(value) &&
+    value.length <= 256 &&
+    !/\p{Cc}/u.test(value) &&
     value.trim() === value &&
     value !== "__proto__" &&
     value !== "constructor" &&
     value !== "prototype"
   );
-}
-
-function containsControlCharacter(value: string): boolean {
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (code <= 0x1f || code === 0x7f) return true;
-  }
-  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -525,5 +621,12 @@ function isMissingFile(error: unknown): boolean {
     error !== null &&
     "code" in error &&
     error.code === "ENOENT"
+  );
+}
+
+function invalidState(): ApplicationError {
+  return new ApplicationError(
+    "PERSISTENCE_ERROR",
+    "The shipment-scan state schema is unsupported or unsafe.",
   );
 }

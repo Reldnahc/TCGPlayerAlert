@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument as CanvasPdfDocument } from "@napi-rs/canvas";
 import { createHash } from "node:crypto";
 import type {
   ActionConfig,
@@ -6,6 +7,7 @@ import type {
   AppConfig,
 } from "./config.js";
 import type { FulfillmentDocument, FulfillmentOrder } from "./domain.js";
+import type { PostalAddress } from "./marketplaces/contracts.js";
 import { ApplicationError } from "./errors.js";
 import type { AddressLabelPrintJob, PdfPrintJob, Printer } from "./printing.js";
 import {
@@ -38,7 +40,7 @@ const ADDRESS_FIELDS = new Set([
   "country",
 ]);
 
-function renderLine(template: string, order: FulfillmentOrder): string {
+function renderLine(template: string, address: PostalAddress): string {
   return template.replace(/\{([a-zA-Z]+)\}/gu, (_match, field: string) => {
     if (!ADDRESS_FIELDS.has(field)) {
       throw new ApplicationError(
@@ -46,9 +48,7 @@ function renderLine(template: string, order: FulfillmentOrder): string {
         "An address-label template contains an unsupported field.",
       );
     }
-    return (
-      order.shippingAddress[field as keyof typeof order.shippingAddress] ?? ""
-    );
+    return address[field as keyof PostalAddress] ?? "";
   });
 }
 
@@ -62,24 +62,48 @@ function wrapLine(
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (measure(candidate, fontSize) <= maximumWidth || !current) {
-      current = candidate;
-    } else {
-      lines.push(current);
-      current = word;
+    for (const part of splitWideWord(word, maximumWidth, fontSize, measure)) {
+      const candidate = current ? `${current} ${part}` : part;
+      if (measure(candidate, fontSize) <= maximumWidth || !current) {
+        current = candidate;
+      } else {
+        lines.push(current);
+        current = part;
+      }
     }
   }
   if (current) lines.push(current);
   return lines;
 }
 
+function splitWideWord(
+  word: string,
+  maximumWidth: number,
+  fontSize: number,
+  measure: (text: string, size: number) => number,
+): readonly string[] {
+  if (measure(word, fontSize) <= maximumWidth) return [word];
+  const parts: string[] = [];
+  let current = "";
+  for (const character of word) {
+    const candidate = `${current}${character}`;
+    if (current !== "" && measure(candidate, fontSize) > maximumWidth) {
+      parts.push(current);
+      current = character;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current !== "") parts.push(current);
+  return parts;
+}
+
 function renderAddressLines(
-  order: FulfillmentOrder,
+  address: PostalAddress,
   config: AddressLabelActionConfig,
 ): string[] {
   return printableAddressLines(
-    config.lines.map((template) => renderLine(template, order)),
+    config.lines.map((template) => renderLine(template, address)),
     config,
   );
 }
@@ -96,17 +120,23 @@ function printableAddressLines(
     .filter((line) => line && !omittedValues.has(line.toUpperCase()));
 }
 
-async function renderAddressLabelLines(
+function renderAddressLabelLines(
   lines: readonly string[],
   config: AddressLabelActionConfig,
   fiducialMarker?: FiducialMarkerMatrix,
 ): Promise<Uint8Array> {
-  const document = await PDFDocument.create();
   const width = config.page.widthMm * POINTS_PER_MM;
   const height = config.page.heightMm * POINTS_PER_MM;
   const margin = config.page.marginMm * POINTS_PER_MM;
-  const page = document.addPage([width, height]);
-  const font = await document.embedFont(StandardFonts.Helvetica);
+  const document = new CanvasPdfDocument({
+    title: "Address label",
+    subject: "Application-generated marketplace address label",
+    creator: "TCGPlayerAlert",
+  });
+  const page = document.beginPage(width, height);
+  page.fillStyle = "#000000";
+  page.textBaseline = "alphabetic";
+  page.font = `${String(config.page.fontSize)}px Arial, sans-serif`;
   const markerSize = (fiducialMarker?.sizeMm ?? 0) * POINTS_PER_MM;
   const markerGap = fiducialMarker === undefined ? 0 : 2 * POINTS_PER_MM;
   const availableWidth = width - margin * 2 - markerSize - markerGap;
@@ -120,41 +150,38 @@ async function renderAddressLabelLines(
   const wrappedLines = lines
     .flatMap((line) =>
       wrapLine(line, availableWidth, config.page.fontSize, (text, size) =>
-        font.widthOfTextAtSize(text, size),
+        size === config.page.fontSize
+          ? page.measureText(text).width
+          : measureCanvasText(page, text, size),
       ),
     )
     .filter(Boolean);
-  let y = height - margin - config.page.fontSize;
+  let y = margin + config.page.fontSize;
   for (const line of wrappedLines) {
-    if (y < margin) {
+    if (y > height - margin) {
       throw new ApplicationError(
         "CONFIGURATION_ERROR",
         "The configured address template does not fit on the label.",
       );
     }
-    page.drawText(line, {
-      x: margin,
-      y,
-      size: config.page.fontSize,
-      font,
-      color: rgb(0, 0, 0),
-    });
-    y -= lineHeight;
+    page.fillText(line, margin, y);
+    y += lineHeight;
   }
   if (fiducialMarker !== undefined) {
     drawFiducialMarker(
       page,
       fiducialMarker,
       width - margin - markerSize,
-      height - margin - markerSize,
+      margin,
       markerSize,
     );
   }
-  return document.save({ useObjectStreams: false });
+  document.endPage();
+  return Promise.resolve(document.close());
 }
 
 function drawFiducialMarker(
-  page: ReturnType<PDFDocument["addPage"]>,
+  page: ReturnType<CanvasPdfDocument["beginPage"]>,
   marker: FiducialMarkerMatrix,
   x: number,
   y: number,
@@ -165,22 +192,36 @@ function drawFiducialMarker(
   for (const [row, modules] of marker.rows.entries()) {
     for (let column = 0; column < modules.length; column += 1) {
       if (modules[column] !== "1") continue;
-      page.drawRectangle({
-        x: x + (column + marker.quietZoneModules) * moduleSize,
-        y: y + size - (row + marker.quietZoneModules + 1) * moduleSize,
-        width: moduleSize,
-        height: moduleSize,
-        color: rgb(0, 0, 0),
-      });
+      page.fillRect(
+        x + (column + marker.quietZoneModules) * moduleSize,
+        y + (row + marker.quietZoneModules) * moduleSize,
+        moduleSize,
+        moduleSize,
+      );
     }
   }
+}
+
+function measureCanvasText(
+  page: ReturnType<CanvasPdfDocument["beginPage"]>,
+  text: string,
+  size: number,
+): number {
+  const previousFont = page.font;
+  page.font = `${String(size)}px Arial, sans-serif`;
+  const width = page.measureText(text).width;
+  page.font = previousFont;
+  return width;
 }
 
 export async function renderAddressLabel(
   order: FulfillmentOrder,
   config: AddressLabelActionConfig,
 ): Promise<Uint8Array> {
-  return renderAddressLabelLines(renderAddressLines(order, config), config);
+  return renderAddressLabelLines(
+    renderAddressLines(order.shippingAddress, config),
+    config,
+  );
 }
 
 function addressLabelPrintJob(
@@ -256,6 +297,23 @@ export async function executeAddressLabelLines(
     `address-label-${printIdentifier(idempotencyKey)}`,
     signal,
     tagId,
+  );
+}
+
+export async function executeAddressLabelAddress(
+  config: AddressLabelActionConfig,
+  printer: Printer,
+  address: PostalAddress,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await submitAddressLabel(
+    config,
+    printer,
+    renderAddressLines(address, config),
+    idempotencyKey,
+    `address-label-${printIdentifier(idempotencyKey)}`,
+    signal,
   );
 }
 
@@ -367,6 +425,7 @@ export async function executeSyntheticPrintTest(
 }
 
 const syntheticOrder: FulfillmentOrder = {
+  ref: { connectionId: "synthetic-main", remoteId: "printer-test" },
   provider: "synthetic",
   id: "printer-test",
   placedAt: "2000-01-01T00:00:00.000Z",
@@ -401,13 +460,13 @@ class AddressLabelAction implements WorkflowAction {
     await submitAddressLabel(
       this.config,
       this.printer,
-      renderAddressLines(context.order, this.config),
+      renderAddressLines(context.order.shippingAddress, this.config),
       context.idempotencyKey,
       `address-label-${printIdentifier(context.idempotencyKey)}`,
       context.signal,
       this.shipmentTags === undefined
         ? undefined
-        : await this.shipmentTags.assign(context.order.id, context.signal),
+        : await this.shipmentTags.assign(context.order.ref, context.signal),
     );
   }
 }

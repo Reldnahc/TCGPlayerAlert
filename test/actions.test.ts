@@ -31,17 +31,27 @@ describe("address-label action", () => {
   });
 
   it("renders a valid PDF using a configurable label size and template", async () => {
-    const bytes = await renderAddressLabel(syntheticOrder, {
-      type: "print-address-label",
-      printer: "synthetic",
-      page: { widthMm: 89, heightMm: 36, marginMm: 3, fontSize: 9 },
-      lines: [
-        "{recipientName}",
-        "{addressOne}",
-        "{addressTwo}",
-        "{city}, {territory} {postalCode}",
-      ],
-    });
+    const bytes = await renderAddressLabel(
+      {
+        ...syntheticOrder,
+        shippingAddress: {
+          ...syntheticOrder.shippingAddress,
+          recipientName: "Zoë 山田",
+          addressOne: "1 Rue du Café",
+        },
+      },
+      {
+        type: "print-address-label",
+        printer: "synthetic",
+        page: { widthMm: 89, heightMm: 36, marginMm: 3, fontSize: 9 },
+        lines: [
+          "{recipientName}",
+          "{addressOne}",
+          "{addressTwo}",
+          "{city}, {territory} {postalCode}",
+        ],
+      },
+    );
 
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
     expect(bytes.byteLength).toBeGreaterThan(500);
@@ -130,7 +140,7 @@ describe("address-label action", () => {
       { synthetic: printer },
       {
         shipmentTags: {
-          assign: (orderNumber) => Promise.resolve(shipmentTagId(orderNumber)),
+          assign: (ref) => Promise.resolve(shipmentTagId(ref)),
         },
       },
     ).label;
@@ -144,7 +154,7 @@ describe("address-label action", () => {
     expect(submitted[0]).toMatchObject({
       fiducialMarker: {
         family: "APRILTAG_36h11",
-        tagId: shipmentTagId(syntheticOrder.id),
+        tagId: shipmentTagId(syntheticOrder.ref),
       },
     });
   });
@@ -250,6 +260,7 @@ describe("address-label action", () => {
           timeoutSeconds: 30,
           dpi: 150,
           scale: "fit",
+          colorMode: "black-and-white",
         },
       },
       actions: {

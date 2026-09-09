@@ -1,9 +1,17 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SellerOrderStatus } from "tcgplayer-private-api";
 import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../src/logger.js";
+import {
+  MarketplaceConnectionRegistry,
+  ProviderAdapterRegistry,
+  environmentSecretAccess,
+  type OrderDetail,
+  type OrderSummary,
+  type ProviderOrderRef,
+  type QualifiedReadyOrderSnapshot,
+} from "../src/index.js";
 import {
   JsonNotificationStateStore,
   NotificationMonitor,
@@ -13,7 +21,16 @@ import {
   type NotificationPublisher,
   type NotificationSink,
 } from "../src/notifications/index.js";
+import {
+  syntheticFactory,
+  syntheticNormalizedOrder,
+} from "./synthetic-marketplace.js";
 
+const connectionId = "synthetic-main";
+const ref: ProviderOrderRef = {
+  connectionId,
+  remoteId: "synthetic-order-1",
+};
 const settings: DiscordNotificationSettings = {
   enabled: true,
   webhookUrlEnv: "SYNTHETIC_DISCORD_WEBHOOK",
@@ -31,6 +48,13 @@ async function state(): Promise<JsonNotificationStateStore> {
   return new JsonNotificationStateStore(join(directory, "notifications.json"));
 }
 
+function connectionEvent(): Pick<
+  NotificationEvent,
+  "connectionId" | "connectionLabel"
+> {
+  return { connectionId, connectionLabel: "Synthetic store" };
+}
+
 describe("NotificationService", () => {
   it("delivers each idempotency key once", async () => {
     const send = vi.fn<NotificationSink["send"]>(() => Promise.resolve());
@@ -44,6 +68,7 @@ describe("NotificationService", () => {
       type: "authentication-required",
       idempotencyKey: "authentication-required:2026-08-10T12:00:00.000Z",
       occurredAt: "2026-08-10T12:00:00.000Z",
+      ...connectionEvent(),
     };
 
     await service.publish(event);
@@ -65,6 +90,7 @@ describe("NotificationService", () => {
       type: "authentication-required",
       idempotencyKey: "authentication-required:later",
       occurredAt: "2026-08-10T12:00:00.000Z",
+      ...connectionEvent(),
     };
 
     await service.publish(event);
@@ -74,9 +100,16 @@ describe("NotificationService", () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
-  it("removes a successful app shipment from cancellation comparison even when delivery is disabled", async () => {
+  it("removes only the qualified successful shipment when delivery is disabled", async () => {
     const notificationState = await state();
-    await notificationState.writeReadyOrderNumbers(["synthetic-order-1"]);
+    const sameRemoteOtherConnection = {
+      connectionId: "other-main",
+      remoteId: ref.remoteId,
+    } as const;
+    await notificationState.writeReadyOrderRefs([
+      ref,
+      sameRemoteOtherConnection,
+    ]);
     const service = new NotificationService({
       settings: () => ({ ...settings, enabled: false }),
       sink: { isConfigured: () => false, send: () => Promise.resolve() },
@@ -88,47 +121,49 @@ describe("NotificationService", () => {
       type: "shipment-mark-attempt",
       idempotencyKey: "shipment-mark-attempt:successful",
       occurredAt: "2026-08-10T12:00:00.000Z",
-      orderNumber: "synthetic-order-1",
+      ref,
+      displayOrderNumber: "SYN-1",
+      ...connectionEvent(),
       outcome: "applied",
     });
 
-    await expect(notificationState.readReadyOrderNumbers()).resolves.toEqual(
-      [],
-    );
+    await expect(notificationState.readReadyOrderRefs()).resolves.toEqual([
+      sameRemoteOtherConnection,
+    ]);
   });
 });
 
 describe("NotificationMonitor", () => {
-  it("baselines existing data, then reports only new unread messages and confirmed cancellations", async () => {
-    let readyOrders = [
-      {
-        orderNumber: "synthetic-order-1",
-        buyerName: "not transmitted",
-        orderDate: "2026-08-10T10:00:00.000Z",
-        status: "Ready to Ship",
-        statusCode: "ReadyToShip" as const,
-        canMarkShipped: true,
-        shippingType: "Standard",
-        productAmount: 1,
-        shippingAmount: 1.49,
-        totalAmount: 2.49,
-      },
-    ];
+  it("baselines qualified data, then reports new messages and confirmed cancellations once", async () => {
+    const readyOrder: OrderSummary = {
+      ...syntheticNormalizedOrder({
+        connectionId,
+        remoteId: ref.remoteId,
+        displayOrderNumber: "SYN-1",
+      }),
+      buyerName: "not transmitted",
+    };
+    let currentOrders: readonly OrderSummary[] = [readyOrder];
     let totalMessageCount = 1;
     let unreadMessageCount = 1;
+    const provider = syntheticFactory("synthetic", "Synthetic", {
+      detail: canceledDetail(readyOrder),
+    });
+    const registry = connectionRegistry(provider.factory);
     const publish = vi.fn<NotificationPublisher["publish"]>(() =>
       Promise.resolve(),
     );
-    const getOrder = vi.fn(() =>
-      Promise.resolve({
-        status: "Canceled",
-        statusCode: SellerOrderStatus.Canceled,
-      }),
-    );
+    const snapshot = (): QualifiedReadyOrderSnapshot => ({
+      orders: currentOrders,
+      successfulConnectionIds: [connectionId],
+      issues: [],
+      fetchedAt: "2026-08-10T12:00:00.000Z",
+    });
     const monitor = new NotificationMonitor({
       settings: () => settings,
       publisher: { publish },
       state: await state(),
+      registry,
       messages: {
         list: () =>
           Promise.resolve({
@@ -143,13 +178,10 @@ describe("NotificationMonitor", () => {
             ],
           }),
       },
-      orders: { getOrder },
+      messageConnectionId: connectionId,
       readyOrders: {
-        snapshot: () => ({
-          orders: readyOrders,
-          fetchedAt: "2026-08-10T12:00:00.000Z",
-        }),
-        refresh: () => Promise.reject(new Error("not used")),
+        snapshot,
+        refresh: () => Promise.resolve(snapshot()),
         remove: () => undefined,
       },
       logger,
@@ -159,19 +191,99 @@ describe("NotificationMonitor", () => {
     await monitor.run();
     expect(publish).not.toHaveBeenCalled();
 
-    readyOrders = [];
+    currentOrders = [];
     totalMessageCount = 2;
     unreadMessageCount = 2;
     await monitor.run();
     await monitor.run();
 
-    expect(getOrder).toHaveBeenCalledOnce();
+    expect(provider.observation.detailRemoteIds).toEqual([ref.remoteId]);
     expect(publish.mock.calls.map(([event]) => event.type).sort()).toEqual([
       "inbound-message",
       "order-canceled",
     ]);
     for (const [event] of publish.mock.calls) {
+      expect(event.connectionId).toBe(connectionId);
       expect(event).not.toHaveProperty("buyerName");
+      expect(event.idempotencyKey).toContain(connectionId);
     }
   });
+
+  it("does not infer cancellation for a connection omitted by a partial refresh", async () => {
+    const provider = syntheticFactory("synthetic", "Synthetic", {
+      detail: canceledDetail(
+        syntheticNormalizedOrder({
+          connectionId,
+          remoteId: ref.remoteId,
+        }),
+      ),
+    });
+    const registry = connectionRegistry(provider.factory);
+    const notificationState = await state();
+    await notificationState.writeReadyOrderRefs([ref]);
+    const publish = vi.fn<NotificationPublisher["publish"]>(() =>
+      Promise.resolve(),
+    );
+    const monitor = new NotificationMonitor({
+      settings: () => settings,
+      publisher: { publish },
+      state: notificationState,
+      registry,
+      readyOrders: {
+        snapshot: () => ({
+          orders: [],
+          successfulConnectionIds: [],
+          issues: [],
+          fetchedAt: "2026-08-10T12:00:00.000Z",
+        }),
+        refresh: () => Promise.reject(new Error("not used")),
+        remove: () => undefined,
+      },
+      logger,
+    });
+
+    await monitor.run();
+
+    expect(provider.observation.detailRemoteIds).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
+    await expect(notificationState.readReadyOrderRefs()).resolves.toEqual([
+      ref,
+    ]);
+  });
 });
+
+function canceledDetail(order: OrderSummary): OrderDetail {
+  return {
+    ...order,
+    providerStatus: "Canceled",
+    providerStatusCode: "CANCELED",
+    lifecycle: "canceled",
+    shippingAddress: {
+      recipientName: "Not transmitted",
+      addressOne: "1 Private Street",
+      city: "Private",
+      territory: "IL",
+      country: "US",
+      postalCode: "00000",
+    },
+    lines: [],
+    trackingNumbers: [],
+  };
+}
+
+function connectionRegistry(
+  factory: ReturnType<typeof syntheticFactory>["factory"],
+): MarketplaceConnectionRegistry {
+  return new MarketplaceConnectionRegistry({
+    adapters: new ProviderAdapterRegistry([factory]),
+    connections: {
+      [connectionId]: {
+        providerId: "synthetic",
+        enabled: true,
+        label: "Synthetic store",
+        settings: {},
+      },
+    },
+    secrets: environmentSecretAccess({}),
+  });
+}

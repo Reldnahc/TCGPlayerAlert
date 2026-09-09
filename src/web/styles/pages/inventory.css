@@ -1,8 +1,52 @@
 .inventory-layout {
   position: relative;
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  align-content: start;
   gap: 9px;
+}
+.inventory-tabs-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+}
+.inventory-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.inventory-tabs button {
+  white-space: nowrap;
+}
+.inventory-tabs button span {
+  margin-left: 5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.inventory-tabs button[aria-selected="true"] {
+  color: var(--text);
+  background: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.inventory-list-panel {
+  min-width: 0;
+}
+.inventory-import-dialog {
+  display: grid;
+  width: min(980px, 100%);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.inventory-import-dialog__body {
+  min-width: 0;
+  overflow: auto;
+}
+.inventory-import-dialog__body > p {
+  margin: 0;
+}
+.inventory-import-table-region {
+  max-width: 100%;
+  max-height: min(52vh, 520px);
 }
 .inventory-summary {
   display: grid;
@@ -14,14 +58,70 @@
 .inventory-table-region {
   min-height: 220px;
 }
+.local-inventory-table-region {
+  max-width: 100%;
+  max-height: clamp(280px, calc(100vh - 330px), 680px);
+}
+.local-inventory-table {
+  min-width: 780px;
+  table-layout: fixed;
+}
+.local-inventory-table th,
+.local-inventory-table td {
+  overflow-wrap: anywhere;
+}
+.local-inventory-table th:first-child,
+.local-inventory-table td:first-child {
+  width: 24%;
+  text-align: left;
+}
+.local-stock-table th:nth-child(2),
+.local-stock-table td:nth-child(2) {
+  width: 24%;
+}
+.local-stock-table th:nth-child(3),
+.local-stock-table td:nth-child(3) {
+  width: 100px;
+}
+.local-stock-table th:nth-child(5),
+.local-stock-table td:nth-child(5) {
+  width: 132px;
+}
+.local-stock-table input[type="number"] {
+  width: 72px;
+}
+.local-stock-table form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.local-stock-table form small {
+  flex-basis: 100%;
+}
+.marketplace-listings-table {
+  min-width: 840px;
+}
+.marketplace-listings-table th:nth-child(1) {
+  width: 18%;
+}
+.marketplace-listings-table th:nth-child(2) {
+  width: 22%;
+}
+.marketplace-listings-table th:nth-child(3) {
+  width: 32%;
+}
+.inventory-import-table {
+  min-width: 720px;
+}
 .inventory-view-filter {
   flex: 0 0 auto;
 }
-.inventory-table {
+.repricing-inventory-table {
   min-width: 1540px;
 }
-.inventory-table th:first-child,
-.inventory-table td:first-child {
+.repricing-inventory-table th:first-child,
+.repricing-inventory-table td:first-child {
   width: 35px;
   text-align: center;
 }

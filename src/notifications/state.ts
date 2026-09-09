@@ -2,6 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ApplicationError } from "../errors.js";
+import {
+  orderRefKey,
+  parseConnectionId,
+  parseOrderRefKey,
+  parseProviderOrderRef,
+  parseRemoteId,
+  type ProviderOrderRef,
+} from "../marketplaces/identity.js";
 import type { NotificationEventType } from "./contracts.js";
 
 const MAX_STATE_BYTES = 2 * 1024 * 1024;
@@ -16,63 +24,82 @@ interface DeliveryRecord {
   readonly errorCode?: string;
 }
 
-interface MessageObservation {
+export interface MessageObservation {
   readonly fingerprint: string;
   readonly observedAt: string;
 }
 
-interface NotificationState {
-  readonly version: 1;
-  readonly readyOrderNumbers?: readonly string[];
-  readonly messages?: Readonly<Record<string, MessageObservation>>;
+export interface NotificationState {
+  readonly version: 2;
+  readonly readyOrderRefs?: readonly ProviderOrderRef[];
+  readonly messages?: Readonly<
+    Record<string, Readonly<Record<string, MessageObservation>>>
+  >;
   readonly deliveries: readonly DeliveryRecord[];
 }
 
-const emptyState = (): NotificationState => ({ version: 1, deliveries: [] });
+const emptyState = (): NotificationState => ({ version: 2, deliveries: [] });
 
 export class JsonNotificationStateStore {
   private readonly path: string;
+  private readonly legacyConnectionId: string | undefined;
   private operations: Promise<void> = Promise.resolve();
 
-  constructor(path: string) {
+  constructor(
+    path: string,
+    options: { readonly legacyConnectionId?: string } = {},
+  ) {
     this.path = resolve(path);
+    this.legacyConnectionId =
+      options.legacyConnectionId === undefined
+        ? undefined
+        : parseConnectionId(options.legacyConnectionId);
   }
 
-  readReadyOrderNumbers(): Promise<readonly string[] | undefined> {
-    return this.exclusive(async () => (await this.load()).readyOrderNumbers);
+  readReadyOrderRefs(): Promise<readonly ProviderOrderRef[] | undefined> {
+    return this.exclusive(async () => (await this.load()).readyOrderRefs);
   }
 
-  writeReadyOrderNumbers(orderNumbers: readonly string[]): Promise<void> {
+  writeReadyOrderRefs(refs: readonly ProviderOrderRef[]): Promise<void> {
     return this.mutate((state) => ({
       ...state,
-      readyOrderNumbers: [...new Set(orderNumbers)].sort(),
+      readyOrderRefs: uniqueRefs(refs),
     }));
   }
 
-  removeReadyOrderNumber(orderNumber: string): Promise<void> {
+  removeReadyOrderRef(ref: ProviderOrderRef): Promise<void> {
+    const key = orderRefKey(ref);
     return this.exclusive(async () => {
       const state = await this.load();
-      if (state.readyOrderNumbers === undefined) return;
+      if (state.readyOrderRefs === undefined) return;
       await this.save({
         ...state,
-        readyOrderNumbers: state.readyOrderNumbers.filter(
-          (candidate) => candidate !== orderNumber,
+        readyOrderRefs: state.readyOrderRefs.filter(
+          (candidate) => orderRefKey(candidate) !== key,
         ),
       });
     });
   }
 
-  readMessages(): Promise<
-    Readonly<Record<string, MessageObservation>> | undefined
-  > {
-    return this.exclusive(async () => (await this.load()).messages);
+  readMessages(
+    connectionId: string,
+  ): Promise<Readonly<Record<string, MessageObservation>> | undefined> {
+    const normalized = parseConnectionId(connectionId);
+    return this.exclusive(
+      async () => (await this.load()).messages?.[normalized],
+    );
   }
 
   mergeMessages(
+    connectionId: string,
     observations: Readonly<Record<string, MessageObservation>>,
   ): Promise<void> {
+    const normalized = parseConnectionId(connectionId);
     return this.mutate((state) => {
-      const messages = { ...(state.messages ?? {}), ...observations };
+      const messages = {
+        ...(state.messages?.[normalized] ?? {}),
+        ...parseMessageObservations(observations),
+      };
       const bounded = Object.fromEntries(
         Object.entries(messages)
           .sort((left, right) =>
@@ -80,7 +107,10 @@ export class JsonNotificationStateStore {
           )
           .slice(0, MESSAGE_HISTORY_LIMIT),
       );
-      return { ...state, messages: bounded };
+      return {
+        ...state,
+        messages: { ...(state.messages ?? {}), [normalized]: bounded },
+      };
     });
   }
 
@@ -94,12 +124,17 @@ export class JsonNotificationStateStore {
       if (state.deliveries.some((delivery) => delivery.key === key)) {
         return false;
       }
+      const record = parseDelivery({
+        key,
+        type,
+        attemptedAt,
+        status: "sending",
+      });
       await this.save({
         ...state,
-        deliveries: [
-          ...state.deliveries,
-          { key, type, attemptedAt, status: "sending" as const },
-        ].slice(-DELIVERY_HISTORY_LIMIT),
+        deliveries: [...state.deliveries, record].slice(
+          -DELIVERY_HISTORY_LIMIT,
+        ),
       });
       return true;
     });
@@ -114,11 +149,11 @@ export class JsonNotificationStateStore {
       ...state,
       deliveries: state.deliveries.map((delivery) =>
         delivery.key === key
-          ? {
+          ? parseDelivery({
               ...delivery,
               status,
               ...(errorCode === undefined ? {} : { errorCode }),
-            }
+            })
           : delivery,
       ),
     }));
@@ -127,9 +162,7 @@ export class JsonNotificationStateStore {
   private mutate(
     update: (state: NotificationState) => NotificationState,
   ): Promise<void> {
-    return this.exclusive(async () => {
-      await this.save(update(await this.load()));
-    });
+    return this.exclusive(async () => this.save(update(await this.load())));
   }
 
   private load(): Promise<NotificationState> {
@@ -138,7 +171,10 @@ export class JsonNotificationStateStore {
         if (Buffer.byteLength(value, "utf8") > MAX_STATE_BYTES) {
           throw invalidState();
         }
-        return parseState(JSON.parse(value) as unknown);
+        return parseState(
+          JSON.parse(value) as unknown,
+          this.legacyConnectionId,
+        );
       })
       .catch((error: unknown) => {
         if (hasCode(error, "ENOENT")) return emptyState();
@@ -152,7 +188,8 @@ export class JsonNotificationStateStore {
   }
 
   private async save(state: NotificationState): Promise<void> {
-    const serialized = `${JSON.stringify(state, null, 2)}\n`;
+    const validated = parseVersionTwoState(state);
+    const serialized = `${JSON.stringify(validated, null, 2)}\n`;
     if (Buffer.byteLength(serialized, "utf8") > MAX_STATE_BYTES) {
       throw invalidState();
     }
@@ -181,85 +218,189 @@ export class JsonNotificationStateStore {
   }
 }
 
-function parseState(value: unknown): NotificationState {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw invalidState();
+function parseState(
+  value: unknown,
+  legacyConnectionId?: string,
+): NotificationState {
+  if (!isRecord(value)) throw invalidState();
+  if (value.version === 1) {
+    if (legacyConnectionId === undefined) throw invalidState();
+    return migrateVersionOneState(value, legacyConnectionId);
   }
-  const source = value as Record<string, unknown>;
-  if (source.version !== 1 || !Array.isArray(source.deliveries)) {
-    throw invalidState();
-  }
-  const readyOrderNumbers = source.readyOrderNumbers;
+  if (value.version === 2) return parseVersionTwoState(value);
+  throw invalidState();
+}
+
+function parseVersionTwoState(value: unknown): NotificationState {
   if (
-    readyOrderNumbers !== undefined &&
-    (!Array.isArray(readyOrderNumbers) ||
-      readyOrderNumbers.some((entry) => !safeText(entry, 128)))
+    !isRecord(value) ||
+    value.version !== 2 ||
+    !Array.isArray(value.deliveries)
   ) {
     throw invalidState();
   }
-  const messages = parseMessages(source.messages);
-  const deliveries = source.deliveries.map(parseDelivery);
+  const readyOrderRefs = parseOptionalRefs(value.readyOrderRefs);
+  const messages = parseMessagesByConnection(value.messages);
+  const deliveries = value.deliveries.map(parseDelivery);
+  if (deliveries.length > DELIVERY_HISTORY_LIMIT) throw invalidState();
   return {
-    version: 1,
-    ...(readyOrderNumbers === undefined
-      ? {}
-      : { readyOrderNumbers: readyOrderNumbers as string[] }),
+    version: 2,
+    ...(readyOrderRefs === undefined ? {} : { readyOrderRefs }),
     ...(messages === undefined ? {} : { messages }),
     deliveries,
   };
 }
 
-function parseMessages(
+function migrateVersionOneState(
+  value: Record<string, unknown>,
+  legacyConnectionId: string,
+): NotificationState {
+  if (!Array.isArray(value.deliveries)) throw invalidState();
+  const readyOrderNumbers = value.readyOrderNumbers;
+  if (
+    readyOrderNumbers !== undefined &&
+    (!Array.isArray(readyOrderNumbers) ||
+      readyOrderNumbers.some((entry) => !safeText(entry, 256)))
+  ) {
+    throw invalidState();
+  }
+  const legacyMessages = parseMessageObservations(value.messages);
+  const deliveries = value.deliveries.map((entry) => {
+    const delivery = parseDelivery(entry);
+    return delivery.type === "order-canceled"
+      ? {
+          ...delivery,
+          key: migrateCanceledDeliveryKey(delivery.key, legacyConnectionId),
+        }
+      : delivery;
+  });
+  if (deliveries.length > DELIVERY_HISTORY_LIMIT) throw invalidState();
+  return {
+    version: 2,
+    ...(readyOrderNumbers === undefined
+      ? {}
+      : {
+          readyOrderRefs: uniqueRefs(
+            (readyOrderNumbers as string[]).map((remoteId) => ({
+              connectionId: legacyConnectionId,
+              remoteId: parseRemoteId(remoteId),
+            })),
+          ),
+        }),
+    ...(legacyMessages === undefined
+      ? {}
+      : { messages: { [legacyConnectionId]: legacyMessages } }),
+    deliveries,
+  };
+}
+
+function parseOptionalRefs(
+  value: unknown,
+): readonly ProviderOrderRef[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 100_000) throw invalidState();
+  try {
+    return uniqueRefs(value.map((entry) => parseProviderOrderRef(entry)));
+  } catch {
+    throw invalidState();
+  }
+}
+
+function uniqueRefs(
+  refs: readonly ProviderOrderRef[],
+): readonly ProviderOrderRef[] {
+  return [
+    ...new Map(
+      refs.map((ref) => {
+        const key = orderRefKey(ref);
+        return [key, parseOrderRefKey(key)] as const;
+      }),
+    ).entries(),
+  ]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([, ref]) => ref);
+}
+
+function parseMessagesByConnection(
+  value: unknown,
+): NotificationState["messages"] {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Object.keys(value).length > 1_000) {
+    throw invalidState();
+  }
+  const result: Record<
+    string,
+    Readonly<Record<string, MessageObservation>>
+  > = {};
+  for (const [connectionId, entries] of Object.entries(value)) {
+    try {
+      parseConnectionId(connectionId);
+    } catch {
+      throw invalidState();
+    }
+    const parsed = parseMessageObservations(entries);
+    if (parsed === undefined) throw invalidState();
+    result[connectionId] = parsed;
+  }
+  return result;
+}
+
+function parseMessageObservations(
   value: unknown,
 ): Readonly<Record<string, MessageObservation>> | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw invalidState();
-  }
+  if (!isRecord(value)) throw invalidState();
+  const entries = Object.entries(value);
+  if (entries.length > MESSAGE_HISTORY_LIMIT) throw invalidState();
   const result: Record<string, MessageObservation> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (
-      !/^\d{1,16}$/u.test(key) ||
-      typeof entry !== "object" ||
-      entry === null
-    ) {
-      throw invalidState();
-    }
-    const source = entry as Record<string, unknown>;
-    if (!safeText(source.fingerprint, 128) || !isTimestamp(source.observedAt)) {
+  for (const [key, entry] of entries) {
+    if (!/^\d{1,16}$/u.test(key) || !isRecord(entry)) throw invalidState();
+    if (!safeText(entry.fingerprint, 128) || !isTimestamp(entry.observedAt)) {
       throw invalidState();
     }
     result[key] = {
-      fingerprint: source.fingerprint,
-      observedAt: source.observedAt,
+      fingerprint: entry.fingerprint,
+      observedAt: entry.observedAt,
     };
   }
   return result;
 }
 
 function parseDelivery(value: unknown): DeliveryRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw invalidState();
-  }
-  const source = value as Record<string, unknown>;
+  if (!isRecord(value)) throw invalidState();
   if (
-    !safeText(source.key, 512) ||
-    !isEventType(source.type) ||
-    !isTimestamp(source.attemptedAt) ||
-    (source.status !== "sending" &&
-      source.status !== "delivered" &&
-      source.status !== "failed") ||
-    (source.errorCode !== undefined && !safeText(source.errorCode, 128))
+    !safeText(value.key, 512) ||
+    !isEventType(value.type) ||
+    !isTimestamp(value.attemptedAt) ||
+    (value.status !== "sending" &&
+      value.status !== "delivered" &&
+      value.status !== "failed") ||
+    (value.errorCode !== undefined && !safeText(value.errorCode, 128))
   ) {
     throw invalidState();
   }
   return {
-    key: source.key,
-    type: source.type,
-    attemptedAt: source.attemptedAt,
-    status: source.status,
-    ...(source.errorCode === undefined ? {} : { errorCode: source.errorCode }),
+    key: value.key,
+    type: value.type,
+    attemptedAt: value.attemptedAt,
+    status: value.status,
+    ...(value.errorCode === undefined ? {} : { errorCode: value.errorCode }),
   };
+}
+
+function migrateCanceledDeliveryKey(
+  key: string,
+  legacyConnectionId: string,
+): string {
+  const match = /^order-canceled:(.+):([^:]+)$/u.exec(key);
+  if (match?.[1] === undefined || match[2] === undefined) {
+    throw invalidState();
+  }
+  const ref = {
+    connectionId: legacyConnectionId,
+    remoteId: parseRemoteId(match[1]),
+  };
+  return `order-canceled:${orderRefKey(ref)}:${match[2]}`;
 }
 
 function isEventType(value: unknown): value is NotificationEventType {
@@ -271,19 +412,17 @@ function isEventType(value: unknown): value is NotificationEventType {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function safeText(value: unknown, maximumLength: number): value is string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > maximumLength
-  ) {
-    return false;
-  }
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x1f || code === 0x7f) return false;
-  }
-  return true;
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maximumLength &&
+    !/\p{Cc}/u.test(value)
+  );
 }
 
 function isTimestamp(value: unknown): value is string {

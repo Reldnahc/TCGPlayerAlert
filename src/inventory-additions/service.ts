@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
-  CatalogProductDetails,
+  CatalogProductDetails as TcgplayerCatalogProductDetails,
   CatalogProductSku,
   CatalogProductSummary,
   MarketplaceListing,
@@ -8,7 +8,8 @@ import type {
   SearchMarketplaceProductsResult,
   SellerInventoryAddition,
   TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "../providers/tcgplayer/sdk.js";
+export type CatalogProductDetails = TcgplayerCatalogProductDetails;
 import { ApplicationError, ConfigurationError } from "../errors.js";
 import {
   resolveSellerKey,

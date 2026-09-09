@@ -9,6 +9,7 @@ export type IconName =
   | "scan"
   | "add"
   | "inventory"
+  | "pricing"
   | "settings"
   | "jobs"
   | "refresh"
@@ -76,6 +77,12 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <path d="M4 7h16v13H4zM3 4h18v3H3z" />
       <path d="M9 11h6" />
+    </>
+  ),
+  pricing: (
+    <>
+      <path d="M4 18 9 13l4 3 7-9" />
+      <path d="M15 7h5v5" />
     </>
   ),
   settings: (

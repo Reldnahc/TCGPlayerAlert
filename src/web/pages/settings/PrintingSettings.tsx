@@ -175,6 +175,22 @@ function PrinterEditor({
           </>
         ) : output.adapter === "windows-pdf" ? (
           <>
+            <Field label="Color mode">
+              <select
+                value={output.colorMode}
+                onChange={(event) =>
+                  onChange({
+                    ...output,
+                    colorMode: event.currentTarget.value as NonNullable<
+                      typeof output.colorMode
+                    >,
+                  })
+                }
+              >
+                <option value="black-and-white">Black and white</option>
+                <option value="color">Color</option>
+              </select>
+            </Field>
             <Field label="Page scaling">
               <select
                 value={output.scale}

@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "pricingProfileDefaultsVersion": 1,
   "pollIntervalMinutes": 60,
   "confirmBeforeMarkingShipped": true,
@@ -178,12 +178,32 @@
     }
   ],
   "defaultRepricingProfileId": "match-lowest",
-  "provider": {
-    "type": "tcgplayer",
-    "authCookieEnv": "TCGPLAYER_AUTH_COOKIE",
-    "sellerKeyEnv": "TCGPLAYER_SELLER_KEY",
-    "pageSize": 100,
-    "maximumPages": 100
+  "providers": {
+    "synchronizationConcurrency": 2,
+    "connections": {
+      "tcgplayer-main": {
+        "providerId": "tcgplayer",
+        "enabled": true,
+        "label": "TCGplayer",
+        "settings": {
+          "authCookieEnv": "TCGPLAYER_AUTH_COOKIE",
+          "sellerKeyEnv": "TCGPLAYER_SELLER_KEY",
+          "pageSize": 100,
+          "maximumPages": 100
+        }
+      },
+      "manapool-main": {
+        "providerId": "manapool",
+        "enabled": true,
+        "label": "ManaPool",
+        "settings": {
+          "emailEnv": "MANAPOOL_EMAIL",
+          "accessTokenEnv": "MANAPOOL_ACCESS_TOKEN",
+          "pageSize": 100,
+          "maximumPages": 100
+        }
+      }
+    }
   },
   "printers": {
     "address-label-printer": {
@@ -196,7 +216,8 @@
       "printerName": "CHANGE_ME_NETWORK_PRINTER_NAME",
       "timeoutSeconds": 60,
       "dpi": 150,
-      "scale": "shrink"
+      "scale": "shrink",
+      "colorMode": "black-and-white"
     }
   },
   "actions": {

@@ -22,6 +22,7 @@
   "include": [
     "src",
     "test",
+    "docs/templates/provider-adapter.contract.test.ts",
     "playwright.config.ts",
     "tsup.config.mjs",
     "vite.config.ts",

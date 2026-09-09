@@ -52,6 +52,9 @@ export function settingsUpdate(settings: Settings): SettingsUpdate {
           ? {
               ...(output.dpi === undefined ? {} : { dpi: output.dpi }),
               ...(output.scale === undefined ? {} : { scale: output.scale }),
+              ...(output.colorMode === undefined
+                ? {}
+                : { colorMode: output.colorMode }),
             }
           : {}),
     })),

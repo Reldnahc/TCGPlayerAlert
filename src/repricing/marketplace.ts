@@ -4,7 +4,7 @@ import type {
   SearchMarketplaceProductListingsResult,
   SellerInventoryProgress,
   TcgplayerSellerClient,
-} from "tcgplayer-private-api";
+} from "../providers/tcgplayer/sdk.js";
 import type {
   RepricingPreviewRow,
   RepricingProgress,

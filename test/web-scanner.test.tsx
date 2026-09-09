@@ -27,6 +27,7 @@ describe("shipment scanner", () => {
               readyTagIds: [7, 18, 29, 41, 84],
               conflictingTagCount: 0,
               reviewRequiredCount: 0,
+              issues: [],
               snapshotFetchedAt: "2026-08-09T12:00:00.000Z",
               backgroundCamera: {
                 state: "running",
@@ -49,6 +50,7 @@ describe("shipment scanner", () => {
     ).toBeTruthy();
     expect(await screen.findByText("Automatic shipping")).toBeTruthy();
     expect(await screen.findByText("Watching the basket")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Parcel result" })).toBeNull();
     expect(screen.getByText("Synthetic Camera")).toBeTruthy();
     const preview = screen.getByRole("img", {
       name: "Live basket camera preview",
@@ -82,6 +84,7 @@ describe("shipment scanner", () => {
               readyTagIds: [7],
               conflictingTagCount: 0,
               reviewRequiredCount: 0,
+              issues: [],
               backgroundCamera:
                 statusRead === 1
                   ? {
@@ -107,16 +110,31 @@ describe("shipment scanner", () => {
                         state: "matched",
                         tagId: 7,
                         order: {
-                          orderNumber: "SYNTHETIC-ORDER-7",
+                          ref: {
+                            connectionId: "synthetic-main",
+                            remoteId: "SYNTHETIC-ORDER-7",
+                          },
+                          displayOrderNumber: "SYNTHETIC-ORDER-7",
                           buyerName: "Synthetic Buyer",
-                          orderDate: "2026-08-07T12:00:00.000Z",
-                          status: "Ready to Ship",
-                          statusCode: "ReadyToShip",
-                          canMarkShipped: true,
-                          shippingType: "Standard",
-                          productAmount: 10,
-                          shippingAmount: 1.49,
-                          totalAmount: 11.49,
+                          providerStatus: "Ready to Ship",
+                          providerStatusCode: "READY",
+                          lifecycle: "ready-to-ship",
+                          createdAt: "2026-08-07T12:00:00.000Z",
+                          shippingMethod: "Standard",
+                          totals: {
+                            subtotal: { currency: "USD", minorUnits: 1000 },
+                            shipping: { currency: "USD", minorUnits: 149 },
+                            total: { currency: "USD", minorUnits: 1149 },
+                          },
+                          actions: {
+                            "view-detail": { state: "available" },
+                            "print-address-label": { state: "available" },
+                            "packing-slip": { state: "available" },
+                            "pirate-ship": { state: "available" },
+                            "add-tracking": { state: "available" },
+                            "mark-shipped": { state: "available" },
+                            refund: { state: "available" },
+                          },
                         },
                       },
                     },
@@ -137,12 +155,12 @@ describe("shipment scanner", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(99);
     });
-    expect(screen.queryByText("Exact ready-order match")).toBeNull();
+    expect(screen.queryByText("Review matched order")).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
-    expect(await screen.findByText("Exact ready-order match")).toBeTruthy();
+    expect(await screen.findByText("Review matched order")).toBeTruthy();
     expect(screen.getByText("Waiting for review")).toBeTruthy();
     expect(
       fetchMock.mock.calls.some(

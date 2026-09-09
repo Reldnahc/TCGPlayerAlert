@@ -14,6 +14,7 @@ import { DEFAULT_PULL_LIST_BINNING_CONFIG } from "../src/pull-list-binning.js";
 export const syntheticOrderId = "00000000000000000";
 
 export const syntheticOrder: FulfillmentOrder = {
+  ref: { connectionId: "synthetic-main", remoteId: syntheticOrderId },
   provider: "synthetic",
   id: syntheticOrderId,
   placedAt: "2026-01-02T03:04:05.000Z",
@@ -44,7 +45,7 @@ export const syntheticPackingSlip: FulfillmentDocument = {
 
 export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    version: 5,
+    version: 6,
     pricingProfileDefaultsVersion: 1,
     pollIntervalMinutes: 60,
     confirmBeforeMarkingShipped: true,
@@ -203,12 +204,21 @@ export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       },
     ],
     defaultRepricingProfileId: "match-lowest",
-    provider: {
-      type: "tcgplayer",
-      authCookieEnv: "TCGPLAYER_AUTH_COOKIE",
-      sellerKeyEnv: "TCGPLAYER_SELLER_KEY",
-      pageSize: 100,
-      maximumPages: 100,
+    providers: {
+      synchronizationConcurrency: 2,
+      connections: {
+        "tcgplayer-main": {
+          providerId: "tcgplayer",
+          enabled: true,
+          label: "TCGplayer",
+          settings: {
+            authCookieEnv: "TCGPLAYER_AUTH_COOKIE",
+            sellerKeyEnv: "TCGPLAYER_SELLER_KEY",
+            pageSize: 100,
+            maximumPages: 100,
+          },
+        },
+      },
     },
     printers: {},
     actions: {},
@@ -258,6 +268,7 @@ export class FakeProvider implements OrderProvider {
 export class FakeAction implements WorkflowAction {
   calls = 0;
   lastPackingSlip: FulfillmentDocument | undefined;
+  idempotencyKeys: string[] = [];
   error: Error | undefined;
 
   constructor(
@@ -267,9 +278,11 @@ export class FakeAction implements WorkflowAction {
 
   execute(context: {
     readonly packingSlip?: FulfillmentDocument;
+    readonly idempotencyKey: string;
   }): Promise<void> {
     this.calls += 1;
     this.lastPackingSlip = context.packingSlip;
+    this.idempotencyKeys.push(context.idempotencyKey);
     if (this.error !== undefined) throw this.error;
     return Promise.resolve();
   }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   MarketplaceListing,
   MarketplaceProduct,
-} from "tcgplayer-private-api";
+} from "../providers/tcgplayer/sdk.js";
 import { ConfigurationError } from "../errors.js";
 import { effectiveMinimumPrice } from "../game-pricing.js";
 import {

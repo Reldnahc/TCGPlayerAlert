@@ -37,11 +37,12 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.88",
+    "manapool-seller-api": "file:.packages/manapool-seller-api-0.1.0.tgz",
     "node-av": "6.1.1",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "preact": "10.29.8",
-    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.19.0.tgz"
+    "tcgplayer-private-api": "file:.packages/tcgplayer-private-api-0.19.2.tgz"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

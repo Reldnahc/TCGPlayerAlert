@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,55 +7,56 @@ import {
   shipmentTagId,
   SHIPMENT_TAG_COUNT,
   SHIPMENT_TAG_REUSE_ORDER_GAP,
+  type ProviderOrderRef,
 } from "../src/index.js";
 
-function collidingOrderNumbers(): readonly [string, string] {
-  const seen = new Map<number, string>();
+const ref = (
+  remoteId: string,
+  connectionId = "synthetic-main",
+): ProviderOrderRef => ({ connectionId, remoteId });
+
+function collidingRefs(): readonly [ProviderOrderRef, ProviderOrderRef] {
+  const seen = new Map<number, ProviderOrderRef>();
   for (let index = 0; index <= SHIPMENT_TAG_COUNT; index += 1) {
-    const orderNumber = `REGISTRY-COLLISION-${String(index)}`;
-    const tagId = shipmentTagId(orderNumber);
+    const candidate = ref(`REGISTRY-COLLISION-${String(index)}`);
+    const tagId = shipmentTagId(candidate);
     const previous = seen.get(tagId);
-    if (previous !== undefined) return [previous, orderNumber];
-    seen.set(tagId, orderNumber);
+    if (previous !== undefined) return [previous, candidate];
+    seen.set(tagId, candidate);
   }
   throw new Error("Expected a deterministic tag collision.");
 }
 
-function orderWithPreferredTag(tagId: number, prefix: string): string {
-  for (let index = 0; index < SHIPMENT_TAG_COUNT * 20; index += 1) {
-    const orderNumber = `${prefix}-${String(index)}`;
-    if (shipmentTagId(orderNumber) === tagId) return orderNumber;
-  }
-  throw new Error("Expected an order with the requested preferred tag.");
-}
-
-describe("shipment tag registry", () => {
-  it("persists a stable, distinct assignment for colliding orders", async () => {
+describe("qualified shipment tag registry", () => {
+  it("persists distinct assignments for hash collisions and duplicate remote IDs", async () => {
     const directory = await mkdtemp(join(tmpdir(), "shipment-tags-test-"));
     const path = join(directory, "tags.json");
-    const [first, second] = collidingOrderNumbers();
+    const [first, second] = collidingRefs();
+    const duplicateAcrossConnection = ref(first.remoteId, "other-main");
     const registry = new JsonShipmentTagRegistry(path, {
       now: () => new Date("2026-08-15T12:00:00.000Z"),
     });
 
-    const assignments = await registry.reserveAll([second, first]);
+    const assignments = await registry.reserveAll([
+      second,
+      first,
+      duplicateAcrossConnection,
+    ]);
 
-    expect(assignments).toHaveLength(2);
-    expect(new Set(assignments.map((value) => value.tagId)).size).toBe(2);
-    expect(
-      assignments.find((value) => value.orderNumber === first)?.tagId,
-    ).toBe(shipmentTagId(first));
+    expect(assignments).toHaveLength(3);
+    expect(new Set(assignments.map((value) => value.tagId)).size).toBe(3);
     await expect(
       new JsonShipmentTagRegistry(path).assign(second),
     ).resolves.toBe(
-      assignments.find((value) => value.orderNumber === second)?.tagId,
+      assignments.find((value) => value.ref.remoteId === second.remoteId)
+        ?.tagId,
     );
   });
 
-  it("serializes concurrent reservations made by separate registry instances", async () => {
+  it("serializes concurrent reservations across registry instances", async () => {
     const directory = await mkdtemp(join(tmpdir(), "shipment-tags-race-"));
     const path = join(directory, "tags.json");
-    const [first, second] = collidingOrderNumbers();
+    const [first, second] = collidingRefs();
     const left = new JsonShipmentTagRegistry(path);
     const right = new JsonShipmentTagRegistry(path);
 
@@ -68,139 +69,113 @@ describe("shipment tag registry", () => {
     await expect(left.assigned([first, second])).resolves.toHaveLength(2);
   });
 
-  it("quarantines a retired tag until 100 newer orders have been assigned", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "shipment-tags-ready-"));
-    let now = new Date("2026-08-15T12:00:00.000Z");
-    const registry = new JsonShipmentTagRegistry(join(directory, "tags.json"), {
-      now: () => now,
-    });
-    const [first, second] = collidingOrderNumbers();
-    await registry.reserveAll([first, second]);
-
-    await registry.reconcile([second]);
-    now = new Date("2036-08-15T12:00:00.000Z");
-    await registry.reconcile([second]);
-
-    await expect(registry.assigned([first])).resolves.toEqual([
-      expect.objectContaining({ orderNumber: first, retiredSequence: 2 }),
-    ]);
-
-    const retiredTag = shipmentTagId(first);
-    const wouldCollideWithRetiredTag = orderWithPreferredTag(
-      retiredTag,
-      "STALE-LABEL-COLLISION",
-    );
-    const firstNinetyNineNewOrders = [
-      wouldCollideWithRetiredTag,
-      ...Array.from(
-        { length: SHIPMENT_TAG_REUSE_ORDER_GAP - 2 },
-        (_, index) => `NEWER-ORDER-${String(index)}`,
-      ),
-    ];
-    await registry.reserveAll(firstNinetyNineNewOrders);
-    await expect(registry.assigned([first])).resolves.toHaveLength(1);
-    await expect(registry.assign(wouldCollideWithRetiredTag)).resolves.not.toBe(
-      retiredTag,
-    );
-
-    await registry.assign("NEWER-ORDER-99");
-    await expect(registry.assigned([first])).resolves.toEqual([]);
-  });
-
-  it("reactivates a ready order with its original tag during quarantine", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "shipment-tags-return-"));
+  it("retires only orders from successfully reconciled connections", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shipment-tags-partial-"));
     const registry = new JsonShipmentTagRegistry(join(directory, "tags.json"));
-    const originalTag = await registry.assign("RETURNING-ORDER");
-    await registry.reconcile([]);
+    const healthy = ref("HEALTHY", "healthy-main");
+    const failed = ref("FAILED", "failed-main");
+    await registry.reserveAll([healthy, failed]);
 
-    await registry.reconcile(["RETURNING-ORDER"]);
+    await registry.reconcile([], new Set(["healthy-main"]));
 
-    await expect(registry.assigned(["RETURNING-ORDER"])).resolves.toEqual([
-      expect.objectContaining({
-        orderNumber: "RETURNING-ORDER",
-        tagId: originalTag,
-      }),
+    await expect(registry.assigned([healthy])).resolves.toEqual([
+      expect.objectContaining({ retiredSequence: 2 }),
     ]);
-    expect(
-      (await registry.assigned(["RETURNING-ORDER"]))[0],
-    ).not.toHaveProperty("retiredSequence");
+    const [failedAssignment] = await registry.assigned([failed]);
+    expect(failedAssignment?.retiredSequence).toBeUndefined();
   });
 
-  it("migrates the original assignment file before allocating another tag", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "shipment-tags-v1-"));
-    const path = join(directory, "tags.json");
-    await writeFile(
-      path,
-      JSON.stringify({
-        version: 1,
-        assignments: {
-          "LEGACY-ORDER": {
-            orderNumber: "LEGACY-ORDER",
-            tagId: 12,
-            assignedAt: "2026-08-15T12:00:00.000Z",
-          },
-        },
-      }),
-      "utf8",
+  it("quarantines a retired tag until enough newer assignments exist", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shipment-tags-ready-"));
+    const registry = new JsonShipmentTagRegistry(join(directory, "tags.json"));
+    const retired = ref("RETIRED");
+    await registry.assign(retired);
+    await registry.reconcile([], new Set([retired.connectionId]));
+    await registry.reserveAll(
+      Array.from({ length: SHIPMENT_TAG_REUSE_ORDER_GAP - 1 }, (_, index) =>
+        ref(`NEW-${String(index)}`),
+      ),
     );
-    const registry = new JsonShipmentTagRegistry(path);
-
-    await expect(registry.assign("LEGACY-ORDER")).resolves.toBe(12);
-    await registry.assign("NEXT-ORDER");
-
-    await expect(
-      registry.assigned(["LEGACY-ORDER", "NEXT-ORDER"]),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        orderNumber: "LEGACY-ORDER",
-        assignedSequence: 1,
-      }),
-      expect.objectContaining({
-        orderNumber: "NEXT-ORDER",
-        assignedSequence: 2,
-      }),
-    ]);
+    await expect(registry.assigned([retired])).resolves.toHaveLength(1);
+    await registry.assign(ref("NEW-LAST"));
+    await expect(registry.assigned([retired])).resolves.toEqual([]);
   });
 
-  it("rejects duplicate persisted tag ids instead of guessing", async () => {
+  it("migrates v2 in memory without rewriting until the next mutation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shipment-tags-v2-"));
+    const path = join(directory, "tags.json");
+    const legacy = {
+      version: 2,
+      lastSequence: 1,
+      assignments: {
+        "LEGACY-ORDER": {
+          orderNumber: "LEGACY-ORDER",
+          tagId: 12,
+          assignedAt: "2026-08-15T12:00:00.000Z",
+          assignedSequence: 1,
+        },
+      },
+    };
+    await writeFile(path, JSON.stringify(legacy), "utf8");
+    const registry = new JsonShipmentTagRegistry(path, {
+      legacyConnectionId: "tcgplayer-main",
+    });
+    const migratedRef = ref("LEGACY-ORDER", "tcgplayer-main");
+
+    await expect(registry.assigned([migratedRef])).resolves.toEqual([
+      expect.objectContaining({ ref: migratedRef, tagId: 12 }),
+    ]);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(legacy);
+    await registry.assign(ref("NEXT-ORDER"));
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+      version: 3,
+      assignments: {
+        "tcgplayer-main/LEGACY-ORDER": { ref: migratedRef, tagId: 12 },
+      },
+    });
+  });
+
+  it("fails closed for duplicate persisted tags", async () => {
     const directory = await mkdtemp(join(tmpdir(), "shipment-tags-bad-"));
     const path = join(directory, "tags.json");
     await writeFile(
       path,
       JSON.stringify({
-        version: 1,
+        version: 2,
+        lastSequence: 2,
         assignments: {
-          "ORDER-ONE": {
-            orderNumber: "ORDER-ONE",
+          one: {
+            orderNumber: "one",
             tagId: 7,
             assignedAt: "2026-08-15T12:00:00.000Z",
+            assignedSequence: 1,
           },
-          "ORDER-TWO": {
-            orderNumber: "ORDER-TWO",
+          two: {
+            orderNumber: "two",
             tagId: 7,
-            assignedAt: "2026-08-15T12:00:00.000Z",
+            assignedAt: "2026-08-15T12:01:00.000Z",
+            assignedSequence: 2,
           },
         },
       }),
       "utf8",
     );
-
     await expect(
-      new JsonShipmentTagRegistry(path).assign("ORDER-THREE"),
+      new JsonShipmentTagRegistry(path, {
+        legacyConnectionId: "tcgplayer-main",
+      }).assign(ref("THREE")),
     ).rejects.toMatchObject({ code: "PERSISTENCE_ERROR" });
   });
 
-  it("fails closed before assigning more orders than the marker family supports", async () => {
+  it("fails before assigning more orders than the marker family supports", async () => {
     const directory = await mkdtemp(join(tmpdir(), "shipment-tags-full-"));
     const registry = new JsonShipmentTagRegistry(join(directory, "tags.json"));
-    const orders = Array.from(
-      { length: SHIPMENT_TAG_COUNT + 1 },
-      (_, index) => `TOO-MANY-${String(index)}`,
+    const refs = Array.from({ length: SHIPMENT_TAG_COUNT + 1 }, (_, index) =>
+      ref(`TOO-MANY-${String(index)}`),
     );
-
-    await expect(registry.reserveAll(orders)).rejects.toMatchObject({
+    await expect(registry.reserveAll(refs)).rejects.toMatchObject({
       code: "REVIEW_REQUIRED",
     });
-    await expect(registry.assigned(orders)).resolves.toEqual([]);
+    await expect(registry.assigned(refs)).resolves.toEqual([]);
   });
 });

@@ -4,9 +4,11 @@ import { useEffect, useState } from "preact/hooks";
 import { AppShell, routes, type RouteId } from "./components/AppShell.js";
 import { Button, EmptyState, Notice, Spinner } from "./components/ui.js";
 import { ToastViewport } from "./components/ToastViewport.js";
+import { ShipmentOutcomeMonitor } from "./components/ShipmentOutcomeMonitor.js";
 import { AddCardsPage } from "./pages/AddCardsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
-import { InventoryPage } from "./pages/InventoryPage.js";
+import { LocalInventoryPage } from "./pages/LocalInventoryPage.js";
+import { RepricingInventoryPage } from "./pages/RepricingInventoryPage.js";
 import { JobsPage } from "./pages/JobsPage.js";
 import { BulkLabelsPage } from "./pages/BulkLabelsPage.js";
 import { OrdersPage } from "./pages/OrdersPage.js";
@@ -20,27 +22,30 @@ import { OrdersProvider } from "./state/OrdersContext.js";
 import { SettingsProvider, useSettings } from "./state/SettingsContext.js";
 import { ToastProvider, useToast } from "./state/ToastContext.js";
 import { MessagesProvider, useMessages } from "./state/MessagesContext.js";
+import { AuthenticationProvider } from "./state/AuthenticationContext.js";
 import {
-  AuthenticationProvider,
-  useAuthentication,
-} from "./state/AuthenticationContext.js";
-import { SellerConnectionCard } from "./components/SellerConnectionCard.js";
+  MarketplaceConnectionsProvider,
+  useMarketplaceConnections,
+} from "./state/MarketplaceConnectionsContext.js";
 import { errorMessage } from "./utils.js";
+import type { MarketplaceFacetId } from "../marketplaces/registry.js";
 
 const ALIASES: Readonly<Record<string, RouteId>> = {
   automation: "settings",
-  repricing: "inventory",
 };
 
-const SELLER_CONNECTION_ROUTES = new Set<RouteId>([
-  "add-cards",
-  "orders",
-  "scanner",
-  "messages",
-  "payments",
-  "feedback",
-  "inventory",
-]);
+const ROUTE_CAPABILITIES: Readonly<
+  Partial<Record<RouteId, MarketplaceFacetId>>
+> = {
+  orders: "order-pages",
+  scanner: "order-pages",
+  "add-cards": "catalog-search",
+  repricing: "repricing",
+  jobs: "repricing",
+  payments: "payments",
+  messages: "messages",
+  feedback: "feedback",
+};
 
 const ShipmentScannerPage = lazy(async () => {
   const module = await import("./pages/ShipmentScannerPage.js");
@@ -49,7 +54,8 @@ const ShipmentScannerPage = lazy(async () => {
 
 interface ApplicationRoute {
   readonly id: RouteId;
-  readonly orderNumber?: string;
+  readonly connectionId?: string;
+  readonly remoteOrderId?: string;
   readonly orderView?: "detail" | "master-pull-list";
 }
 
@@ -59,12 +65,19 @@ function routeFromHash(): ApplicationRoute {
     return { id: "orders", orderView: "master-pull-list" };
   }
   if (candidate.startsWith("orders/")) {
-    const encodedOrderNumber = candidate.slice("orders/".length);
-    if (encodedOrderNumber !== "" && !encodedOrderNumber.includes("/")) {
+    const orderPath = candidate.slice("orders/".length);
+    const segments = orderPath.split("/");
+    if (segments.length === 2) {
       try {
-        const orderNumber = decodeURIComponent(encodedOrderNumber).trim();
-        if (orderNumber !== "") {
-          return { id: "orders", orderNumber, orderView: "detail" };
+        const connectionId = decodeURIComponent(segments[0] ?? "").trim();
+        const remoteOrderId = decodeURIComponent(segments[1] ?? "").trim();
+        if (connectionId !== "" && remoteOrderId !== "") {
+          return {
+            id: "orders",
+            connectionId,
+            remoteOrderId,
+            orderView: "detail",
+          };
         }
       } catch {
         return { id: "orders" };
@@ -86,19 +99,11 @@ function Console() {
   const [visited, setVisited] = useState<ReadonlySet<RouteId>>(
     () => new Set<RouteId>([routeFromHash().id]),
   );
+  const { snapshot: marketplaceConnections } = useMarketplaceConnections();
   const { settings, loading, saving, dirty, error, save, reload } =
     useSettings();
   const toast = useToast();
   const { unreadCount } = useMessages();
-  const {
-    status: sellerConnection,
-    loading: sellerConnectionLoading,
-    busy: sellerConnectionBusy,
-    disconnect,
-  } = useAuthentication();
-  const sellerConnectionState =
-    sellerConnection?.state ??
-    (sellerConnectionLoading ? "checking" : "disconnected");
   useEffect(() => {
     const sync = () => {
       const next = routeFromHash();
@@ -121,18 +126,6 @@ function Console() {
       toast.show("Settings saved.", "success");
     } catch (cause) {
       toast.show(errorMessage(cause, "Settings could not be saved."), "danger");
-    }
-  }
-
-  async function logout() {
-    try {
-      await disconnect();
-      toast.show("Logged out of TCGPlayerAlert.", "success");
-    } catch (cause) {
-      toast.show(
-        errorMessage(cause, "TCGplayer could not be disconnected."),
-        "danger",
-      );
     }
   }
 
@@ -168,35 +161,55 @@ function Console() {
       messages: MessagesPage,
       scanner: ShipmentScannerPage,
       "add-cards": AddCardsPage,
-      inventory: InventoryPage,
+      inventory: LocalInventoryPage,
+      repricing: RepricingInventoryPage,
       settings: SettingsPage,
       jobs: JobsPage,
     };
     content = routes.map((candidate) => {
       if (!visited.has(candidate.id)) return null;
       const Page = pages[candidate.id];
-      const requiresSellerConnection = SELLER_CONNECTION_ROUTES.has(
-        candidate.id,
-      );
+      const capability = ROUTE_CAPABILITIES[candidate.id];
+      const capableConnections =
+        capability === undefined || marketplaceConnections === null
+          ? []
+          : marketplaceConnections.connections.filter(
+              (connection) =>
+                connection.enabled &&
+                connection.supportedFacets.includes(capability),
+            );
+      const capabilityUnavailable =
+        capability !== undefined &&
+        marketplaceConnections !== null &&
+        capableConnections.length === 0;
+      const capabilityDisconnected =
+        capability !== undefined &&
+        marketplaceConnections !== null &&
+        capableConnections.length > 0 &&
+        !capableConnections.some(
+          (connection) =>
+            connection.health.state === "connected" ||
+            connection.health.state === "degraded",
+        );
       return (
         <div
           key={candidate.id}
           class="route-panel"
           hidden={route !== candidate.id}
         >
-          {requiresSellerConnection && sellerConnectionState !== "connected" ? (
+          {capabilityUnavailable || capabilityDisconnected ? (
             <main class="page">
               <div class="app-loading">
                 <EmptyState
                   title={
-                    sellerConnectionState === "checking"
-                      ? "Checking TCGplayer connection"
-                      : `Connect TCGplayer to use ${candidate.label}`
+                    capabilityUnavailable
+                      ? `${candidate.label} is not available`
+                      : "Marketplace connection required"
                   }
                   detail={
-                    sellerConnectionState === "checking"
-                      ? "Seller requests remain paused until the connection is confirmed."
-                      : "This workspace will not make seller requests while logged out."
+                    capabilityUnavailable
+                      ? "No enabled marketplace connection exposes the required capability."
+                      : "Connect or repair a capable marketplace connection in Settings."
                   }
                 />
               </div>
@@ -214,10 +227,14 @@ function Console() {
               {candidate.id === "orders" ? (
                 applicationRoute.orderView === "master-pull-list" ? (
                   <MasterPullListPage />
-                ) : applicationRoute.orderNumber === undefined ? (
+                ) : applicationRoute.remoteOrderId === undefined ||
+                  applicationRoute.connectionId === undefined ? (
                   <OrdersPage />
                 ) : (
-                  <OrderDetailPage orderNumber={applicationRoute.orderNumber} />
+                  <OrderDetailPage
+                    remoteId={applicationRoute.remoteOrderId}
+                    connectionId={applicationRoute.connectionId}
+                  />
                 )
               ) : (
                 <Page />
@@ -229,23 +246,30 @@ function Console() {
     });
   }
 
+  const visibleRoutes =
+    marketplaceConnections === null
+      ? routes
+      : routes.filter((candidate) => {
+          const capability = ROUTE_CAPABILITIES[candidate.id];
+          return (
+            capability === undefined ||
+            marketplaceConnections.connections.some(
+              (connection) =>
+                connection.enabled &&
+                connection.supportedFacets.includes(capability),
+            )
+          );
+        });
+
   return (
     <AppShell
       route={route}
       onNavigate={navigate}
       unreadMessageCount={unreadCount}
-      sellerConnectionState={sellerConnectionState}
-      logoutBusy={sellerConnectionBusy}
-      onLogout={() => void logout()}
-      connectionBanner={
-        sellerConnectionLoading ||
-        sellerConnectionState === "connected" ||
-        route === "settings" ? undefined : (
-          <SellerConnectionCard compact />
-        )
-      }
+      visibleRoutes={visibleRoutes}
     >
       {content}
+      <ShipmentOutcomeMonitor />
       {dirty ? (
         <div class="save-dock">
           <span>
@@ -271,11 +295,13 @@ export function App() {
     <ToastProvider>
       <AuthenticationProvider>
         <SettingsProvider>
-          <OrdersProvider>
-            <MessagesProvider>
-              <Console />
-            </MessagesProvider>
-          </OrdersProvider>
+          <MarketplaceConnectionsProvider>
+            <OrdersProvider>
+              <MessagesProvider>
+                <Console />
+              </MessagesProvider>
+            </OrdersProvider>
+          </MarketplaceConnectionsProvider>
         </SettingsProvider>
       </AuthenticationProvider>
     </ToastProvider>

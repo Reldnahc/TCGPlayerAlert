@@ -11,10 +11,76 @@ import {
   settings,
   resetWebUiTest,
 } from "./web-ui-fixtures.js";
+import { marketplaceOrder } from "./marketplace-ui-fixtures.js";
 
 afterEach(resetWebUiTest);
 
 describe("authentication and dashboard", () => {
+  it("saves API marketplace credentials through Settings without retaining secrets in the browser", async () => {
+    const savedBodies: unknown[] = [];
+    const endpoint = "/api/marketplace-connections/manapool-main/credentials";
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        if (requestPath(input) === endpoint && options?.method === "PUT") {
+          if (typeof options.body !== "string") {
+            throw new Error("Expected a JSON request body.");
+          }
+          savedBodies.push(JSON.parse(options.body) as unknown);
+          return Promise.resolve(
+            json({
+              connectionId: "manapool-main",
+              configured: true,
+              protectedStorage: true,
+              fields: [
+                {
+                  id: "email",
+                  label: "Seller email",
+                  inputType: "email",
+                  configured: true,
+                  source: "settings",
+                },
+                {
+                  id: "access-token",
+                  label: "Seller API code",
+                  inputType: "password",
+                  configured: true,
+                  source: "settings",
+                },
+              ],
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    const email = await screen.findByLabelText(/Seller email/u);
+    const apiCode = screen.getByLabelText(/Seller API code/u);
+    await user.type(email, "seller@example.com");
+    await user.type(apiCode, "private-api-code");
+    await user.click(screen.getByRole("button", { name: "Save credentials" }));
+
+    expect(
+      await screen.findByText(
+        "Marketplace credentials saved securely and applied.",
+      ),
+    ).toBeTruthy();
+    expect(savedBodies).toEqual([
+      {
+        values: {
+          email: "seller@example.com",
+          "access-token": "private-api-code",
+        },
+      },
+    ]);
+    expect(document.body.textContent).not.toContain("private-api-code");
+    expect(document.body.textContent).not.toContain("seller@example.com");
+  });
+
   it("configures Discord notifications without retaining the webhook in the browser", async () => {
     const fetchMock = vi.fn(baseFetch);
     vi.stubGlobal("fetch", fetchMock);
@@ -56,7 +122,7 @@ describe("authentication and dashboard", () => {
     );
   });
 
-  it("keeps seller requests idle while disconnected", async () => {
+  it("keeps provider-neutral orders available while legacy TCG auth is disconnected", async () => {
     const requestedPaths: string[] = [];
     const intervalSpy = vi.spyOn(window, "setInterval");
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -71,35 +137,47 @@ describe("authentication and dashboard", () => {
           }),
         );
       }
+      if (path === "/api/marketplace-connections") {
+        return Promise.resolve(
+          json({
+            connections: [],
+            completedAt: "2026-08-07T12:00:00.000Z",
+          }),
+        );
+      }
+      if (path === "/api/orders/ready") {
+        return Promise.resolve(
+          json({
+            data: [],
+            issues: [],
+            completedAt: "2026-08-07T12:00:00.000Z",
+          }),
+        );
+      }
       if (path === "/api/settings") return Promise.resolve(json(settings));
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    expect(
-      await screen.findByText("Connect TCGplayer to load orders"),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Sync now" }).hasAttribute("disabled"),
-    ).toBe(true);
+    expect(await screen.findByText("No orders are ready to ship")).toBeTruthy();
     expect(
       requestedPaths.filter((path) => path === "/api/auth/status"),
     ).toHaveLength(1);
     expect(
-      requestedPaths.filter(
-        (path) =>
-          path.startsWith("/api/orders") || path.startsWith("/api/messages"),
-      ),
+      requestedPaths.filter((path) => path === "/api/orders/ready"),
+    ).toHaveLength(1);
+    expect(
+      requestedPaths.filter((path) => path.startsWith("/api/messages")),
     ).toHaveLength(0);
     expect(
       intervalSpy.mock.calls.filter(([, timeout]) =>
-        [2_000, 5_000, 60_000].includes(Number(timeout)),
+        [2_000, 60_000].includes(Number(timeout)),
       ),
     ).toHaveLength(0);
   });
 
-  it("logs out from the authenticated sidebar footer", async () => {
+  it("disconnects a provider from its settings card", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         if (requestPath(input) === "/api/auth/disconnect") {
@@ -118,10 +196,16 @@ describe("authentication and dashboard", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Log out" }));
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    expect(
+      await screen.findByRole("heading", { name: "TCGplayer connected" }),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
 
-    expect(await screen.findByText("Disconnected")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "Connect TCGplayer" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
     expect(
       fetchMock.mock.calls.filter(
         ([input]) => requestPath(input) === "/api/auth/disconnect",
@@ -129,7 +213,7 @@ describe("authentication and dashboard", () => {
     ).toHaveLength(1);
   });
 
-  it("turns an authentication rejection into one stable expired state", async () => {
+  it("turns an authentication rejection into one stable non-blocking expired state", async () => {
     let statusReads = 0;
     let orderReads = 0;
     const fetchMock = vi.fn(
@@ -170,19 +254,24 @@ describe("authentication and dashboard", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
     render(<App />);
 
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }),
+    ).toBeTruthy();
+    await waitFor(() => expect(statusReads).toBe(2));
+    expect(orderReads).toBe(1);
+    expect(screen.queryByText("Synthetic expired session.")).toBeNull();
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     expect(
       await screen.findByRole("heading", {
         name: "TCGplayer session expired",
       }),
     ).toBeTruthy();
-    await waitFor(() => expect(statusReads).toBe(2));
-    expect(orderReads).toBe(1);
-    expect(screen.queryByText("Synthetic expired session.")).toBeNull();
   });
 
-  it("starts browser pairing from a disconnected connection banner", async () => {
+  it("does not globally block marketplace workspaces for a disconnected legacy session", async () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
@@ -195,15 +284,6 @@ describe("authentication and dashboard", () => {
             }),
           );
         }
-        if (path === "/api/auth/pairing") {
-          return Promise.resolve(
-            json({
-              pairingCode: "ABCD-EF01-2345-6789",
-              expiresAt: "2026-08-08T12:10:00.000Z",
-              port: 47831,
-            }),
-          );
-        }
         return baseFetch(input, options);
       },
     );
@@ -211,15 +291,15 @@ describe("authentication and dashboard", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const heading = await screen.findByRole("heading", {
-      name: "Connect TCGplayer",
-    });
-    const panel = heading.closest("section");
-    if (panel === null) throw new Error("Missing seller connection panel.");
-    await user.click(within(panel).getByRole("button", { name: "Connect" }));
-
-    expect(await within(panel).findByText("ABCD-EF01-2345-6789")).toBeTruthy();
-    expect(within(panel).getByText("47831")).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("link", { name: "Orders" }));
+    expect(await screen.findByRole("heading", { name: "Orders" })).toBeTruthy();
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    expect(
+      await screen.findByRole("heading", { name: "Connect TCGplayer" }),
+    ).toBeTruthy();
   });
 
   it("updates an open dashboard from the local synchronized snapshot", async () => {
@@ -238,29 +318,22 @@ describe("authentication and dashboard", () => {
         return realSetInterval(handler, timeout) as unknown as NodeJS.Timeout;
       },
     );
-    const synchronizedOrder = {
-      orderNumber: "SYNTHETIC-SCHEDULED",
-      buyerName: "Synthetic Buyer",
-      orderDate: "2026-08-07T12:00:00.000Z",
-      status: "Ready to Ship",
-      statusCode: "ReadyToShip",
-      canMarkShipped: true,
-      shippingType: "Standard",
-      productAmount: 10,
-      shippingAmount: 1.49,
-      totalAmount: 11.49,
-    };
+    const synchronizedOrder = marketplaceOrder({
+      remoteId: "SYNTHETIC-SCHEDULED",
+      subtotalMinorUnits: 1_000,
+      shippingMinorUnits: 149,
+      totalMinorUnits: 1_149,
+    });
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
-        if (path === "/api/orders?status=ready-to-ship") {
+        if (path === "/api/orders/ready") {
           readyReads += 1;
           return Promise.resolve(
             json({
-              snapshot: {
-                orders: readyReads === 1 ? [] : [synchronizedOrder],
-                fetchedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
-              },
+              data: readyReads === 1 ? [] : [synchronizedOrder],
+              issues: [],
+              completedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
             }),
           );
         }
@@ -309,35 +382,32 @@ describe("authentication and dashboard", () => {
         return realSetInterval(handler, timeout) as unknown as NodeJS.Timeout;
       },
     );
-    const readyOrder = {
-      orderNumber: "SYNTHETIC-SCANNER-SHIPMENT",
-      buyerName: "Synthetic Buyer",
-      orderDate: "2026-08-07T12:00:00.000Z",
-      status: "Ready to Ship",
-      statusCode: "ReadyToShip",
-      canMarkShipped: true,
-      shippingType: "Standard",
-      productAmount: 10,
-      shippingAmount: 1.49,
-      totalAmount: 11.49,
-    };
-    const shippedOrder = {
-      ...readyOrder,
-      status: "Shipped",
-      statusCode: "Shipped",
-      canMarkShipped: false,
-    };
+    const readyOrder = marketplaceOrder({
+      remoteId: "SYNTHETIC-SCANNER-SHIPMENT",
+      subtotalMinorUnits: 1_000,
+      shippingMinorUnits: 149,
+      totalMinorUnits: 1_149,
+    });
+    const shippedOrder = marketplaceOrder({
+      remoteId: readyOrder.ref.remoteId,
+      providerStatus: "Shipped",
+      providerStatusCode: "Shipped",
+      lifecycle: "shipped",
+      subtotalMinorUnits: 1_000,
+      shippingMinorUnits: 149,
+      totalMinorUnits: 1_149,
+      availableActions: ["view-detail", "packing-slip", "pirate-ship"],
+    });
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
-        if (path === "/api/orders?status=ready-to-ship") {
+        if (path === "/api/orders/ready") {
           readyReads += 1;
           return Promise.resolve(
             json({
-              snapshot: {
-                orders: readyReads === 1 ? [readyOrder] : [],
-                fetchedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
-              },
+              data: readyReads === 1 ? [readyOrder] : [],
+              issues: [],
+              completedAt: `2026-08-07T12:0${String(readyReads)}:00.000Z`,
             }),
           );
         }
@@ -345,8 +415,9 @@ describe("authentication and dashboard", () => {
           allReads += 1;
           return Promise.resolve(
             json({
-              orders: allReads === 1 ? [readyOrder] : [shippedOrder],
-              fetchedAt: `2026-08-07T12:1${String(allReads)}:00.000Z`,
+              data: allReads === 1 ? [readyOrder] : [shippedOrder],
+              issues: [],
+              completedAt: `2026-08-07T12:1${String(allReads)}:00.000Z`,
             }),
           );
         }
@@ -357,7 +428,9 @@ describe("authentication and dashboard", () => {
     render(<App />);
 
     const orderRow = () =>
-      screen.getByRole("link", { name: readyOrder.orderNumber }).closest("tr");
+      screen
+        .getByRole("link", { name: readyOrder.displayOrderNumber })
+        .closest("tr");
     await screen.findByText("Ready to Ship");
     await waitFor(() => expect(readyReads).toBe(1));
     await waitFor(() => expect(allReads).toBe(1));
@@ -388,29 +461,30 @@ describe("authentication and dashboard", () => {
   });
 
   it("starts fulfillment synchronization only after the operator selects Sync now", async () => {
-    const synchronizedOrder = {
-      orderNumber: "SYNTHETIC-EXPLICIT-SYNC",
-      buyerName: "Synthetic Buyer",
-      orderDate: "2026-08-07T12:00:00.000Z",
-      status: "Ready to Ship",
-      statusCode: "ReadyToShip",
-      canMarkShipped: true,
-      shippingType: "Standard",
-      productAmount: 10,
-      shippingAmount: 1.49,
-      totalAmount: 11.49,
-    };
+    const synchronizedOrder = marketplaceOrder({
+      remoteId: "SYNTHETIC-EXPLICIT-SYNC",
+      subtotalMinorUnits: 1_000,
+      shippingMinorUnits: 149,
+      totalMinorUnits: 1_149,
+    });
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
-        if (path === "/api/orders?status=ready-to-ship") {
-          return Promise.resolve(json({ snapshot: null }));
+        if (path === "/api/orders/ready") {
+          return Promise.resolve(
+            json({
+              data: [],
+              issues: [],
+              completedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
         }
         if (path === "/api/orders/sync") {
           return Promise.resolve(
             json({
-              orders: [synchronizedOrder],
-              fetchedAt: "2026-08-07T12:05:00.000Z",
+              data: [synchronizedOrder],
+              issues: [],
+              completedAt: "2026-08-07T12:05:00.000Z",
             }),
           );
         }
@@ -425,8 +499,7 @@ describe("authentication and dashboard", () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
-          ([input]) =>
-            requestPath(input) === "/api/orders?status=ready-to-ship",
+          ([input]) => requestPath(input) === "/api/orders/ready",
         ),
       ).toBe(true),
     );
@@ -450,36 +523,30 @@ describe("authentication and dashboard", () => {
 
   it("keeps the dashboard ready queue separate from the all-orders view", async () => {
     window.location.hash = "orders";
-    const allOnlyOrder = {
-      orderNumber: "SYNTHETIC-ALL-ONLY",
-      buyerName: "Synthetic Buyer",
-      orderDate: "2026-08-07T12:00:00.000Z",
-      status: "Ready to Ship",
-      statusCode: "ReadyToShip",
-      canMarkShipped: true,
-      shippingType: "Standard",
-      productAmount: 10,
-      shippingAmount: 1.49,
-      totalAmount: 11.49,
-    };
+    const allOnlyOrder = marketplaceOrder({
+      remoteId: "SYNTHETIC-ALL-ONLY",
+      subtotalMinorUnits: 1_000,
+      shippingMinorUnits: 149,
+      totalMinorUnits: 1_149,
+    });
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
         if (path === "/api/orders?") {
           return Promise.resolve(
             json({
-              orders: [allOnlyOrder],
-              fetchedAt: "2026-08-07T12:00:00.000Z",
+              data: [allOnlyOrder],
+              issues: [],
+              completedAt: "2026-08-07T12:00:00.000Z",
             }),
           );
         }
-        if (path === "/api/orders?status=ready-to-ship") {
+        if (path === "/api/orders/ready") {
           return Promise.resolve(
             json({
-              snapshot: {
-                orders: [],
-                fetchedAt: "2026-08-07T12:01:00.000Z",
-              },
+              data: [],
+              issues: [],
+              completedAt: "2026-08-07T12:01:00.000Z",
             }),
           );
         }
@@ -506,7 +573,7 @@ describe("authentication and dashboard", () => {
     ).toBe("#orders/pull-list");
     expect(
       fetchMock.mock.calls.some(
-        ([input]) => requestPath(input) === "/api/orders?status=ready-to-ship",
+        ([input]) => requestPath(input) === "/api/orders/ready",
       ),
     ).toBe(true);
   });
@@ -573,22 +640,32 @@ describe("authentication and dashboard", () => {
       ].map((link) => link.textContent.trim()),
     ).toEqual([
       "Dashboard",
-      "Labels",
       "Add cards",
+      "Inventory",
+      "Repricing",
       "Orders",
       "Scanner",
+      "Labels",
       "Messages",
       "Payments",
       "Feedback",
-      "Inventory",
-      "Settings",
       "Jobs",
+      "Settings",
     ]);
     await user.click(screen.getByRole("link", { name: "Settings" }));
     expect(
       await screen.findByRole("heading", { name: "Settings" }),
     ).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "ManaPool" }),
+    ).toBeTruthy();
+    expect(await screen.findByLabelText(/Seller email/u)).toBeTruthy();
+    expect(screen.getByLabelText(/Seller API code/u)).toBeTruthy();
+    expect(
+      screen.getAllByText("Using the test environment fallback"),
+    ).toHaveLength(2);
     expect(screen.queryByText("Unsaved configuration changes")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "General" }));
     const shipmentConfirmation = screen.getByRole("checkbox", {
       name: /Confirm before marking shipped/u,
     });
@@ -642,6 +719,12 @@ describe("authentication and dashboard", () => {
 
   it("removes a tracked $50 order from Dashboard immediately after shipment", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const readyOrder = marketplaceOrder({
+      remoteId: "SYNTHETIC-ORDER-1",
+      subtotalMinorUnits: 4_851,
+      shippingMinorUnits: 149,
+      totalMinorUnits: 5_000,
+    });
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
@@ -651,45 +734,32 @@ describe("authentication and dashboard", () => {
           );
         }
         if (
-          path === "/api/orders/SYNTHETIC-ORDER-1/tracking" &&
+          path ===
+            "/api/connections/tcgplayer-main/orders/SYNTHETIC-ORDER-1/tracking" &&
           options?.method === "POST"
         ) {
           return Promise.resolve(
             json({
-              orderNumber: "SYNTHETIC-ORDER-1",
-              carrier: "USPS",
+              ref: readyOrder.ref,
               outcome: "applied",
             }),
           );
         }
         if (
-          path === "/api/orders/SYNTHETIC-ORDER-1/mark-shipped" &&
+          path ===
+            "/api/connections/tcgplayer-main/orders/SYNTHETIC-ORDER-1/mark-shipped" &&
           options?.method === "POST"
         ) {
           return Promise.resolve(
-            json({ orderNumber: "SYNTHETIC-ORDER-1", outcome: "applied" }),
+            json({ ref: readyOrder.ref, outcome: "applied" }),
           );
         }
-        if (path === "/api/orders?status=ready-to-ship") {
+        if (path === "/api/orders/ready") {
           return Promise.resolve(
             json({
-              snapshot: {
-                orders: [
-                  {
-                    orderNumber: "SYNTHETIC-ORDER-1",
-                    buyerName: "Synthetic Buyer",
-                    orderDate: "2026-08-07T12:00:00.000Z",
-                    status: "Ready to Ship",
-                    statusCode: "ReadyToShip",
-                    canMarkShipped: true,
-                    shippingType: "Standard",
-                    productAmount: 48.51,
-                    shippingAmount: 1.49,
-                    totalAmount: 50,
-                  },
-                ],
-                fetchedAt: "2026-08-07T12:00:00.000Z",
-              },
+              data: [readyOrder],
+              issues: [],
+              completedAt: "2026-08-07T12:00:00.000Z",
             }),
           );
         }
@@ -710,7 +780,7 @@ describe("authentication and dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/orders/SYNTHETIC-ORDER-1/tracking",
+        "/api/connections/tcgplayer-main/orders/SYNTHETIC-ORDER-1/tracking",
         expect.objectContaining({ method: "POST" }),
       ),
     );
@@ -721,20 +791,108 @@ describe("authentication and dashboard", () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/orders/SYNTHETIC-ORDER-1/mark-shipped",
+        "/api/connections/tcgplayer-main/orders/SYNTHETIC-ORDER-1/mark-shipped",
         expect.objectContaining({ method: "POST" }),
       ),
     );
     expect(confirm).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.filter(([input]) =>
-          requestPath(input).startsWith("/api/orders?"),
+        fetchMock.mock.calls.filter(
+          ([input]) => requestPath(input) === "/api/orders/ready",
         ),
       ).toHaveLength(2),
     );
     await waitFor(() =>
       expect(screen.queryByText("SYNTHETIC-ORDER-1")).toBeNull(),
+    );
+  });
+
+  it("announces scanner shipments and removes them from Dashboard immediately", async () => {
+    const readyOrder = marketplaceOrder({
+      remoteId: "SCANNED-ORDER-1",
+      displayOrderNumber: "SCANNED-ORDER-1",
+    });
+    let scannerReads = 0;
+    const resultAt = new Date(Date.now() + 1_000).toISOString();
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (path === "/api/settings") {
+          return Promise.resolve(
+            json({
+              ...settings,
+              shipmentScanner: {
+                ...settings.shipmentScanner,
+                enabled: true,
+                automaticallyMarkShipped: true,
+              },
+            }),
+          );
+        }
+        if (path === "/api/orders/ready") {
+          return Promise.resolve(
+            json({
+              data: [readyOrder],
+              issues: [],
+              completedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
+        }
+        if (path === "/api/shipment-scanner") {
+          scannerReads += 1;
+          return Promise.resolve(
+            json({
+              enabled: true,
+              automaticallyMarkShipped: true,
+              soundEnabled: false,
+              readyOrderCount: scannerReads === 1 ? 1 : 0,
+              readyTagIds: scannerReads === 1 ? [7] : [],
+              conflictingTagCount: 0,
+              reviewRequiredCount: 0,
+              issues: [],
+              backgroundCamera: {
+                state: "running",
+                deviceId: "synthetic-camera",
+                consensus: {
+                  tagId: null,
+                  matchingReads: 0,
+                  requiredReads: 0,
+                },
+                ...(scannerReads === 1
+                  ? {}
+                  : {
+                      lastResultAt: resultAt,
+                      lastResult: {
+                        state: "shipped",
+                        tagId: 7,
+                        order: readyOrder,
+                        outcome: "applied",
+                      },
+                    }),
+              },
+            }),
+          );
+        }
+        return baseFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    const row = await screen.findByRole("row", { name: /SCANNED-ORDER-1/u });
+    expect(row).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Order SCANNED-ORDER-1 marked shipped from scanner.",
+        {},
+        { timeout: 2_000 },
+      ),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("row", { name: /SCANNED-ORDER-1/u }),
+      ).toBeNull(),
     );
   });
 });
