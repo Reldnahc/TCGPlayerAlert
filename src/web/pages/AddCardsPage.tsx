@@ -173,6 +173,12 @@ export function AddCardsPage() {
         connection.health.state === "degraded",
     ) ??
     catalogConnections[0];
+
+  function selectListingDestination(destination: string) {
+    setListingDestinationId(destination);
+    setRowPrices({});
+    window.localStorage.setItem(LISTING_DESTINATION_KEY, destination);
+  }
   const [query, setQuery] = useState("");
   const [productLine, setProductLine] = useState("");
   const [setName, setSetName] = useState("");
@@ -823,37 +829,49 @@ export function AddCardsPage() {
               ? "English · Near Mint · Normal"
               : `${activeProfile.language} · ${activeProfile.defaultCondition} · ${activeProfile.defaultPrinting}`}
           </span>
-          <Field label="List on" class="profile-field">
-            <select
-              value={
-                automaticListing
-                  ? "auto"
-                  : (listingDestination?.descriptor.connectionId ?? "local")
-              }
-              onChange={(event) => {
-                const destination = event.currentTarget.value;
-                setListingDestinationId(destination);
-                setRowPrices({});
-                window.localStorage.setItem(
-                  LISTING_DESTINATION_KEY,
-                  destination,
-                );
-              }}
+          <div class="field listing-destination-field">
+            <span class="field__label">List on</span>
+            <div
+              class="segmented listing-destination-options"
+              role="group"
+              aria-label="List on"
             >
               {automaticListingAvailable ? (
-                <option value="auto">Auto · best listing price</option>
+                <button
+                  type="button"
+                  aria-pressed={automaticListing}
+                  onClick={() => selectListingDestination("auto")}
+                >
+                  Auto · best price
+                </button>
               ) : null}
               {listingConnections.map((connection) => (
-                <option
+                <button
                   key={connection.descriptor.connectionId}
-                  value={connection.descriptor.connectionId}
+                  type="button"
+                  aria-pressed={
+                    !automaticListing &&
+                    listingDestination?.descriptor.connectionId ===
+                      connection.descriptor.connectionId
+                  }
+                  onClick={() =>
+                    selectListingDestination(connection.descriptor.connectionId)
+                  }
                 >
                   {connection.descriptor.connectionLabel}
-                </option>
+                </button>
               ))}
-              <option value="local">Local inventory only</option>
-            </select>
-          </Field>
+              <button
+                type="button"
+                aria-pressed={
+                  !automaticListing && listingDestinationId === "local"
+                }
+                onClick={() => selectListingDestination("local")}
+              >
+                Local only
+              </button>
+            </div>
+          </div>
         </Toolbar>
         <Notice tone="info">
           {automaticListing

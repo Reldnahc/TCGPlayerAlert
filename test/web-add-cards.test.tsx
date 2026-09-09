@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/preact";
+import { render, screen, within } from "@testing-library/preact";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/web/App.js";
@@ -22,7 +22,7 @@ describe("local Add cards workflow", () => {
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Add cards" }));
-    await user.selectOptions(screen.getByLabelText("List on"), "manapool-main");
+    await user.click(listOnButton("ManaPool"));
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -88,7 +88,7 @@ describe("local Add cards workflow", () => {
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Add cards" }));
-    expect(listOnValue()).toBe("local");
+    expect(listOnValue()).toBe("Local only");
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -116,11 +116,8 @@ describe("local Add cards workflow", () => {
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Add cards" }));
-    await user.selectOptions(
-      screen.getByLabelText("List on"),
-      "tcgplayer-main",
-    );
-    expect(listOnValue()).toBe("tcgplayer-main");
+    await user.click(listOnButton("TCGplayer"));
+    expect(listOnValue()).toBe("TCGplayer");
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -155,7 +152,10 @@ describe("local Add cards workflow", () => {
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Add cards" }));
-    expect(listOnValue()).toBe("auto");
+    expect(listOnValue()).toBe("Auto · best price");
+    expect(listOnButton("TCGplayer")).toBeTruthy();
+    expect(listOnButton("ManaPool")).toBeTruthy();
+    expect(listOnButton("Local only")).toBeTruthy();
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -190,7 +190,7 @@ describe("local Add cards workflow", () => {
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Add cards" }));
-    expect(listOnValue()).toBe("auto");
+    expect(listOnValue()).toBe("Auto · best price");
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -215,7 +215,7 @@ describe("local Add cards workflow", () => {
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await user.click(screen.getByRole("link", { name: "Add cards" }));
-    await user.selectOptions(screen.getByLabelText("List on"), "local");
+    await user.click(listOnButton("Local only"));
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -472,11 +472,20 @@ function product() {
 }
 
 function listOnValue(): string {
-  const select = screen.getByLabelText("List on");
-  if (!(select instanceof HTMLSelectElement)) {
-    throw new Error("Expected a listing destination selector.");
+  const selected = within(screen.getByRole("group", { name: "List on" }))
+    .getAllByRole("button")
+    .find((button) => button.getAttribute("aria-pressed") === "true");
+  if (selected === undefined) {
+    throw new Error("Expected a selected listing destination.");
   }
-  return select.value;
+  return selected.textContent;
+}
+
+function listOnButton(name: string): HTMLElement {
+  return within(screen.getByRole("group", { name: "List on" })).getByRole(
+    "button",
+    { name },
+  );
 }
 
 function additionPreview() {

@@ -5,6 +5,20 @@
   align-content: start;
   gap: 9px;
 }
+.add-cards-layout .toolbar {
+  flex-wrap: wrap;
+}
+.listing-destination-field {
+  width: auto;
+  min-width: 0;
+}
+.listing-destination-options {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.listing-destination-options button {
+  white-space: nowrap;
+}
 .inventory-tabs-bar {
   display: flex;
   min-width: 0;
