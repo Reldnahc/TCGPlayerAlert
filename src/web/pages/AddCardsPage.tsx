@@ -1210,14 +1210,7 @@ function CatalogRow({
       ref={element}
       class={`catalog-row${selection.printing === "Foil" ? " is-foil" : ""}`}
     >
-      <div class="catalog-art">
-        <img
-          src={product.imageUrl}
-          alt=""
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      </div>
+      <CatalogArt product={product} />
       <div class="catalog-copy">
         <strong>{product.productName}</strong>
         <span>
@@ -1349,5 +1342,83 @@ function CatalogRow({
         </div>
       )}
     </div>
+  );
+}
+
+function CatalogArt({
+  product,
+}: {
+  readonly product: CatalogSearch["products"][number];
+}) {
+  const [enlarged, setEnlarged] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const titleId = `catalog-image-title-${String(product.productId)}`;
+
+  useEffect(() => {
+    if (!enlarged) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEnlarged(false);
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    closeButton.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+      trigger.current?.focus();
+    };
+  }, [enlarged]);
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        class="catalog-art"
+        aria-label={`Enlarge image of ${product.productName}`}
+        onClick={() => setEnlarged(true)}
+      >
+        <img
+          src={product.imageUrl}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      </button>
+      {enlarged ? (
+        <div
+          class="catalog-image-backdrop"
+          onClick={(event) => {
+            if (event.currentTarget === event.target) setEnlarged(false);
+          }}
+        >
+          <div
+            class="catalog-image-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+          >
+            <div class="catalog-image-dialog__header">
+              <strong id={titleId}>{product.productName}</strong>
+              <button
+                ref={closeButton}
+                type="button"
+                aria-label={`Close enlarged image of ${product.productName}`}
+                onClick={() => setEnlarged(false)}
+              >
+                ×
+              </button>
+            </div>
+            <img
+              src={product.imageUrl}
+              alt={product.productName}
+              referrerPolicy="no-referrer"
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

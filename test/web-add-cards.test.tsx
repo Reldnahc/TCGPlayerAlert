@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/preact";
+import { render, screen, waitFor, within } from "@testing-library/preact";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/web/App.js";
@@ -14,6 +14,44 @@ import {
 afterEach(resetWebUiTest);
 
 describe("local Add cards workflow", () => {
+  it("enlarges a card image when its thumbnail is clicked", async () => {
+    vi.stubGlobal("fetch", vi.fn(localAddFetch));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.type(
+      screen.getByLabelText("Card name or product #"),
+      "Synthetic Card",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    const thumbnail = await screen.findByRole("button", {
+      name: "Enlarge image of Synthetic Card",
+    });
+
+    await user.click(thumbnail);
+
+    const viewer = screen.getByRole("dialog", { name: "Synthetic Card" });
+    expect(
+      within(viewer)
+        .getByRole("img", { name: "Synthetic Card" })
+        .getAttribute("src"),
+    ).toBe("https://example.invalid/card.jpg");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        within(viewer).getByRole("button", {
+          name: "Close enlarged image of Synthetic Card",
+        }),
+      );
+    });
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Synthetic Card" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(thumbnail));
+  });
+
   it("adds locally and immediately prepares ManaPool when the top toggle is enabled", async () => {
     const fetchMock = vi.fn(localAddFetch);
     vi.stubGlobal("fetch", fetchMock);
