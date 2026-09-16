@@ -106,11 +106,17 @@ interface StoredInventoryComparisonSnapshot {
   readonly value: Promise<SearchMarketplaceProductsResult>;
 }
 
+interface StoredSkuMarketPriceSnapshot {
+  readonly expiresAt: number;
+  readonly value: Promise<number | undefined>;
+}
+
 export interface InventoryAdditionServiceOptions {
   readonly client: Pick<
     TcgplayerSellerClient,
     "searchCatalogProducts" | "getCatalogProduct" | "searchMarketplaceProducts"
-  >;
+  > &
+    Partial<Pick<TcgplayerSellerClient, "getSkuMarketPrices">>;
   readonly sellerKey: SellerKeySource;
   readonly now?: () => Date;
   readonly id?: () => string;
@@ -385,6 +391,7 @@ function calculateInventoryAdditionPrice(
   sku: CatalogProductSku,
   currentQuantity: number,
   comparisonListings: readonly MarketplaceListing[],
+  exactSkuMarketPrice: number | undefined,
   sellerKey: string,
   rules: InventoryPricingRules,
 ) {
@@ -425,6 +432,10 @@ function calculateInventoryAdditionPrice(
       sellerKey,
       pricingRules,
       "inventory-addition",
+      {
+        exactSkuMarketPriceResolved: true,
+        ...(exactSkuMarketPrice === undefined ? {} : { exactSkuMarketPrice }),
+      },
     );
     if (!result.queueable) return result;
     const effectiveShipping = roundCurrency(
@@ -462,6 +473,10 @@ export class InventoryAdditionService {
   private readonly comparisonSnapshots = new Map<
     string,
     StoredInventoryComparisonSnapshot
+  >();
+  private readonly skuMarketPriceSnapshots = new Map<
+    number,
+    StoredSkuMarketPriceSnapshot
   >();
 
   constructor(options: InventoryAdditionServiceOptions) {
@@ -620,10 +635,12 @@ export class InventoryAdditionService {
         reason: "The selected SKU uses an unsupported condition.",
       });
     }
-    const [{ primary, secondary }, comparisons] = await Promise.all([
-      this.selectionSnapshot(product),
-      this.comparisonSnapshot(product, sku, conditions),
-    ]);
+    const [{ primary, secondary }, comparisons, exactSkuMarketPrice] =
+      await Promise.all([
+        this.selectionSnapshot(product),
+        this.comparisonSnapshot(product, sku, conditions),
+        this.skuMarketPriceSnapshot(sku.productConditionId),
+      ]);
     const currentListing = primary.products
       .flatMap((item) => item.listings)
       .find(
@@ -662,6 +679,7 @@ export class InventoryAdditionService {
       sku,
       currentQuantity,
       comparisons.products.flatMap((item) => item.listings),
+      exactSkuMarketPrice,
       sellerKey,
       rules,
     );
@@ -850,6 +868,38 @@ export class InventoryAdditionService {
     return value;
   }
 
+  private skuMarketPriceSnapshot(
+    productConditionId: number,
+  ): Promise<number | undefined> {
+    const cached = this.skuMarketPriceSnapshots.get(productConditionId);
+    if (cached !== undefined) return cached.value;
+    const value = this.loadSkuMarketPrice(productConditionId);
+    this.skuMarketPriceSnapshots.set(productConditionId, {
+      expiresAt: this.now().getTime() + this.previewLifetimeMs,
+      value,
+    });
+    void value.catch(() => {
+      if (
+        this.skuMarketPriceSnapshots.get(productConditionId)?.value === value
+      ) {
+        this.skuMarketPriceSnapshots.delete(productConditionId);
+      }
+    });
+    return value;
+  }
+
+  private async loadSkuMarketPrice(
+    productConditionId: number,
+  ): Promise<number | undefined> {
+    if (this.client.getSkuMarketPrices === undefined) return undefined;
+    const result = await this.client.getSkuMarketPrices({
+      productConditionIds: [productConditionId],
+    });
+    return result.prices.find(
+      (price) => price.productConditionId === productConditionId,
+    )?.marketPrice;
+  }
+
   private removeExpiredSelectionData(): void {
     const now = this.now().getTime();
     for (const [productId, product] of this.catalogProducts) {
@@ -861,6 +911,11 @@ export class InventoryAdditionService {
     for (const [key, snapshot] of this.comparisonSnapshots) {
       if (snapshot.expiresAt <= now) this.comparisonSnapshots.delete(key);
     }
+    for (const [productConditionId, snapshot] of this.skuMarketPriceSnapshots) {
+      if (snapshot.expiresAt <= now) {
+        this.skuMarketPriceSnapshots.delete(productConditionId);
+      }
+    }
   }
 
   private invalidateSelectionData(productId: number): void {
@@ -870,6 +925,7 @@ export class InventoryAdditionService {
     for (const key of this.comparisonSnapshots.keys()) {
       if (key.startsWith(prefix)) this.comparisonSnapshots.delete(key);
     }
+    this.skuMarketPriceSnapshots.clear();
   }
 
   private currentSellerKey(): string {

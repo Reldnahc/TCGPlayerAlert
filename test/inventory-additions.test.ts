@@ -619,6 +619,10 @@ describe("inventory additions", () => {
           }),
         getCatalogProduct: () =>
           Promise.resolve({ ...product, marketPrice: 0.2 }),
+        getSkuMarketPrices: () =>
+          Promise.resolve({
+            prices: [{ productConditionId: 456, marketPrice: 0.2 }],
+          }),
         searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
       },
     });
@@ -648,6 +652,110 @@ describe("inventory additions", () => {
     });
   });
 
+  it("uses the exact foil SKU market price instead of the product price", async () => {
+    const foilProduct: CatalogProductDetails = {
+      ...product,
+      marketPrice: 1,
+      skus: [
+        {
+          productConditionId: 457,
+          conditionId: 1,
+          condition: "Near Mint",
+          printing: "Foil",
+          language: "English",
+        },
+      ],
+    };
+    const getSkuMarketPrices = vi.fn(() =>
+      Promise.resolve({
+        prices: [{ productConditionId: 457, marketPrice: 7.39 }],
+      }),
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [foilProduct],
+          }),
+        getCatalogProduct: () => Promise.resolve(foilProduct),
+        getSkuMarketPrices,
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 457,
+      addQuantity: 1,
+      rules: additionPricingRules({
+        conditionPolicy: "same",
+        ranges: [
+          {
+            minimumListings: 0,
+            priceSource: "market",
+            percentage: 100,
+            gapThresholdPercent: 100,
+            gapAction: "follow-lowest",
+          },
+        ],
+      }),
+    });
+
+    expect(preview).toMatchObject({
+      proposedPrice: 7.39,
+      minimumApplied: false,
+      queueable: true,
+      sku: { productConditionId: 457, printing: "Foil" },
+    });
+    expect(getSkuMarketPrices).toHaveBeenCalledWith({
+      productConditionIds: [457],
+    });
+  });
+
+  it("does not substitute the product price when exact SKU pricing is unavailable", async () => {
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
+        getCatalogProduct: () => Promise.resolve(product),
+        getSkuMarketPrices: () => Promise.resolve({ prices: [] }),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+
+    const preview = await service.preview({
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules: additionPricingRules({
+        conditionPolicy: "same",
+        ranges: [
+          {
+            minimumListings: 0,
+            priceSource: "market",
+            percentage: 100,
+            gapThresholdPercent: 100,
+            gapAction: "follow-lowest",
+          },
+        ],
+      }),
+    });
+
+    expect(preview).toMatchObject({ queueable: false });
+    expect(preview).not.toHaveProperty("proposedPrice");
+    expect(preview.reason).toContain("No market price");
+  });
+
   it("uses the merchandise pricing profile's Magic rarity floor", async () => {
     const magicRare = {
       ...product,
@@ -666,6 +774,10 @@ describe("inventory additions", () => {
             products: [magicRare],
           }),
         getCatalogProduct: () => Promise.resolve(magicRare),
+        getSkuMarketPrices: () =>
+          Promise.resolve({
+            prices: [{ productConditionId: 456, marketPrice: 0.2 }],
+          }),
         searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
       },
     });
@@ -860,6 +972,10 @@ describe("inventory additions", () => {
             products: [product],
           }),
         getCatalogProduct: () => Promise.resolve(product),
+        getSkuMarketPrices: () =>
+          Promise.resolve({
+            prices: [{ productConditionId: 456, marketPrice: 3.5 }],
+          }),
         searchMarketplaceProducts: (input) =>
           Promise.resolve(
             input.sellerKey === "synthetic-seller"

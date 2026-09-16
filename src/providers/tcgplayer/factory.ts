@@ -86,6 +86,11 @@ export function createTcgplayerAdapterFactory(
     options.client === undefined || hasCatalogSearchClient(options.client);
   const repricingSupported =
     options.client === undefined || hasRepricingClient(options.client);
+  const inventoryAdditionsSupported =
+    catalogSearchSupported &&
+    inventorySupported &&
+    (options.client === undefined ||
+      typeof options.client.getSkuMarketPrices === "function");
   const paymentsSupported =
     options.client === undefined || hasPaymentsClient(options.client);
   const messagesSupported =
@@ -106,7 +111,7 @@ export function createTcgplayerAdapterFactory(
         ? (["inventory-reader", "inventory-mutator"] as const)
         : []),
       ...(catalogSearchSupported ? (["catalog-search"] as const) : []),
-      ...(catalogSearchSupported && inventorySupported
+      ...(inventoryAdditionsSupported
         ? (["inventory-additions"] as const)
         : []),
       ...(repricingSupported ? (["repricing"] as const) : []),
@@ -189,7 +194,7 @@ export function createTcgplayerAdapterFactory(
           ...(catalogSearchSupported
             ? { catalogSearch: { kind: "catalog-search" as const } }
             : {}),
-          ...(catalogSearchSupported && inventorySupported
+          ...(inventoryAdditionsSupported
             ? {
                 inventoryAdditions: {
                   kind: "inventory-additions" as const,
