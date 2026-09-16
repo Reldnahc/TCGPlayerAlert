@@ -245,7 +245,7 @@ describe("local Add cards workflow", () => {
     ).toBeNull();
   });
 
-  it("forces Foil when the product only has foil SKUs", async () => {
+  it("auto-selects a provider-defined printing when it is the only option", async () => {
     const fetchMock = vi.fn(foilOnlyFetch);
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -259,8 +259,9 @@ describe("local Add cards workflow", () => {
       "Synthetic Card",
     );
     await user.click(screen.getByRole("button", { name: "Search" }));
-    const foil = await screen.findByTitle("This product is foil only");
-    expect(foil).toHaveProperty("disabled", true);
+    const printing = await screen.findByRole("button", { name: "Holofoil" });
+    expect(printing).toHaveProperty("disabled", true);
+    expect(printing.getAttribute("aria-pressed")).toBe("true");
     await user.click(screen.getByRole("button", { name: "+1" }));
 
     const addition = fetchMock.mock.calls.find(
@@ -275,6 +276,47 @@ describe("local Add cards workflow", () => {
     expect(JSON.parse(body)).toMatchObject({
       productConditionId: 457,
     });
+  });
+
+  it("offers every available printing as a direct button", async () => {
+    const fetchMock = vi.fn(providerPrintingsFetch);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(listOnButton("Local only"));
+    await user.type(
+      screen.getByLabelText("Card name or product #"),
+      "Synthetic Card",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    const printings = await screen.findByRole("group", {
+      name: "Printing for Synthetic Card",
+    });
+    await screen.findByRole("button", { name: "Holofoil" });
+    expect(
+      within(printings).getByRole("button", { name: "Normal" }),
+    ).toBeTruthy();
+    expect(
+      within(printings).getByRole("button", { name: "Holofoil" }),
+    ).toBeTruthy();
+    await user.click(
+      within(printings).getByRole("button", { name: "Reverse Holofoil" }),
+    );
+    await user.click(screen.getByRole("button", { name: "+1" }));
+
+    const addition = fetchMock.mock.calls.find(
+      ([input]) =>
+        requestPath(input) ===
+        "/api/local-inventory/catalog-items?connectionId=tcgplayer-main",
+    );
+    const body = addition?.[1]?.body;
+    if (typeof body !== "string") {
+      throw new Error("Expected the local inventory request body.");
+    }
+    expect(JSON.parse(body)).toMatchObject({ productConditionId: 459 });
   });
 });
 
@@ -294,7 +336,47 @@ function foilOnlyFetch(
             productConditionId: 457,
             conditionId: 1,
             condition: "Near Mint",
-            printing: "Foil",
+            printing: "Holofoil",
+            language: "English",
+          },
+        ],
+      }),
+    );
+  }
+  return localAddFetch(input, options);
+}
+
+function providerPrintingsFetch(
+  input: RequestInfo | URL,
+  options?: RequestInit,
+): Promise<Response> {
+  if (
+    requestPath(input) ===
+    "/api/catalog/products/123?connectionId=tcgplayer-main"
+  ) {
+    return Promise.resolve(
+      json({
+        ...product(),
+        skus: [
+          {
+            productConditionId: 457,
+            conditionId: 1,
+            condition: "Near Mint",
+            printing: "Normal",
+            language: "English",
+          },
+          {
+            productConditionId: 458,
+            conditionId: 1,
+            condition: "Near Mint",
+            printing: "Holofoil",
+            language: "English",
+          },
+          {
+            productConditionId: 459,
+            conditionId: 1,
+            condition: "Near Mint",
+            printing: "Reverse Holofoil",
             language: "English",
           },
         ],

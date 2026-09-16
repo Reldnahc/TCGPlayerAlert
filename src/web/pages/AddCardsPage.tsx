@@ -46,7 +46,7 @@ interface LoadedSearch extends CatalogSearch {
 
 interface RowSelection {
   readonly condition: string;
-  readonly printing: "Normal" | "Foil";
+  readonly printing: string;
 }
 
 interface RowMessage {
@@ -112,6 +112,31 @@ function mergeProducts(
       left.setName.localeCompare(right.setName) ||
       left.productId - right.productId,
   );
+}
+
+function availablePrintings(
+  product: CatalogProduct | undefined,
+  condition: string,
+): readonly string[] {
+  if (product === undefined) return [];
+  return [
+    ...new Set(
+      product.skus
+        .filter((sku) => sku.condition === condition)
+        .map((sku) => sku.printing),
+    ),
+  ];
+}
+
+function availablePrinting(
+  product: CatalogProduct | undefined,
+  condition: string,
+  preferred: string,
+): string {
+  const printings = availablePrintings(product, condition);
+  return printings.includes(preferred)
+    ? preferred
+    : (printings[0] ?? preferred);
 }
 
 export function AddCardsPage() {
@@ -408,25 +433,29 @@ export function AddCardsPage() {
     productId: number,
     productDetails?: CatalogProduct,
   ): RowSelection {
-    const printings = new Set(productDetails?.skus.map((sku) => sku.printing));
-    const locked =
-      printings.has("Foil") && !printings.has("Normal")
-        ? "Foil"
-        : printings.has("Normal") && !printings.has("Foil")
-          ? "Normal"
-          : undefined;
-    return (
-      selections[productId] ?? {
-        condition: activeProfile?.defaultCondition ?? "Near Mint",
-        printing: locked ?? activeProfile?.defaultPrinting ?? "Normal",
-      }
-    );
+    const saved = selections[productId];
+    const condition =
+      saved?.condition ?? activeProfile?.defaultCondition ?? "Near Mint";
+    const preferredPrinting =
+      saved?.printing ?? activeProfile?.defaultPrinting ?? "Normal";
+    return {
+      condition,
+      printing: availablePrinting(productDetails, condition, preferredPrinting),
+    };
   }
 
   function updateSelection(productId: number, patch: Partial<RowSelection>) {
-    const nextSelection = {
+    const requestedSelection = {
       ...selectionFor(productId, details[productId]),
       ...patch,
+    };
+    const nextSelection = {
+      ...requestedSelection,
+      printing: availablePrinting(
+        details[productId],
+        requestedSelection.condition,
+        requestedSelection.printing,
+      ),
     };
     setSelections((current) => ({
       ...current,
@@ -1201,14 +1230,14 @@ function CatalogRow({
     observer.observe(target);
     return () => observer.disconnect();
   }, [details, onVisible, product.productId]);
-  const printings = new Set(details?.skus.map((sku) => sku.printing));
-  const foilOnly = printings.has("Foil") && !printings.has("Normal");
-  const normalOnly = printings.has("Normal") && !printings.has("Foil");
+  const printings = availablePrintings(details, selection.condition);
+  const displayedPrintings =
+    printings.length === 0 ? [selection.printing] : printings;
   const printingPending = details === undefined;
   return (
     <div
       ref={element}
-      class={`catalog-row${selection.printing === "Foil" ? " is-foil" : ""}`}
+      class={`catalog-row${selection.printing === "Normal" ? "" : " is-foil"}`}
     >
       <CatalogArt product={product} />
       <div class="catalog-copy">
@@ -1279,27 +1308,30 @@ function CatalogRow({
             <option key={condition}>{condition}</option>
           ))}
         </select>
-        <Button
-          class="foil-button"
-          tone={selection.printing === "Foil" ? "primary" : "secondary"}
-          disabled={busy || printingPending || foilOnly || normalOnly}
-          title={
-            foilOnly
-              ? "This product is foil only"
-              : normalOnly
-                ? "This product has no foil SKU"
-                : printingPending
-                  ? "Checking printings"
-                  : "Toggle foil"
-          }
-          onClick={() =>
-            onSelection({
-              printing: selection.printing === "Foil" ? "Normal" : "Foil",
-            })
-          }
+        <div
+          class="printing-buttons"
+          role="group"
+          aria-label={`Printing for ${product.productName}`}
         >
-          Foil
-        </Button>
+          {displayedPrintings.map((printing) => (
+            <button
+              key={printing}
+              type="button"
+              aria-pressed={selection.printing === printing}
+              disabled={busy || printingPending || printings.length === 1}
+              title={
+                printingPending
+                  ? "Checking printings"
+                  : printings.length === 1
+                    ? `Only available printing: ${printing}`
+                    : `Select ${printing}`
+              }
+              onClick={() => onSelection({ printing })}
+            >
+              {printing}
+            </button>
+          ))}
+        </div>
         <div class="quantity-buttons">
           {[1, 2, 3, 4].map((quantity) => (
             <button
