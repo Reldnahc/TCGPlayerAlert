@@ -819,7 +819,21 @@ describe("configuration UI", () => {
         transactions: [],
       }),
     );
-    const paymentService = { list, get } as unknown as PaymentManagementService;
+    const report = vi.fn(() =>
+      Promise.resolve({
+        experience: "money-movement" as const,
+        months: [
+          { year: 2026, month: 8, amount: 10_000, payments: 1, orders: 3 },
+        ],
+        years: [{ year: 2026, amount: 10_000, payments: 1, orders: 3 }],
+        fetchedAt: "2026-08-07T12:00:00.000Z",
+      }),
+    );
+    const paymentService = {
+      list,
+      get,
+      report,
+    } as unknown as PaymentManagementService;
     server = await startConfigurationUi({
       configPath: current.path,
       service: current.service,
@@ -834,6 +848,9 @@ describe("configuration UI", () => {
     );
     const detail = await fetch(
       `${server.url}/api/payments/SYNTHETIC%20PAYOUT%2F1`,
+    );
+    const paymentReport = await fetch(
+      `${server.url}/api/payments/report?refresh=1`,
     );
     const invalid = await fetch(`${server.url}/api/payments?status=Invented`);
     const invalidPage = await fetch(`${server.url}/api/payments?page=0`);
@@ -857,6 +874,13 @@ describe("configuration UI", () => {
     expect(get).toHaveBeenCalledWith(
       "SYNTHETIC PAYOUT/1",
       expect.objectContaining({ force: false }),
+    );
+    expect(paymentReport.status).toBe(200);
+    expect(await paymentReport.json()).toMatchObject({
+      years: [{ year: 2026, amount: 10_000 }],
+    });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
     );
     expect(invalid.status).toBe(400);
     expect(invalidPage.status).toBe(400);

@@ -20,6 +20,7 @@ import type {
 import type { MarketplaceConnectionStatus } from "../marketplaces/health.js";
 import { orderRefKey } from "../marketplaces/identity.js";
 import type {
+  ManagedPaymentReport,
   ManagedPaymentsPage,
   ManagedSellerPayoutDetail,
 } from "../payment-management.js";
@@ -99,6 +100,7 @@ export interface PirateShipResult {
 export type ShipmentScannerStatus = ManagedShipmentScannerStatus;
 export type ShipmentScanResult = ServerShipmentScanResult;
 export type PaymentsPage = ManagedPaymentsPage;
+export type PaymentReport = ManagedPaymentReport;
 export type PaymentDetail = ManagedSellerPayoutDetail;
 export type FeedbackPage = ManagedSellerFeedbackPage;
 export type MessagesPage = ManagedSellerMessagesPage;

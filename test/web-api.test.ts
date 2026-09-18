@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   messagesPageDecoder,
   orderListDecoder,
+  paymentReportDecoder,
   paymentsPageDecoder,
 } from "../src/web/api-contracts.js";
 import { requestJson, UiApiError, uiApi } from "../src/web/api.js";
@@ -119,6 +120,25 @@ describe("browser API response validation", () => {
     expect(error.message).toContain(
       "response.upcomingPayments[0].estimatedArrivalDate",
     );
+  });
+
+  it("validates monthly and yearly payment report totals", async () => {
+    mockResponse(
+      jsonResponse({
+        experience: "money-movement",
+        months: [
+          { year: 2026, month: 8, amount: 12_345, payments: 1, orders: 4 },
+        ],
+        years: [{ year: 2026, amount: 12_345, payments: 1, orders: 4 }],
+        fetchedAt: "2026-08-10T12:00:00.000Z",
+      }),
+    );
+
+    await expect(
+      requestJson("/test/payment-report", paymentReportDecoder),
+    ).resolves.toMatchObject({
+      months: [{ month: 8, amount: 12_345 }],
+    });
   });
 
   it("rejects malformed message fields at the browser boundary", async () => {

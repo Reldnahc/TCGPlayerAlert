@@ -60,6 +60,18 @@ async function handlePaymentRoute(
     if (!response.destroyed) sendJson(response, 200, result);
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/payments/report") {
+    const paymentService = await workspaceService(context, "payments");
+    if (paymentService === undefined) return true;
+    const result = await withRequestAbort(request, response, (signal) =>
+      paymentService.report({
+        force: url.searchParams.get("refresh") === "1",
+        signal,
+      }),
+    );
+    if (!response.destroyed) sendJson(response, 200, result);
+    return true;
+  }
   if (
     request.method !== "GET" ||
     !/^\/api\/payments\/[^/]{1,768}$/u.test(url.pathname)

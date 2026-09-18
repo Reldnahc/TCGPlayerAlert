@@ -98,6 +98,38 @@ describe("PaymentManagementService", () => {
     );
   });
 
+  it("summarizes every successful payout page by month and year", async () => {
+    const current = fixture();
+    const service = new PaymentManagementService({
+      client: current.client,
+      sellerKey: "seller_test",
+      now: () => new Date("2026-08-07T12:00:00.000Z"),
+    });
+
+    const report = await service.report();
+
+    expect(report).toEqual({
+      experience: "money-movement",
+      months: [
+        { year: 2026, month: 8, amount: 24_690, payments: 2, orders: 8 },
+      ],
+      years: [{ year: 2026, amount: 24_690, payments: 2, orders: 8 }],
+      fetchedAt: "2026-08-07T12:00:00.000Z",
+    });
+    expect(current.listSellerPayouts).toHaveBeenCalledTimes(2);
+    expect(current.listSellerPayouts).toHaveBeenNthCalledWith(
+      1,
+      {
+        sellerKey: "seller_test",
+        page: 1,
+        pageSize: 25,
+        status: "Succeeded",
+      },
+      undefined,
+    );
+    expect(current.getSellerUnpaidBalance).not.toHaveBeenCalled();
+  });
+
   it("refreshes both overview reads only when explicitly forced", async () => {
     const current = fixture();
     const service = new PaymentManagementService({
@@ -229,6 +261,49 @@ describe("PaymentManagementService", () => {
     expect(listLegacyUpcomingSellerPayments).toHaveBeenCalledOnce();
     expect(current.listSellerPayouts).not.toHaveBeenCalled();
     expect(current.getSellerUnpaidBalance).not.toHaveBeenCalled();
+  });
+
+  it("summarizes every legacy history page", async () => {
+    const current = fixture();
+    const service = new PaymentManagementService({
+      client: {
+        ...current.client,
+        getSellerPaymentExperience: () => Promise.resolve("legacy" as const),
+        listLegacySellerPayments: (input) => {
+          const page = input?.page ?? 1;
+          return Promise.resolve({
+            page,
+            totalPages: 3,
+            payments: [
+              {
+                estimatedArrivalDate: page === 3 ? "2026-01-15" : "2026-08-15",
+                initiatedDate: "2026-01-13",
+                ordersCount: page,
+                totalSales: 0,
+                totalFees: 0,
+                refundedOrders: 0,
+                refundedFees: 0,
+                adjustments: 0,
+                amount: page * 100,
+              },
+            ],
+          });
+        },
+      },
+      sellerKey: "seller_test",
+      now: () => new Date("2026-08-07T12:00:00.000Z"),
+    });
+
+    const report = await service.report();
+
+    expect(report).toMatchObject({
+      experience: "legacy",
+      months: [
+        { year: 2026, month: 8, amount: 300, payments: 2, orders: 3 },
+        { year: 2026, month: 1, amount: 300, payments: 1, orders: 3 },
+      ],
+      years: [{ year: 2026, amount: 600, payments: 3, orders: 6 }],
+    });
   });
 
   it("does not invent Money Movement filters or details for legacy payments", async () => {

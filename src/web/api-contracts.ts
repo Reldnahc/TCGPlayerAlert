@@ -30,6 +30,7 @@ import type {
   OrderDetail,
   OrderList,
   PaymentDetail,
+  PaymentReport,
   PaymentsPage,
   PirateShipResult,
   PriceJob,
@@ -609,6 +610,35 @@ const legacyPayment = object({
   refundedFees: number,
   adjustments: number,
   amount: number,
+});
+const paymentReportPeriod = object({
+  year: nonNegativeInteger,
+  month: optional(
+    union(
+      literal(1),
+      literal(2),
+      literal(3),
+      literal(4),
+      literal(5),
+      literal(6),
+      literal(7),
+      literal(8),
+      literal(9),
+      literal(10),
+      literal(11),
+      literal(12),
+    ),
+  ),
+  amount: number,
+  payments: nonNegativeInteger,
+  orders: nonNegativeInteger,
+});
+
+export const paymentReportDecoder: Decoder<PaymentReport> = object({
+  experience: enumeration("legacy", "money-movement"),
+  months: array(paymentReportPeriod),
+  years: array(paymentReportPeriod),
+  fetchedAt: isoDateTime,
 });
 
 export const paymentsPageDecoder: Decoder<PaymentsPage> = union(

@@ -50,6 +50,26 @@ export interface ManagedPaymentsPageInput {
   readonly signal?: AbortSignal;
 }
 
+export interface ManagedPaymentReportPeriod {
+  readonly year: number;
+  readonly month?: number;
+  readonly amount: number;
+  readonly payments: number;
+  readonly orders: number;
+}
+
+export interface ManagedPaymentReport {
+  readonly experience: SellerPaymentExperience;
+  readonly months: readonly ManagedPaymentReportPeriod[];
+  readonly years: readonly ManagedPaymentReportPeriod[];
+  readonly fetchedAt: string;
+}
+
+export interface ManagedPaymentReportInput {
+  readonly force?: boolean;
+  readonly signal?: AbortSignal;
+}
+
 type PaymentManagementClient = Pick<
   TcgplayerSellerClient,
   | "getSellerPaymentExperience"
@@ -77,6 +97,7 @@ interface Cached<T> {
 const PAYOUT_STATUSES = new Set<SellerPayoutStatusCode>(
   SELLER_PAYOUT_STATUS_VALUES,
 );
+const MAX_REPORT_PAGES = 1_000;
 
 export class PaymentManagementService {
   private readonly client: PaymentManagementClient;
@@ -203,6 +224,69 @@ export class PaymentManagementService {
       expiresAt: this.now().getTime() + this.detailCacheMilliseconds,
     });
     return value;
+  }
+
+  async report(
+    input: ManagedPaymentReportInput = {},
+  ): Promise<ManagedPaymentReport> {
+    this.currentSellerKey();
+    const experience = await this.loadExperience(input);
+    const payments =
+      experience === "legacy"
+        ? await this.loadLegacyReportPayments(input)
+        : await this.loadMoneyMovementReportPayments(input);
+    return {
+      experience,
+      ...aggregatePaymentReport(payments),
+      fetchedAt: this.now().toISOString(),
+    };
+  }
+
+  private async loadMoneyMovementReportPayments(
+    input: ManagedPaymentReportInput,
+  ): Promise<readonly ReportPayment[]> {
+    const pageInput = {
+      ...input,
+      status: SellerPayoutStatus.Succeeded,
+    };
+    const first = await this.loadPayoutPage(1, pageInput);
+    const totalPages = Math.max(
+      1,
+      Math.ceil(first.totalPayouts / first.pageSize),
+    );
+    assertReportPageCount(totalPages);
+    const pages = [first];
+    for (let page = 2; page <= totalPages; page += 1) {
+      pages.push(await this.loadPayoutPage(page, pageInput));
+    }
+    return pages.flatMap((result) =>
+      result.payouts
+        .filter((payout) => payout.status === SellerPayoutStatus.Succeeded)
+        .map((payout) => ({
+          date: payout.lastSentAt ?? payout.createdAt,
+          amount: payout.amount,
+          orders: payout.ordersCount,
+        })),
+    );
+  }
+
+  private async loadLegacyReportPayments(
+    input: ManagedPaymentReportInput,
+  ): Promise<readonly ReportPayment[]> {
+    const first = await this.loadLegacyPage(1, input);
+    assertReportPageCount(first.totalPages);
+    const pages = [first];
+    for (let page = 2; page <= first.totalPages; page += 1) {
+      pages.push(await this.loadLegacyPage(page, input));
+    }
+    return pages.flatMap((result) =>
+      result.payments.flatMap((payment) => {
+        const date = payment.estimatedArrivalDate ?? payment.initiatedDate;
+        return date === null
+          ? []
+          : [{ date, amount: payment.amount, orders: payment.ordersCount }];
+      }),
+    );
   }
 
   private async loadExperience(input: {
@@ -347,6 +431,62 @@ export class PaymentManagementService {
     }
     this.cachedSellerKey = sellerKey;
     return sellerKey;
+  }
+}
+
+interface ReportPayment {
+  readonly date: string;
+  readonly amount: number;
+  readonly orders: number;
+}
+
+function aggregatePaymentReport(payments: readonly ReportPayment[]): {
+  readonly months: readonly ManagedPaymentReportPeriod[];
+  readonly years: readonly ManagedPaymentReportPeriod[];
+} {
+  const months = new Map<string, ManagedPaymentReportPeriod>();
+  const years = new Map<number, ManagedPaymentReportPeriod>();
+  for (const payment of payments) {
+    const match = /^(\d{4})-(\d{2})/u.exec(payment.date);
+    if (match === null) continue;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const monthKey = `${String(year)}-${String(month).padStart(2, "0")}`;
+    const currentMonth = months.get(monthKey);
+    months.set(monthKey, {
+      year,
+      month,
+      amount: (currentMonth?.amount ?? 0) + payment.amount,
+      payments: (currentMonth?.payments ?? 0) + 1,
+      orders: (currentMonth?.orders ?? 0) + payment.orders,
+    });
+    const currentYear = years.get(year);
+    years.set(year, {
+      year,
+      amount: (currentYear?.amount ?? 0) + payment.amount,
+      payments: (currentYear?.payments ?? 0) + 1,
+      orders: (currentYear?.orders ?? 0) + payment.orders,
+    });
+  }
+  return {
+    months: [...months.values()].sort(
+      (left, right) =>
+        right.year - left.year || (right.month ?? 0) - (left.month ?? 0),
+    ),
+    years: [...years.values()].sort((left, right) => right.year - left.year),
+  };
+}
+
+function assertReportPageCount(totalPages: number): void {
+  if (
+    !Number.isSafeInteger(totalPages) ||
+    totalPages < 1 ||
+    totalPages > MAX_REPORT_PAGES
+  ) {
+    throw new ApplicationError(
+      "PROVIDER_ERROR",
+      "Payment history is too large to summarize safely.",
+    );
   }
 }
 

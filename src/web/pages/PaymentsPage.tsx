@@ -14,6 +14,7 @@ import {
 } from "../components/ui.js";
 import type {
   PaymentDetail,
+  PaymentReport,
   PaymentsPage as PaymentsData,
 } from "../contracts.js";
 import {
@@ -68,6 +69,9 @@ export function PaymentsPage() {
   const [detail, setDetail] = useState<PaymentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [report, setReport] = useState<PaymentReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   async function load(force = false) {
     setLoading(true);
@@ -84,6 +88,29 @@ export function PaymentsPage() {
   useEffect(() => {
     void load();
   }, [page, status]);
+
+  async function loadReport(force = false) {
+    setReportLoading(true);
+    setReportError("");
+    try {
+      setReport(await uiApi.paymentReport(force));
+    } catch (cause) {
+      setReportError(
+        errorMessage(cause, "Payment reports could not be loaded."),
+      );
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadReport();
+  }, []);
+
+  function refreshAll() {
+    void load(true);
+    void loadReport(true);
+  }
 
   async function selectPayout(referenceId: string, force = false) {
     if (selection?.kind !== "payout" || selection.referenceId !== referenceId)
@@ -146,8 +173,11 @@ export function PaymentsPage() {
       <LegacyPaymentsWorkspace
         data={data}
         loading={loading}
+        report={report}
+        reportLoading={reportLoading}
+        reportError={reportError}
         error={error}
-        onRefresh={() => void load(true)}
+        onRefresh={refreshAll}
         onPage={setPage}
       />
     );
@@ -170,8 +200,8 @@ export function PaymentsPage() {
             </a>
             <Button
               icon="refresh"
-              busy={loading}
-              onClick={() => void load(true)}
+              busy={loading || reportLoading}
+              onClick={refreshAll}
             >
               Refresh
             </Button>
@@ -246,6 +276,11 @@ export function PaymentsPage() {
             value={data === null ? "—" : String(data.totalPayouts)}
           />
         </div>
+        <PaymentReports
+          report={report}
+          loading={reportLoading}
+          error={reportError}
+        />
         <Toolbar>
           <Field label="Payout status" class="payment-status-filter">
             <select
@@ -271,7 +306,9 @@ export function PaymentsPage() {
               : `Page ${String(data.page)} of ${String(totalPages)} · updated ${dateTime(data.fetchedAt)}`}
           </span>
         </Toolbar>
-        {error === "" ? null : <Notice tone="danger">{error}</Notice>}
+        <div class="payments-notice">
+          {error === "" ? null : <Notice tone="danger">{error}</Notice>}
+        </div>
         <section class="payments-workspace">
           <div class="data-region payments-table-region">
             {loading && data === null ? (
@@ -380,12 +417,18 @@ export function PaymentsPage() {
 function LegacyPaymentsWorkspace({
   data,
   loading,
+  report,
+  reportLoading,
+  reportError,
   error,
   onRefresh,
   onPage,
 }: {
   readonly data: LegacyPaymentsData;
   readonly loading: boolean;
+  readonly report: PaymentReport | null;
+  readonly reportLoading: boolean;
+  readonly reportError: string;
   readonly error: string;
   readonly onRefresh: () => void;
   readonly onPage: (page: number) => void;
@@ -419,7 +462,11 @@ function LegacyPaymentsWorkspace({
             >
               Open Seller Portal
             </a>
-            <Button icon="refresh" busy={loading} onClick={onRefresh}>
+            <Button
+              icon="refresh"
+              busy={loading || reportLoading}
+              onClick={onRefresh}
+            >
               Refresh
             </Button>
           </>
@@ -462,6 +509,11 @@ function LegacyPaymentsWorkspace({
             detail={`Page ${String(data.page)} of ${String(data.totalPages)}`}
           />
         </div>
+        <PaymentReports
+          report={report}
+          loading={reportLoading}
+          error={reportError}
+        />
         {error === "" ? null : <Notice tone="danger">{error}</Notice>}
         <section
           class="payment-table-section payment-table-section--upcoming"
@@ -519,6 +571,103 @@ function LegacyPaymentsWorkspace({
       </div>
     </main>
   );
+}
+
+function PaymentReports({
+  report,
+  loading,
+  error,
+}: {
+  readonly report: PaymentReport | null;
+  readonly loading: boolean;
+  readonly error: string;
+}) {
+  return (
+    <section
+      class="payment-report surface"
+      aria-labelledby="payment-report-title"
+    >
+      <header class="surface__header">
+        <div>
+          <strong id="payment-report-title">Payment reports</strong>
+          <p>Completed payment totals across the full available history</p>
+        </div>
+        {report === null ? null : <span>{dateTime(report.fetchedAt)}</span>}
+      </header>
+      {loading && report === null ? (
+        <div class="payment-report__state">
+          <Spinner label="Loading payment reports" />
+        </div>
+      ) : error !== "" && report === null ? (
+        <div class="payment-report__state">
+          <Notice tone="danger">{error}</Notice>
+        </div>
+      ) : report === null || report.years.length === 0 ? (
+        <EmptyState title="No completed payments to report" />
+      ) : (
+        <div class="payment-report__tables">
+          <ReportTable
+            title="Monthly totals"
+            periods={report.months}
+            periodLabel={(period) => monthLabel(period.year, period.month)}
+          />
+          <ReportTable
+            title="Yearly totals"
+            periods={report.years}
+            periodLabel={(period) => String(period.year)}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportTable({
+  title,
+  periods,
+  periodLabel,
+}: {
+  readonly title: string;
+  readonly periods: PaymentReport["months"];
+  readonly periodLabel: (period: PaymentReport["months"][number]) => string;
+}) {
+  return (
+    <div class="payment-report__table-region">
+      <h3>{title}</h3>
+      <table class="data-table payment-report__table">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th class="align-right">Payments</th>
+            <th class="align-right">Orders</th>
+            <th class="align-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {periods.map((period) => (
+            <tr
+              key={`${String(period.year)}:${String(period.month ?? "year")}`}
+            >
+              <td>{periodLabel(period)}</td>
+              <td class="align-right numeric">{period.payments}</td>
+              <td class="align-right numeric">{period.orders}</td>
+              <td class="align-right numeric">
+                <strong>{moneyFromCents(period.amount)}</strong>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function monthLabel(year: number, month: number | undefined): string {
+  if (month === undefined) return String(year);
+  return new Date(year, month - 1, 1).toLocaleDateString([], {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function LegacyPaymentsTable({

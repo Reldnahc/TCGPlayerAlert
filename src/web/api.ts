@@ -31,6 +31,7 @@ import type {
   OrderDetail,
   MasterPullList,
   PaymentDetail,
+  PaymentReport,
   PaymentsPage,
   PirateShipResult,
   PriceJob,
@@ -82,6 +83,7 @@ import {
   orderDetailDecoder,
   orderListDecoder,
   paymentDetailDecoder,
+  paymentReportDecoder,
   paymentsPageDecoder,
   pirateShipDecoder,
   priceQueueDecoder,
@@ -570,6 +572,11 @@ export const uiApi = {
     requestJson(
       `/api/payments/${encodeURIComponent(referenceId)}${force ? "?refresh=1" : ""}`,
       paymentDetailDecoder,
+    ),
+  paymentReport: (force = false): Promise<PaymentReport> =>
+    requestJson(
+      `/api/payments/report${force ? "?refresh=1" : ""}`,
+      paymentReportDecoder,
     ),
   feedback: (
     page: number,

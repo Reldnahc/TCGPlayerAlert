@@ -18,6 +18,37 @@ describe("payments", () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
+        if (path === "/api/payments/report")
+          return Promise.resolve(
+            json({
+              experience: "money-movement",
+              months: [
+                {
+                  year: 2026,
+                  month: 8,
+                  amount: 12_345,
+                  payments: 1,
+                  orders: 3,
+                },
+                {
+                  year: 2026,
+                  month: 7,
+                  amount: 45_678,
+                  payments: 2,
+                  orders: 8,
+                },
+              ],
+              years: [
+                {
+                  year: 2026,
+                  amount: 58_023,
+                  payments: 3,
+                  orders: 11,
+                },
+              ],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
         if (path === "/api/payments/SYNTHETIC-PAYOUT-1")
           return Promise.resolve(
             json({
@@ -92,6 +123,11 @@ describe("payments", () => {
     ).toBeTruthy();
     expect(screen.getByText("$25.00")).toBeTruthy();
     expect(screen.getAllByText("$123.45").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Payment reports")).toBeTruthy();
+    expect(screen.getByText("August 2026")).toBeTruthy();
+    expect(screen.getByText("July 2026")).toBeTruthy();
+    expect(screen.getByText("$456.78")).toBeTruthy();
+    expect(screen.getByText("$580.23")).toBeTruthy();
     await user.click(
       screen.getByRole("button", {
         name: "View upcoming payment transactions",
@@ -109,8 +145,8 @@ describe("payments", () => {
     expect(screen.getByText("No matching transactions")).toBeTruthy();
     await user.selectOptions(screen.getByLabelText("Transaction type"), "All");
     expect(
-      fetchMock.mock.calls.filter(([input]) =>
-        requestPath(input).startsWith("/api/payments"),
+      fetchMock.mock.calls.filter(
+        ([input]) => requestPath(input) === "/api/payments?page=1",
       ),
     ).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "View" }));
@@ -131,6 +167,30 @@ describe("payments", () => {
     const fetchMock = vi.fn(
       (input: RequestInfo | URL, options?: RequestInit) => {
         const path = requestPath(input);
+        if (path === "/api/payments/report")
+          return Promise.resolve(
+            json({
+              experience: "legacy",
+              months: [
+                {
+                  year: 2026,
+                  month: 8,
+                  amount: 12_345,
+                  payments: 1,
+                  orders: 4,
+                },
+              ],
+              years: [
+                {
+                  year: 2026,
+                  amount: 12_345,
+                  payments: 1,
+                  orders: 4,
+                },
+              ],
+              fetchedAt: "2026-08-07T12:00:00.000Z",
+            }),
+          );
         if (path.startsWith("/api/payments?page=")) {
           const page = Number(
             new URL(path, "http://localhost").searchParams.get("page"),
@@ -196,7 +256,9 @@ describe("payments", () => {
     expect(screen.getAllByText("$57.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Not scheduled").length).toBeGreaterThan(0);
     expect(screen.getByText("1 scheduled · 1 not scheduled")).toBeTruthy();
-    expect(screen.getByText("$123.45")).toBeTruthy();
+    expect(screen.getAllByText("$123.45").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Payment reports")).toBeTruthy();
+    expect(screen.getByText("August 2026")).toBeTruthy();
     expect(screen.queryByLabelText("Payout status")).toBeNull();
     expect(
       screen

@@ -1,8 +1,62 @@
 .payments-layout {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   gap: 10px;
   overflow: hidden;
+}
+.payment-report {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+.payment-report > .surface__header {
+  min-height: 43px;
+}
+.payment-report > .surface__header > div {
+  display: grid;
+  gap: 1px;
+}
+.payment-report > .surface__header p,
+.payment-report > .surface__header > span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.payment-report__state {
+  padding: 12px;
+}
+.payment-report__tables {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(440px, 1.4fr) minmax(360px, 1fr);
+}
+.payment-report__table-region {
+  min-height: 0;
+  max-height: 190px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+.payment-report__table-region:last-child {
+  border-right: 0;
+}
+.payment-report__table-region h3 {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.payment-report__table {
+  min-width: 360px;
+}
+.payment-report__table th,
+.payment-report__table td {
+  height: 30px;
 }
 .payments-metrics .metric strong {
   font-size: 17px;
