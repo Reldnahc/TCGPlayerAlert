@@ -343,12 +343,12 @@ export function RepricingInventoryPage() {
       setRemoveConfirm(null);
       setMessage({
         tone: "success",
-        text: `${row.productName} was queued for removal. Live quantity will be checked before submission.`,
+        text: `${row.productName} was queued for delisting. The full marketplace quantity will be removed after a live quantity check.`,
       });
     } catch (cause) {
       setMessage({
         tone: "danger",
-        text: errorMessage(cause, "The removal was not queued."),
+        text: errorMessage(cause, "The delisting was not queued."),
       });
     } finally {
       setBusy("");
@@ -365,7 +365,7 @@ export function RepricingInventoryPage() {
     <main class="page page--fixed">
       <PageHeader
         title="Repricing"
-        description="Review your live listings and stage price or quantity changes."
+        description="Review prices, set fixed prices, or delist marketplace listings."
         actions={
           <>
             <Button
@@ -561,7 +561,6 @@ export function RepricingInventoryPage() {
                       </th>
                       <th>Marketplace reference</th>
                       <th>Result / pricing</th>
-                      <th>Inventory</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -703,8 +702,9 @@ export function RepricingInventoryPage() {
                             ) : row.fixedPriceEligible ? (
                               <Button
                                 tone="quiet"
-                                disabled={busy !== ""}
+                                disabled={busy !== "" || removals.has(row.id)}
                                 onClick={() => {
+                                  setRemoveConfirm(null);
                                   setFixedEditor(row.id);
                                   setFixedDraft(
                                     String(row.fixedPrice ?? row.currentPrice),
@@ -720,28 +720,31 @@ export function RepricingInventoryPage() {
                             row.fixedPriceEligible ? (
                               <Button
                                 tone="quiet"
-                                disabled={busy !== ""}
+                                disabled={busy !== "" || removals.has(row.id)}
                                 onClick={() => void saveFixedPrice(row, null)}
                               >
                                 Use profile
                               </Button>
                             ) : null}
-                          </td>
-                          <td>
                             {removals.has(row.id) ? (
-                              <StatusBadge status="pending" />
+                              <span class="muted">Delist queued</span>
                             ) : removeConfirm === row.id ? (
                               <div class="remove-confirm">
-                                <span>Remove qty {row.quantity}?</span>
+                                <span>
+                                  Delist all {row.quantity} from the
+                                  marketplace?
+                                </span>
                                 <Button
                                   tone="danger"
                                   busy={busy === `remove:${row.id}`}
+                                  disabled={busy !== ""}
                                   onClick={() => void remove(row)}
                                 >
-                                  Confirm
+                                  Confirm delist
                                 </Button>
                                 <Button
                                   tone="quiet"
+                                  disabled={busy !== ""}
                                   onClick={() => setRemoveConfirm(null)}
                                 >
                                   Cancel
@@ -751,13 +754,16 @@ export function RepricingInventoryPage() {
                               <Button
                                 tone="danger"
                                 disabled={busy !== ""}
-                                onClick={() => setRemoveConfirm(row.id)}
+                                onClick={() => {
+                                  setFixedEditor(null);
+                                  setRemoveConfirm(row.id);
+                                }}
                               >
-                                Remove
+                                Delist
                               </Button>
                             ) : (
                               <span class="muted" title={row.removalReason}>
-                                Unavailable
+                                Delisting unavailable
                               </span>
                             )}
                           </td>

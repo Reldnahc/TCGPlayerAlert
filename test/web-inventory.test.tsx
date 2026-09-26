@@ -19,6 +19,108 @@ afterEach(resetWebUiTest);
 const completedAt = "2026-08-07T12:00:00.000Z";
 
 describe("provider-neutral inventory", () => {
+  it.each([false, true])(
+    "confirms delisting from the pricing controls (fixed price: %s)",
+    async (fixed) => {
+      vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+      const profile = settings.repricingProfiles[0];
+      if (profile === undefined) throw new Error("Missing profile");
+      vi.spyOn(uiApi, "repricingPreview").mockResolvedValue({
+        id: "preview",
+        createdAt: completedAt,
+        expiresAt: completedAt,
+        rules: profile,
+        rows: [
+          {
+            id: "row",
+            productId: 1,
+            productConditionId: 2,
+            productName: "Synthetic Card",
+            productLineName: "Magic",
+            setName: "Synthetic Set",
+            condition: "Near Mint",
+            printing: "Normal",
+            language: "English",
+            quantity: 4,
+            currentPrice: 3,
+            currentShipping: 0,
+            proposedPrice: fixed ? 3 : 2,
+            minimumApplied: false,
+            status: fixed ? "skipped" : "ready",
+            queueable: !fixed,
+            reason: "Synthetic pricing reason",
+            removable: true,
+            fixedPriceEligible: true,
+            ...(fixed ? { fixedPrice: 3 } : {}),
+          },
+        ],
+        counts: { ready: fixed ? 0 : 1, skipped: fixed ? 1 : 0, unchanged: 0 },
+        totals: { listingCount: 1, totalQuantity: 4, currentListingValue: 12 },
+        marketplaceSnapshot: {
+          capturedAt: completedAt,
+          expiresAt: completedAt,
+          source: "fresh",
+        },
+      });
+      const delist = vi.spyOn(uiApi, "queueRemoval").mockResolvedValue({
+        job: {
+          id: "removal",
+          operation: "remove",
+          status: "pending",
+          createdAt: completedAt,
+          updatedAt: completedAt,
+          attempts: 0,
+          removal: {
+            productId: 1,
+            productConditionId: 2,
+            productName: "Synthetic Card",
+            conditionId: 1,
+            channelId: 0,
+            categoryName: "Magic",
+            currentQuantity: 4,
+            price: 3,
+            storePriceCustomId: null,
+            reserveQuantity: 0,
+          },
+        },
+      });
+      const user = userEvent.setup();
+      render(<App />);
+      await screen.findByRole("heading", { name: "Dashboard" });
+      await user.click(screen.getByRole("link", { name: "Repricing" }));
+      await user.click(screen.getByRole("button", { name: "Update preview" }));
+      await user.click(
+        await screen.findByRole("button", { name: "Delist", exact: true }),
+      );
+      expect(
+        screen.getByText("Delist all 4 from the marketplace?"),
+      ).toBeTruthy();
+      expect(delist).not.toHaveBeenCalled();
+      await user.click(
+        screen.getByRole("button", { name: "Cancel", exact: true }),
+      );
+      expect(delist).not.toHaveBeenCalled();
+      await user.click(
+        screen.getByRole("button", { name: "Delist", exact: true }),
+      );
+      await user.click(screen.getByRole("button", { name: "Confirm delist" }));
+      expect(delist).toHaveBeenCalledExactlyOnceWith("preview", "row");
+      expect(await screen.findByText("Delist queued")).toBeTruthy();
+      expect(
+        screen.getByLabelText<HTMLInputElement>("Select Synthetic Card")
+          .disabled,
+      ).toBe(true);
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: fixed ? "Edit fixed price" : "Set fixed price",
+        }).disabled,
+      ).toBe(true);
+      expect(
+        screen.queryByRole("button", { name: "Delist", exact: true }),
+      ).toBeNull();
+    },
+  );
+
   it("saves fixed pricing, keeps it visible on later runs, and restores the profile", async () => {
     vi.stubGlobal("fetch", vi.fn(inventoryFetch));
     const profile = settings.repricingProfiles[0];

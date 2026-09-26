@@ -13,7 +13,7 @@ Seller Portal represents removal as an inventory update that sets the exact SKU'
 
 Inventory search filters the server-generated preview in the browser. It matches card name, product line, set, condition, printing, language, product number, and product-condition SKU. Typing in this field makes no remote requests.
 
-Each primary-channel, non-custom listing without secondary-channel inventory receives a **Remove** action. The first click expands an inline confirmation that states the full quantity to be removed. Confirmation sends only the server-held preview id and row id; the server derives the mutation payload from its unexpired preview and writes a durable `remove` job to the inventory queue.
+Each primary-channel, non-custom listing without secondary-channel inventory receives a **Delist** action beside its pricing controls in Repricing. The first click expands an inline confirmation that states the full marketplace quantity to be removed. The row shows **Delist queued** after confirmation. Confirmation sends only the server-held preview id and row id; the server derives the mutation payload from its unexpired preview and writes a durable `remove` job to the inventory queue.
 
 Add and remove jobs share one serialized worker and state document. Queuing a removal supersedes any pending inventory change for the same SKU. Immediately before mutation, the worker reloads both primary and secondary listings. It submits only when the exact primary quantity still equals the preview, the listing is not custom, and no secondary listing exists. A changed quantity becomes `review-required`. A quantity already at zero is an idempotent success. An ambiguous mutation response also becomes `review-required` and is not retried automatically.
 
