@@ -3,12 +3,15 @@
 import { render, screen, within } from "@testing-library/preact";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiApi } from "../src/web/api.js";
+import type { PricingPreview } from "../src/web/contracts.js";
 import { App } from "../src/web/App.js";
 import {
   baseFetch,
   json,
   requestPath,
   resetWebUiTest,
+  settings,
 } from "./web-ui-fixtures.js";
 
 afterEach(resetWebUiTest);
@@ -16,6 +19,98 @@ afterEach(resetWebUiTest);
 const completedAt = "2026-08-07T12:00:00.000Z";
 
 describe("provider-neutral inventory", () => {
+  it("saves fixed pricing, keeps it visible on later runs, and restores the profile", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const profile = settings.repricingProfiles[0];
+    if (profile === undefined) throw new Error("Missing profile");
+    let fixedPrice: number | undefined;
+    const repricing = vi
+      .spyOn(uiApi, "repricingPreview")
+      .mockImplementation(() =>
+        Promise.resolve({
+          id: "preview",
+          createdAt: completedAt,
+          expiresAt: completedAt,
+          rules: profile,
+          rows: [
+            {
+              id: "row",
+              productId: 1,
+              productConditionId: 2,
+              productName: "Synthetic Card",
+              productLineName: "Magic",
+              setName: "Synthetic Set",
+              condition: "Near Mint",
+              printing: "Normal",
+              language: "English",
+              quantity: 1,
+              currentPrice: 3,
+              currentShipping: 0,
+              proposedPrice: fixedPrice ?? 2,
+              minimumApplied: false,
+              status: fixedPrice === undefined ? "ready" : "skipped",
+              queueable: fixedPrice === undefined,
+              reason: "Synthetic pricing reason",
+              fixedPriceEligible: true,
+              ...(fixedPrice === undefined ? {} : { fixedPrice }),
+            },
+          ],
+          counts: {
+            ready: fixedPrice === undefined ? 1 : 0,
+            skipped: fixedPrice === undefined ? 0 : 1,
+            unchanged: 0,
+          },
+          totals: { listingCount: 1, totalQuantity: 1, currentListingValue: 3 },
+          marketplaceSnapshot: {
+            capturedAt: completedAt,
+            expiresAt: completedAt,
+            source: "fresh",
+          },
+        } satisfies PricingPreview),
+      );
+    const save = vi
+      .spyOn(uiApi, "setFixedPrice")
+      .mockImplementation((_preview, _row, price) => {
+        fixedPrice = price ?? undefined;
+        return Promise.resolve({ jobs: [] });
+      });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Repricing" }));
+    await user.click(screen.getByRole("button", { name: "Update preview" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Set fixed price" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Cancel", exact: true }),
+    );
+    expect(save).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Set fixed price" }));
+    const input = screen.getByLabelText("Fixed price for Synthetic Card");
+    await user.clear(input);
+    await user.type(input, "8.25");
+    await user.click(
+      screen.getByRole("button", { name: "Save & queue fixed price" }),
+    );
+    expect(save).toHaveBeenCalledWith("preview", "row", 8.25);
+    await screen.findByRole("button", { name: "Use profile" });
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Select Synthetic Card").disabled,
+    ).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Update preview" }));
+    await user.click(screen.getByLabelText("Fixed prices only"));
+    expect(screen.getByText("Synthetic Card")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Use profile" }));
+    expect(save).toHaveBeenLastCalledWith("preview", "row", null);
+    await user.click(screen.getByLabelText("Fixed prices only"));
+    await screen.findByRole("button", { name: "Set fixed price" });
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Select Synthetic Card").disabled,
+    ).toBe(false);
+    expect(repricing).toHaveBeenCalledTimes(4);
+  });
+
   it("derives workspaces from a ManaPool-only connection's facets", async () => {
     vi.stubGlobal(
       "fetch",

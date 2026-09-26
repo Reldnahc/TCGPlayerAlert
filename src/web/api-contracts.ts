@@ -1210,6 +1210,8 @@ const repricingRow = object({
   currentPrice: number,
   currentShipping: number,
   proposedPrice: number,
+  fixedPrice: optional(number),
+  fixedPriceEligible: optional(boolean),
   competitorPrice: optional(number),
   competitorShipping: optional(number),
   competitorPricingShipping: optional(number),

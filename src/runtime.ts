@@ -444,7 +444,9 @@ export function createRepricingService(
     credentials,
     sellerApi,
   );
+  const priceQueue = createPriceUpdateQueue(config);
   return new RepricingService({
+    fixedPrices: () => priceQueue.fixedPrices(),
     client,
     sellerKey: access.sellerKey,
   });

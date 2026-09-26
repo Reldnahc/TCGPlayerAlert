@@ -158,6 +158,9 @@ export function RepricingInventoryPage() {
   const [preview, setPreview] = useState<PricingPreview | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [query, setQuery] = useState("");
+  const [fixedEditor, setFixedEditor] = useState<string | null>(null);
+  const [fixedDraft, setFixedDraft] = useState("");
+  const [fixedOnly, setFixedOnly] = useState(false);
   const [proposedOnly, setProposedOnly] = useState(false);
   const [changeSort, setChangeSort] = useState<ChangeSort>("none");
   const [progress, setProgress] = useState<PricingProgress | null>(null);
@@ -174,7 +177,10 @@ export function RepricingInventoryPage() {
     const filtered =
       preview?.rows.filter(
         (row) =>
-          (!proposedOnly || row.proposedPrice !== row.currentPrice) &&
+          (!fixedOnly || row.fixedPrice !== undefined) &&
+          (!proposedOnly ||
+            row.proposedPrice !== row.currentPrice ||
+            row.fixedPrice !== undefined) &&
           tokens.every((token) => searchText(row).includes(token)),
       ) ?? [];
     if (changeSort === "none") return filtered;
@@ -190,7 +196,7 @@ export function RepricingInventoryPage() {
         return difference || left.index - right.index;
       })
       .map(({ row }) => row);
-  }, [changeSort, preview, proposedOnly, query]);
+  }, [changeSort, preview, proposedOnly, fixedOnly, query]);
   const visibleReady = visibleRows.filter(
     (row) => row.queueable && !removals.has(row.id),
   );
@@ -249,6 +255,45 @@ export function RepricingInventoryPage() {
           cause,
           "The inventory preview could not be created.",
         ),
+      });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveFixedPrice(row: PreviewRow, price: number | null) {
+    if (preview === null || busy !== "") return;
+    setBusy("fixed-price");
+    setMessage(null);
+    let saved = false;
+    try {
+      await uiApi.setFixedPrice(preview.id, row.id, price);
+      saved = true;
+      setFixedEditor(null);
+      setSelected(new Set());
+      const result = await uiApi.repricingPreview(
+        preview.rules,
+        false,
+        setProgress,
+      );
+      setPreview(result);
+      setMessage({
+        tone: "success",
+        text:
+          price === null
+            ? "Profile pricing restored. Review and queue the proposed price when ready."
+            : "Fixed price saved and queued. Future repricer runs will leave this listing alone.",
+      });
+    } catch (cause) {
+      if (saved) setPreview(null);
+      setMessage({
+        tone: saved ? "warning" : "danger",
+        text: saved
+          ? "Pricing choice saved, but the preview could not refresh. Update preview to continue."
+          : errorMessage(
+              cause,
+              "The pricing choice could not be saved. Refresh the preview before retrying.",
+            ),
       });
     } finally {
       setBusy("");
@@ -346,6 +391,7 @@ export function RepricingInventoryPage() {
         <Toolbar>
           <Field label="Pricing profile" class="profile-field">
             <select
+              disabled={busy !== ""}
               value={activeProfile?.id ?? ""}
               onChange={(event) => chooseProfile(event.currentTarget.value)}
             >
@@ -423,6 +469,16 @@ export function RepricingInventoryPage() {
                   Proposed changes ({String(proposedCount)})
                 </button>
               </div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={fixedOnly}
+                  onChange={(event) =>
+                    setFixedOnly(event.currentTarget.checked)
+                  }
+                />
+                Fixed prices only
+              </label>
               <span class="muted">
                 {visibleRows.length} of {preview.rows.length} listings
               </span>
@@ -504,7 +560,7 @@ export function RepricingInventoryPage() {
                         </button>
                       </th>
                       <th>Marketplace reference</th>
-                      <th>Result</th>
+                      <th>Result / pricing</th>
                       <th>Inventory</th>
                     </tr>
                   </thead>
@@ -596,8 +652,80 @@ export function RepricingInventoryPage() {
                             {competitorText(row)}
                           </td>
                           <td>
-                            <StatusBadge status={row.status} />
+                            {row.fixedPrice === undefined ? (
+                              <StatusBadge status={row.status} />
+                            ) : (
+                              <strong>Fixed price</strong>
+                            )}
                             <p class="result-copy">{row.reason}</p>
+                            {fixedEditor === row.id ? (
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  if (fixedDraft.trim() !== "")
+                                    void saveFixedPrice(
+                                      row,
+                                      Number(fixedDraft),
+                                    );
+                                }}
+                              >
+                                <Field
+                                  label={`Fixed price for ${row.productName}`}
+                                >
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    max="1000000"
+                                    step="0.01"
+                                    required
+                                    value={fixedDraft}
+                                    onInput={(event) =>
+                                      setFixedDraft(event.currentTarget.value)
+                                    }
+                                  />
+                                </Field>
+                                <small>
+                                  Overrides every profile until you choose Use
+                                  profile.
+                                </small>
+                                <Button type="submit" disabled={busy !== ""}>
+                                  Save &amp; queue fixed price
+                                </Button>
+                                <Button
+                                  tone="quiet"
+                                  disabled={busy !== ""}
+                                  type="button"
+                                  onClick={() => setFixedEditor(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </form>
+                            ) : row.fixedPriceEligible ? (
+                              <Button
+                                tone="quiet"
+                                disabled={busy !== ""}
+                                onClick={() => {
+                                  setFixedEditor(row.id);
+                                  setFixedDraft(
+                                    String(row.fixedPrice ?? row.currentPrice),
+                                  );
+                                }}
+                              >
+                                {row.fixedPrice === undefined
+                                  ? "Set fixed price"
+                                  : "Edit fixed price"}
+                              </Button>
+                            ) : null}
+                            {row.fixedPrice !== undefined &&
+                            row.fixedPriceEligible ? (
+                              <Button
+                                tone="quiet"
+                                disabled={busy !== ""}
+                                onClick={() => void saveFixedPrice(row, null)}
+                              >
+                                Use profile
+                              </Button>
+                            ) : null}
                           </td>
                           <td>
                             {removals.has(row.id) ? (

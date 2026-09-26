@@ -77,6 +77,60 @@ const rules: RepricingRules = {
 };
 
 describe("smart repricing", () => {
+  it("keeps fixed-price rows visible across profiles and excludes them from scheduled or manual updates", async () => {
+    let fixed: Readonly<Record<string, number>> = { "1003:0": 9 };
+    const own = product(listing());
+    const service = new RepricingService({
+      sellerKey,
+      fixedPrices: () => Promise.resolve(fixed),
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory: (input) =>
+          Promise.resolve(input.channelId === 0 ? [own] : []),
+        searchMarketplaceProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            products: [
+              {
+                ...own,
+                totalListings: 1,
+                listings: [listing({ sellerKey: "competitor", price: 2 })],
+              },
+            ],
+          }),
+      },
+    });
+    const preview = await service.preview(rules);
+    const row = preview.rows[0];
+    expect(row).toMatchObject({
+      fixedPrice: 9,
+      proposedPrice: 9,
+      queueable: false,
+      fixedPriceEligible: true,
+    });
+    expect(() =>
+      service.takeUpdates(preview.id, { rowIds: [row?.id] }),
+    ).toThrow();
+    expect(service.fixedPriceCandidate(preview.id, row?.id)).toMatchObject({
+      productConditionId: 1003,
+    });
+    const second = await service.preview({ ...rules, minimumPrice: 15 });
+    expect(second.rows[0]).toMatchObject({
+      fixedPrice: 9,
+      proposedPrice: 9,
+      queueable: false,
+    });
+    fixed = {};
+    service.invalidatePreviews();
+    expect(() => service.fixedPriceCandidate(preview.id, row?.id)).toThrow();
+    const restored = await service.preview(rules);
+    expect(restored.rows[0]).toMatchObject({
+      proposedPrice: 2,
+      queueable: true,
+    });
+    expect(restored.rows[0]?.fixedPrice).toBeUndefined();
+  });
+
   it("rejects invalid or non-open-ended pricing ranges", () => {
     const range = rules.ranges[0];
     if (range === undefined) throw new Error("Missing default repricing range");

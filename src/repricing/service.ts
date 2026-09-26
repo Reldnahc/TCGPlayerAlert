@@ -30,10 +30,12 @@ import { objectValue, parseRepricingRules } from "./rules.js";
 interface StoredPreview {
   readonly expiresAt: number;
   readonly updates: ReadonlyMap<string, SellerPriceUpdate>;
+  readonly candidates: ReadonlyMap<string, SellerPriceUpdate>;
   readonly removals: ReadonlyMap<string, SellerInventoryRemoval>;
 }
 
 export interface RepricingServiceOptions {
+  readonly fixedPrices?: () => Promise<Readonly<Record<string, number>>>;
   readonly client: RepricingMarketplaceClient;
   readonly sellerKey: SellerKeySource;
   readonly now?: () => Date;
@@ -57,7 +59,7 @@ export class RepricingService {
   private readonly previews = new Map<string, StoredPreview>();
   private readonly marketplace: RepricingMarketplace;
 
-  constructor(options: RepricingServiceOptions) {
+  constructor(private readonly options: RepricingServiceOptions) {
     this.sellerKey = options.sellerKey;
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? randomUUID;
@@ -125,6 +127,8 @@ export class RepricingService {
       detail: "Calculating proposed changes",
     });
 
+    const fixedPrices = (await this.options.fixedPrices?.()) ?? {};
+    const candidates = new Map<string, SellerPriceUpdate>();
     const updates = new Map<string, SellerPriceUpdate>();
     const removals = new Map<string, SellerInventoryRemoval>();
     const rows = sellerListings.map((context) => {
@@ -224,13 +228,29 @@ export class RepricingService {
           : context.listing.customData.customListingId !== undefined
             ? "Custom listings cannot be removed automatically."
             : undefined;
+      const fixedPrice =
+        fixedPrices[
+          `${String(context.listing.productConditionId)}:${String(context.listing.channelId)}`
+        ];
       const inventoryRow = {
         ...row,
         removable,
+        fixedPriceEligible: removable,
+        ...(fixedPrice === undefined
+          ? {}
+          : {
+              fixedPrice,
+              proposedPrice: fixedPrice,
+              status: "skipped" as const,
+              queueable: false,
+              minimumApplied: false,
+              reason:
+                "Fixed price overrides all profiles. Use profile to resume normal repricing.",
+            }),
         ...(removalReason === undefined ? {} : { removalReason }),
       };
-      if (row.queueable) {
-        updates.set(row.id, {
+      if (removable) {
+        candidates.set(row.id, {
           productId: context.product.productId,
           productName: context.product.productName,
           productConditionId: context.listing.productConditionId,
@@ -242,6 +262,10 @@ export class RepricingService {
           storePriceCustomId: null,
           reserveQuantity: 0,
         });
+      }
+      if (inventoryRow.queueable) {
+        const candidate = candidates.get(row.id);
+        if (candidate !== undefined) updates.set(row.id, candidate);
       }
       if (removable) {
         removals.set(row.id, {
@@ -272,6 +296,7 @@ export class RepricingService {
     this.previews.set(previewId, {
       expiresAt: expiresAt.getTime(),
       updates,
+      candidates,
       removals,
     });
     options.onProgress?.({
@@ -308,6 +333,25 @@ export class RepricingService {
         source,
       },
     };
+  }
+
+  fixedPriceCandidate(previewId: string, rowId: unknown): SellerPriceUpdate {
+    this.currentSellerKey();
+    this.removeExpiredPreviews();
+    const candidate =
+      typeof rowId === "string"
+        ? this.previews.get(previewId)?.candidates.get(rowId)
+        : undefined;
+    if (candidate === undefined)
+      throw new ConfigurationError([
+        "Refresh the preview and choose an eligible listing.",
+      ]);
+    return candidate;
+  }
+
+  invalidatePreviews(): void {
+    this.previews.clear();
+    this.marketplace.invalidate();
   }
 
   takeUpdates(previewId: string, value: unknown): readonly SellerPriceUpdate[] {

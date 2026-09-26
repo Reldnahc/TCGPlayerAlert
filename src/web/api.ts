@@ -812,6 +812,19 @@ export const uiApi = {
     onProgress: (progress: PricingProgress) => void,
   ): Promise<PricingPreview> =>
     streamingRepricingPreview(rules, forceRefresh, onProgress),
+  setFixedPrice: (
+    previewId: string,
+    rowId: string,
+    price: number | null,
+  ): Promise<QueuedJobs<PriceJob>> =>
+    requestJson(
+      `/api/repricing/previews/${encodeURIComponent(previewId)}/fixed-price`,
+      queuedPriceJobsDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({ rowId, price }),
+      },
+    ),
   queuePrices: (
     previewId: string,
     rowIds: readonly string[],

@@ -58,6 +58,56 @@ function settings() {
 }
 
 describe("price-update queue", () => {
+  it("persists fixed prices, supersedes old jobs, rejects stale updates, and restores profile pricing", async () => {
+    const { queue, path } = await queueFixture();
+    await queue.enqueue(syntheticUpdate);
+    await queue.setFixedPrice(syntheticUpdate, 20);
+    const reloaded = new PriceUpdateQueueStore({
+      stateFile: path,
+      historyLimit: 25,
+      lease: immediateSyncLease,
+    });
+    expect(await reloaded.fixedPrices()).toEqual({ "456:0": 20 });
+    expect((await reloaded.snapshot()).counts).toMatchObject({
+      pending: 1,
+      superseded: 1,
+    });
+    await expect(reloaded.enqueue(syntheticUpdate)).rejects.toThrow();
+    await reloaded.enqueue({ ...syntheticUpdate, productConditionId: 457 });
+    await reloaded.setFixedPrice(syntheticUpdate, null);
+    expect(await reloaded.fixedPrices()).toEqual({});
+    expect((await reloaded.snapshot()).counts).toMatchObject({
+      pending: 1,
+      superseded: 2,
+    });
+    await expect(reloaded.enqueue(syntheticUpdate)).resolves.toHaveLength(1);
+  });
+
+  it("blocks override changes during applying and uncertain jobs and blocks conflicting resubmissions", async () => {
+    const { queue } = await queueFixture();
+    await queue.enqueue(syntheticUpdate);
+    const job = await queue.claimNext();
+    if (job === undefined) throw new Error("Missing job");
+    await expect(queue.setFixedPrice(syntheticUpdate, 20)).rejects.toThrow();
+    await queue.finish(job.id, "failed");
+    await queue.setFixedPrice(syntheticUpdate, 20);
+    await expect(queue.resubmit(job.id)).rejects.toThrow();
+    const fixedJob = await queue.claimNext();
+    if (fixedJob === undefined) throw new Error("Missing fixed job");
+    await queue.finish(fixedJob.id, "review-required");
+    await expect(queue.setFixedPrice(syntheticUpdate, null)).rejects.toThrow();
+    expect(await queue.fixedPrices()).toEqual({ "456:0": 20 });
+  });
+
+  it.each([0, -1, 1.001, 1000001, NaN, Infinity, "20", undefined])(
+    "rejects invalid fixed price %s",
+    async (price) => {
+      const { queue } = await queueFixture();
+      expect(() => queue.setFixedPrice(syntheticUpdate, price)).toThrow();
+      expect(await queue.fixedPrices()).toEqual({});
+    },
+  );
+
   it("persists jobs and supersedes an older pending price for the same listing", async () => {
     const fixture = await queueFixture();
     const [first] = await fixture.queue.enqueue(syntheticUpdate);

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConfigurationService,
   InternalJobStore,
+  PriceUpdateQueueStore,
   loadConfig,
   startConfigurationUi,
   type AppConfig,
@@ -731,6 +732,61 @@ describe("configuration UI", () => {
       message: "No background camera frame is available.",
     });
     expect(cameraPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves and clears fixed prices only from a server-owned preview candidate", async () => {
+    const current = await fixture();
+    const priceQueue = new PriceUpdateQueueStore({
+      stateFile: `${current.path}.prices`,
+      historyLimit: 25,
+    });
+    const candidate = {
+      productId: 1,
+      productConditionId: 2,
+      productName: "Synthetic Card",
+      conditionId: 1,
+      channelId: 0,
+      categoryName: "Synthetic Game",
+      quantity: 2,
+      price: 3,
+      storePriceCustomId: null,
+      reserveQuantity: 0,
+    };
+    const fixedPriceCandidate = vi.fn(() => candidate);
+    const invalidatePreviews = vi.fn();
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      priceQueue,
+      repricingService: {
+        fixedPriceCandidate,
+        invalidatePreviews,
+      } as unknown as RepricingService,
+    });
+    const previewId = "00000000-0000-4000-8000-000000000001";
+    const serverUrl = server.url;
+    const post = (body: unknown) =>
+      fetch(`${serverUrl}/api/repricing/previews/${previewId}/fixed-price`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: server?.url ?? "",
+        },
+        body: JSON.stringify(body),
+      });
+    expect(
+      (await post({ rowId: "row", price: 8.25, productConditionId: 999 }))
+        .status,
+    ).toBe(202);
+    expect(fixedPriceCandidate).toHaveBeenCalledWith(previewId, "row");
+    expect(await priceQueue.fixedPrices()).toEqual({ "2:0": 8.25 });
+    expect(invalidatePreviews).toHaveBeenCalledTimes(1);
+    expect((await post({ rowId: "row", price: -2 })).status).toBe(400);
+    expect(await priceQueue.fixedPrices()).toEqual({ "2:0": 8.25 });
+    expect((await post({ rowId: "row", price: null })).status).toBe(202);
+    expect(await priceQueue.fixedPrices()).toEqual({});
+    expect((await priceQueue.snapshot()).counts.pending).toBe(0);
   });
 
   it("streams concrete repricing progress before the completed preview", async () => {

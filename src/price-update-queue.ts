@@ -47,6 +47,7 @@ export interface PriceUpdateJob {
 interface PriceUpdateQueueState {
   readonly version: 1;
   readonly jobs: readonly PriceUpdateJob[];
+  readonly fixedPrices?: Readonly<Record<string, number>>;
 }
 
 export interface PriceUpdateQueueSnapshot {
@@ -96,6 +97,7 @@ export class PriceUpdateQueueStore {
     return this.exclusive(async () =>
       this.lease.runExclusive(async () => {
         const state = await this.loadState();
+        for (const update of updates) assertFixedPrice(state, update);
         if (sourceRunId !== undefined) {
           const existing = state.jobs.filter(
             (job) => job.sourceRunId === sourceRunId,
@@ -119,7 +121,72 @@ export class PriceUpdateQueueStore {
           ...(sourceRunId === undefined ? {} : { sourceRunId }),
         }));
         await this.saveState({
+          ...state,
           version: 1,
+          jobs: this.prune([...jobs, ...created]),
+        });
+        return created;
+      }),
+    );
+  }
+
+  fixedPrices(): Promise<Readonly<Record<string, number>>> {
+    return this.exclusive(
+      async () => (await this.loadState()).fixedPrices ?? {},
+    );
+  }
+
+  setFixedPrice(
+    value: unknown,
+    price: unknown,
+  ): Promise<readonly PriceUpdateJob[]> {
+    const update = parsePriceUpdates(value)[0];
+    if (update === undefined)
+      throw new ConfigurationError(["Choose a listing."]);
+    if (price !== null) parsePriceUpdates({ ...update, price });
+    return this.exclusive(async () =>
+      this.lease.runExclusive(async () => {
+        const state = await this.loadState();
+        const key = listingKey(update);
+        if (
+          state.jobs.some(
+            (job) =>
+              listingKey(job.update) === key &&
+              (job.status === "applying" || job.status === "review-required"),
+          )
+        ) {
+          throw new ConfigurationError([
+            "Wait for the active price update or reconcile its uncertain outcome before changing fixed pricing.",
+          ]);
+        }
+        const fixedPrices = Object.fromEntries(
+          Object.entries(state.fixedPrices ?? {}).filter(
+            ([existingKey]) => existingKey !== key,
+          ),
+        );
+        if (price !== null) fixedPrices[key] = Number(price);
+        const timestamp = this.now().toISOString();
+        const jobs = state.jobs.map((job) =>
+          job.status === "pending" && listingKey(job.update) === key
+            ? { ...job, status: "superseded" as const, updatedAt: timestamp }
+            : job,
+        );
+        const created: PriceUpdateJob[] =
+          price === null
+            ? []
+            : [
+                {
+                  id: randomUUID(),
+                  update: { ...update, price: Number(price) },
+                  status: "pending",
+                  createdAt: timestamp,
+                  updatedAt: timestamp,
+                  attempts: 0,
+                },
+              ];
+        await this.saveState({
+          ...state,
+          fixedPrices,
           jobs: this.prune([...jobs, ...created]),
         });
         return created;
@@ -172,6 +239,7 @@ export class PriceUpdateQueueStore {
           updatedAt: timestamp,
         };
         await this.saveState({
+          ...state,
           version: 1,
           jobs: state.jobs.map((job) => (job.id === jobId ? canceled : job)),
         });
@@ -206,6 +274,7 @@ export class PriceUpdateQueueStore {
             "This failed price-update job has already been resubmitted.",
           );
         }
+        assertFixedPrice(state, existing.update);
         const timestamp = this.now().toISOString();
         const key = listingKey(existing.update);
         const jobs = state.jobs.map((job) =>
@@ -223,6 +292,7 @@ export class PriceUpdateQueueStore {
           resubmittedFromJobId: jobId,
         };
         await this.saveState({
+          ...state,
           version: 1,
           jobs: this.prune([...jobs, created]),
         });
@@ -247,7 +317,7 @@ export class PriceUpdateQueueStore {
             errorCode: "INTERRUPTED_DURING_MUTATION",
           };
         });
-        if (recovered > 0) await this.saveState({ version: 1, jobs });
+        if (recovered > 0) await this.saveState({ ...state, version: 1, jobs });
         return recovered;
       }),
     );
@@ -274,6 +344,7 @@ export class PriceUpdateQueueStore {
           attempts: next.attempts + 1,
         };
         await this.saveState({
+          ...state,
           version: 1,
           jobs: state.jobs.map((job) => (job.id === next.id ? claimed : job)),
         });
@@ -333,6 +404,7 @@ export class PriceUpdateQueueStore {
           updatedAt: this.now().toISOString(),
         };
         await this.saveState({
+          ...state,
           version: 1,
           jobs: this.prune(
             state.jobs.map((job) => (job.id === jobId ? replacement : job)),
@@ -776,7 +848,42 @@ function parseQueueState(value: unknown): PriceUpdateQueueState {
         : {}),
     };
   });
-  return { version: 1, jobs };
+  const fixedPrices = objectValue(source.fixedPrices);
+  if (
+    source.fixedPrices !== undefined &&
+    (fixedPrices === undefined ||
+      Object.entries(fixedPrices).some(
+        ([key, price]) =>
+          !/^[1-9]\d*:\d+$/u.test(key) ||
+          typeof price !== "number" ||
+          !Number.isFinite(price) ||
+          price < 0.01 ||
+          price > 1_000_000 ||
+          Math.abs(price * 100 - Math.round(price * 100)) > 1e-9,
+      ))
+  ) {
+    throw new ApplicationError(
+      "PERSISTENCE_ERROR",
+      "Stored fixed prices are invalid.",
+    );
+  }
+  return {
+    version: 1,
+    jobs,
+    fixedPrices: (fixedPrices ?? {}) as Record<string, number>,
+  };
+}
+
+function assertFixedPrice(
+  state: PriceUpdateQueueState,
+  update: SellerPriceUpdate,
+): void {
+  const fixed = state.fixedPrices?.[listingKey(update)];
+  if (fixed !== undefined && fixed !== update.price) {
+    throw new ConfigurationError([
+      "This listing has a fixed price. Refresh the repricing preview before queuing changes.",
+    ]);
+  }
 }
 
 function listingKey(update: SellerPriceUpdate): string {

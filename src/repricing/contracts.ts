@@ -69,6 +69,8 @@ export interface RepricingPreviewRow {
   readonly currentPrice: number;
   readonly currentShipping: number;
   readonly proposedPrice: number;
+  readonly fixedPrice?: number;
+  readonly fixedPriceEligible?: boolean;
   readonly competitorPrice?: number;
   readonly competitorShipping?: number;
   /** Shipping used for pricing when it differs from TCGplayer's displayed amount. */

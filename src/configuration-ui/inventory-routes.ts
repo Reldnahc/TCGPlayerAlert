@@ -59,6 +59,29 @@ async function handleRepricingRoute(
     }
     return true;
   }
+  const fixedMatch =
+    request.method === "POST"
+      ? /^\/api\/repricing\/previews\/([0-9a-f-]{36})\/fixed-price$/iu.exec(
+          url.pathname,
+        )
+      : null;
+  if (fixedMatch !== null) {
+    if (repricingService === undefined || priceQueue === undefined) {
+      sendJson(response, 503, {
+        message: "Repricing or the price-update queue is unavailable.",
+      });
+      return true;
+    }
+    const body = objectValue(await readJsonBody(request));
+    const candidate = repricingService.fixedPriceCandidate(
+      fixedMatch[1] ?? "",
+      body?.rowId,
+    );
+    const jobs = await priceQueue.setFixedPrice(candidate, body?.price);
+    repricingService.invalidatePreviews();
+    sendJson(response, 202, { jobs });
+    return true;
+  }
   const queueMatch =
     request.method === "POST"
       ? /^\/api\/repricing\/previews\/([0-9a-f-]{36})\/queue$/iu.exec(
