@@ -160,6 +160,73 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
+  it.each(["same", "same-or-better"] as const)(
+    "prices an Unopened addition using %s and only matching sealed listings",
+    async (conditionPolicy) => {
+      const sealedProduct: CatalogProductDetails = {
+        ...product,
+        productName: "Synthetic Sealed Box",
+        skus: [
+          {
+            productConditionId: 456,
+            conditionId: 6,
+            condition: "Unopened",
+            printing: "Normal",
+            language: "English",
+          },
+        ],
+      };
+      const searchMarketplaceProducts = vi.fn((input: { sellerKey?: string }) =>
+        Promise.resolve(
+          searchResult(
+            input.sellerKey === "synthetic-seller"
+              ? []
+              : [
+                  listing({ condition: "Unopened", conditionId: 6, price: 90 }),
+                  listing({ price: 1 }),
+                ],
+          ),
+        ),
+      );
+      const service = new InventoryAdditionService({
+        sellerKey: "synthetic-seller",
+        client: {
+          searchCatalogProducts: () =>
+            Promise.resolve({
+              totalProducts: 1,
+              productLines: [],
+              sets: [],
+              products: [sealedProduct],
+            }),
+          getCatalogProduct: () => Promise.resolve(sealedProduct),
+          searchMarketplaceProducts,
+        },
+      });
+      const preview = await service.preview({
+        productId: 123,
+        productConditionId: 456,
+        addQuantity: 1,
+        rules: additionPricingRules({ conditionPolicy }),
+      });
+      expect(preview).toMatchObject({
+        queueable: true,
+        proposedPrice: 90,
+        competitorCondition: "Unopened",
+      });
+      expect(searchMarketplaceProducts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conditions: ["Unopened"],
+          printings: ["Normal"],
+          languages: ["English"],
+        }),
+      );
+      expect(service.takeAddition(preview.id)).toMatchObject({
+        conditionId: 6,
+        price: 90,
+      });
+    },
+  );
+
   it("atomically and idempotently dispatches a scheduled listing batch", async () => {
     const { queue } = await queueFixture();
     const sourceRunId = "00000000-0000-4000-8000-000000000099";

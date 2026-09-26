@@ -31,7 +31,8 @@ export function allowedConditions(
   condition: string,
   policy: RepricingConditionPolicy,
 ): readonly string[] | undefined {
-  if (policy === "same") return [condition];
+  // Sealed products have no better/worse relationship to singles conditions.
+  if (policy === "same" || condition === "Unopened") return [condition];
   const index = TCGPLAYER_CONDITION_ORDER.indexOf(
     condition as (typeof TCGPLAYER_CONDITION_ORDER)[number],
   );

@@ -16,10 +16,9 @@ import {
   type SellerKeySource,
 } from "../seller-credentials.js";
 import {
+  allowedConditions,
   calculateRepricingRow,
   parseRepricingRules,
-  TCGPLAYER_CONDITION_ORDER,
-  type RepricingConditionPolicy,
   type RepricingRules,
 } from "../repricing.js";
 type UnknownRecord = Record<string, unknown>;
@@ -343,19 +342,6 @@ export function parseInventoryPricingRules(
     ...repricingRules,
     estimatedShippingPrice,
   };
-}
-
-function allowedConditions(
-  condition: string,
-  policy: RepricingConditionPolicy,
-): readonly string[] | undefined {
-  if (policy === "same") return [condition];
-  const index = TCGPLAYER_CONDITION_ORDER.indexOf(
-    condition as (typeof TCGPLAYER_CONDITION_ORDER)[number],
-  );
-  return index === -1
-    ? undefined
-    : TCGPLAYER_CONDITION_ORDER.slice(0, index + 1);
 }
 
 function roundCurrency(value: number): number {

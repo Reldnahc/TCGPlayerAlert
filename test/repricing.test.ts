@@ -11,6 +11,8 @@ import {
   type RepricingRules,
 } from "../src/repricing.js";
 
+import { allowedConditions } from "../src/repricing/pricing.js";
+
 const sellerKey = "seller_test";
 
 function listing(
@@ -77,6 +79,101 @@ const rules: RepricingRules = {
 };
 
 describe("smart repricing", () => {
+  it("keeps sealed conditions separate from singles rankings", () => {
+    expect(allowedConditions("Unopened", "same-or-better")).toEqual([
+      "Unopened",
+    ]);
+    expect(allowedConditions("Damaged", "same-or-better")).toEqual([
+      "Near Mint",
+      "Lightly Played",
+      "Moderately Played",
+      "Heavily Played",
+      "Damaged",
+    ]);
+    expect(allowedConditions("Lightly Played", "same")).toEqual([
+      "Lightly Played",
+    ]);
+    expect(allowedConditions("Unknown", "same-or-better")).toBeUndefined();
+  });
+
+  it.each(["same", "same-or-better"] as const)(
+    "reprices sealed products using %s with exact condition filters and fixed-price protection",
+    async (conditionPolicy) => {
+      const ownListing = listing({
+        condition: "Unopened",
+        conditionId: 6,
+        price: 100,
+      });
+      const own = product(ownListing);
+      let fixed: Readonly<Record<string, number>> = {};
+      const searchMarketplaceProducts = vi.fn(() =>
+        Promise.resolve({
+          totalProducts: 1,
+          products: [
+            {
+              ...own,
+              totalListings: 4,
+              listings: [
+                { ...ownListing, sellerKey: "sealed-competitor", price: 90 },
+                listing({ sellerKey: "single-competitor", price: 1 }),
+                {
+                  ...ownListing,
+                  sellerKey: "other-language",
+                  language: "Japanese",
+                  price: 2,
+                },
+                {
+                  ...ownListing,
+                  sellerKey: "other-printing",
+                  printing: "Foil",
+                  price: 3,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      const service = new RepricingService({
+        sellerKey,
+        fixedPrices: () => Promise.resolve(fixed),
+        client: {
+          getSkuMarketPrices,
+          listSellerInventory: (input) =>
+            Promise.resolve(input.channelId === 0 ? [own] : []),
+          searchMarketplaceProducts,
+        },
+      });
+      const preview = await service.preview({ ...rules, conditionPolicy });
+      const row = preview.rows[0];
+      expect(row).toMatchObject({
+        status: "ready",
+        proposedPrice: 90,
+        queueable: true,
+        competitorCondition: "Unopened",
+      });
+      expect(searchMarketplaceProducts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conditions: ["Unopened"],
+          printings: ["Normal"],
+          languages: ["English"],
+        }),
+      );
+      expect(service.takeUpdates(preview.id, { rowIds: [row?.id] })).toEqual([
+        expect.objectContaining({ conditionId: 6, price: 90 }),
+      ]);
+      fixed = { "1003:0": 105 };
+      const held = await service.preview({ ...rules, conditionPolicy });
+      expect(held.rows[0]).toMatchObject({
+        fixedPrice: 105,
+        proposedPrice: 105,
+        queueable: false,
+      });
+      expect(() =>
+        service.takeUpdates(held.id, { rowIds: [held.rows[0]?.id] }),
+      ).toThrow();
+    },
+  );
+
   it("keeps fixed-price rows visible across profiles and excludes them from scheduled or manual updates", async () => {
     let fixed: Readonly<Record<string, number>> = { "1003:0": 9 };
     const own = product(listing());
