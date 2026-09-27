@@ -74,6 +74,14 @@ Fixed-price holds and rows without a verified target remain unselectable.
 - Each TCGplayer addition preview rereads your live quantity, so consecutive
   **+1** additions after earlier jobs apply do not reuse an old stock count.
   The worker still stops for review if stock changes between preview and execution.
+- Each **Inventory > Local stock** row has **Delist & empty stock** for undoing
+  accidental listings. Review that card's current listings and local quantity,
+  then confirm. The action cancels that card's pending inventory jobs, pauses
+  auto-relisting, removes matched listings, and clears local stock only after a
+  fresh read verifies removal. Other cards and unmatched listings are untouched.
+  Running inventory jobs or active listing schedules must finish or be stopped
+  first. Partial or uncertain removal keeps local stock and requires a fresh
+  review; requests are never retried automatically.
 - **Inventory > Audit listing quantities** reads fresh inventory and shows local
   quantity, listed quantity, and the difference for the selected marketplace.
   It includes partially listed and unmatched local items, labels enabled

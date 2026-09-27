@@ -1,7 +1,12 @@
+import type { LocalInventoryItem } from "../local-inventory-contracts.js";
 import {
   LocalInventoryNotFoundError,
   type LocalInventoryAddition,
 } from "../local-inventory.js";
+import {
+  previewInventoryDelisting,
+  confirmInventoryDelisting,
+} from "../local-inventory-delisting.js";
 import {
   planLocalInventoryImport,
   projectLocalInventoryWorkspace,
@@ -113,6 +118,84 @@ export const handleLocalInventoryRoute: ConfigurationRouteHandler = async (
     context.url.pathname === "/api/local-inventory/catalog-items"
   ) {
     return addCatalogItem(context);
+  }
+  const delistMatch =
+    context.request.method === "POST"
+      ? /^\/api\/local-inventory\/items\/([0-9a-f-]{36})\/(delist-preview|delist)$/iu.exec(
+          context.url.pathname,
+        )
+      : null;
+  if (delistMatch !== null) {
+    if (context.localInventory === undefined) return unavailable(context);
+    const deps = {
+      local: context.localInventory,
+      ...(!context.marketplaces?.registry
+        .list()
+        .some((connection) => connection.facets.inventoryReader !== undefined)
+        ? {}
+        : { inventory: context.marketplaces.inventory }),
+      ...(context.inventoryQueue === undefined
+        ? {}
+        : { queue: context.inventoryQueue }),
+      validateJobs: async (item: LocalInventoryItem) => {
+        const skuIds = new Set(
+          item.catalogIdentities
+            .filter(
+              (identity) =>
+                identity.namespace === "tcgplayer.sku" &&
+                identity.precision === "exact-variant",
+            )
+            .map((identity) => Number(identity.value)),
+        );
+        const jobs = await context.internalJobs?.snapshot();
+        if (
+          jobs?.schedules.some(
+            (schedule) =>
+              schedule.enabled &&
+              schedule.payload.type === "list-inventory" &&
+              schedule.payload.items.some((entry) =>
+                skuIds.has(entry.productConditionId),
+              ),
+          ) ||
+          jobs?.runs.some(
+            (run) =>
+              (run.status === "queued" || run.status === "running") &&
+              run.payload.type === "list-inventory" &&
+              run.payload.items.some((entry) =>
+                skuIds.has(entry.productConditionId),
+              ),
+          )
+        ) {
+          throw new MarketplaceValidationError(
+            "This card has an active listing schedule or run. Disable or cancel it in Jobs, then review again.",
+          );
+        }
+      },
+    };
+    const localId = delistMatch[1] ?? "";
+    if (delistMatch[2] === "delist-preview") {
+      sendJson(
+        context.response,
+        200,
+        await previewInventoryDelisting(deps, localId),
+      );
+    } else {
+      const body = objectValue(await readJsonBody(context.request));
+      if (
+        body?.confirmation !== "DELIST_AND_EMPTY_ITEM" ||
+        typeof body.previewId !== "string"
+      ) {
+        sendJson(context.response, 400, {
+          message:
+            "Review and confirm this card before delisting and emptying local stock.",
+        });
+        return true;
+      }
+      sendJson(context.response, 200, {
+        item: await confirmInventoryDelisting(deps, localId, body.previewId),
+      });
+    }
+    return true;
   }
   const quantityMatch =
     context.request.method === "PUT"

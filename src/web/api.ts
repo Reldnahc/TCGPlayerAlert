@@ -60,6 +60,7 @@ import {
   feedbackPageDecoder,
   inventoryQueueDecoder,
   inventoryListDecoder,
+  inventoryDelistPreviewDecoder,
   localInventoryImportPreviewDecoder,
   localInventoryImportResultDecoder,
   localInventoryItemResponseDecoder,
@@ -465,6 +466,24 @@ export const uiApi = {
       {
         method: "POST",
         body: JSON.stringify(input),
+      },
+    ),
+  previewInventoryDelisting: (localId: string) =>
+    requestJson(
+      `/api/local-inventory/items/${encodeURIComponent(localId)}/delist-preview`,
+      inventoryDelistPreviewDecoder,
+      { method: "POST", body: "{}" },
+    ),
+  confirmInventoryDelisting: (localId: string, previewId: string) =>
+    requestJson(
+      `/api/local-inventory/items/${encodeURIComponent(localId)}/delist`,
+      localInventoryItemResponseDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          previewId,
+          confirmation: "DELIST_AND_EMPTY_ITEM",
+        }),
       },
     ),
   setLocalInventoryQuantity: (

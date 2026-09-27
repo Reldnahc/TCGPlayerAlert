@@ -520,6 +520,51 @@ describe("generic marketplace HTTP routes", () => {
     expect(observations[0]?.inventoryMutations).toEqual([]);
   });
 
+  it("requires a reviewed explicit confirmation to empty one unlisted item", async () => {
+    const localInventory = memoryLocalInventory();
+    const item = await localInventory.add({
+      displayName: "Unlisted test",
+      quantity: 2,
+      catalogIdentities: [
+        {
+          namespace: "tcgplayer.sku",
+          value: "999999",
+          precision: "exact-variant",
+        },
+      ],
+      attributes: {},
+    });
+    server = await start(marketplaceRuntime({ inventory: true }), {
+      localInventory,
+    });
+    const base = `${server.url}/api/local-inventory/items/${item.localInventoryId}`;
+    const headers = { "content-type": "application/json", origin: server.url };
+    const preview = await fetch(`${base}/delist-preview`, {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+    expect(preview.status).toBe(200);
+    const body = (await preview.json()) as { id: string };
+    const missing = await fetch(`${base}/delist`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ previewId: body.id }),
+    });
+    expect(missing.status).toBe(400);
+    expect((await localInventory.snapshot()).items[0]?.onHand).toBe(2);
+    const cleared = await fetch(`${base}/delist`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        previewId: body.id,
+        confirmation: "DELIST_AND_EMPTY_ITEM",
+      }),
+    });
+    expect(cleared.status).toBe(200);
+    expect((await localInventory.snapshot()).items[0]?.onHand).toBe(0);
+  });
+
   it("previews and idempotently imports cross-listed stock without summing or provider writes", async () => {
     const observations: SyntheticFactoryObservation[] = [];
     const localInventory = memoryLocalInventory();

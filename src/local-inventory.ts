@@ -74,6 +74,12 @@ export type LocalInventorySaleDeductionResult =
 
 export interface LocalInventoryState {
   readonly version: 2;
+  readonly delistingAttempts?: readonly {
+    readonly id: string;
+    readonly localInventoryId: string;
+    readonly status: "running" | "completed" | "review-required";
+    readonly updatedAt: string;
+  }[];
   readonly replenishments?: readonly ReplenishmentRule[];
   readonly items: readonly LocalInventoryItem[];
   readonly salesTrackingStartedAt?: string;
@@ -479,6 +485,33 @@ export function parseLocalInventoryState(value: unknown): LocalInventoryState {
   )
     throw invalidState();
   assertUniqueLocalInventory(items);
+  const delistingAttempts: NonNullable<
+    LocalInventoryState["delistingAttempts"]
+  > =
+    value.delistingAttempts === undefined
+      ? []
+      : (() => {
+          if (
+            !Array.isArray(value.delistingAttempts) ||
+            value.delistingAttempts.length > 500
+          )
+            throw invalidState();
+          return value.delistingAttempts.map((attempt: unknown) => {
+            if (
+              !isRecord(attempt) ||
+              (attempt.status !== "running" &&
+                attempt.status !== "completed" &&
+                attempt.status !== "review-required")
+            )
+              throw invalidState();
+            return {
+              id: parseLocalInventoryId(attempt.id),
+              localInventoryId: parseLocalInventoryId(attempt.localInventoryId),
+              status: attempt.status,
+              updatedAt: checkedTimestamp(attempt.updatedAt),
+            };
+          });
+        })();
   if (value.version === 1) {
     return {
       version: 2,
@@ -516,6 +549,7 @@ export function parseLocalInventoryState(value: unknown): LocalInventoryState {
     version: 2,
     items,
     ...(value.replenishments === undefined ? {} : { replenishments }),
+    ...(value.delistingAttempts === undefined ? {} : { delistingAttempts }),
     saleDeductions,
     ...(salesTrackingStartedAt === undefined ? {} : { salesTrackingStartedAt }),
   };

@@ -19,6 +19,78 @@ afterEach(resetWebUiTest);
 const completedAt = "2026-08-07T12:00:00.000Z";
 
 describe("provider-neutral inventory", () => {
+  it("confirms clearing one row and updates its local quantity only on success", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const payload = inventoryPayload();
+    const item = payload.items[0];
+    if (item === undefined) throw new Error("Missing item");
+    vi.spyOn(uiApi, "inventory").mockImplementation(() =>
+      Promise.resolve(payload),
+    );
+    const preview = vi
+      .spyOn(uiApi, "previewInventoryDelisting")
+      .mockResolvedValue({
+        id: "review",
+        localInventoryId: item.localInventoryId,
+        displayName: item.displayName,
+        onHand: 3,
+        listings: [{ connectionLabel: "TCGplayer Store", quantity: 3 }],
+      });
+    const confirm = vi
+      .spyOn(uiApi, "confirmInventoryDelisting")
+      .mockImplementation(() => {
+        item.onHand = 0;
+        return Promise.resolve({ item });
+      });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(
+      screen.getByRole("link", { name: "Inventory", exact: true }),
+    );
+    const row = (await screen.findByText("Lightning Bolt")).closest("tr");
+    if (row === null) throw new Error("Missing row");
+    await user.click(
+      within(row).getByRole("button", { name: "Delist & empty stock" }),
+    );
+    let dialog = within(
+      await screen.findByRole("dialog", {
+        name: "Delist Lightning Bolt and empty stock",
+      }),
+    );
+    expect(preview).toHaveBeenCalledWith(item.localInventoryId);
+    expect(confirm).not.toHaveBeenCalled();
+    await user.click(dialog.getByRole("button", { name: "Cancel" }));
+    expect(confirm).not.toHaveBeenCalled();
+    await user.click(
+      within(row).getByRole("button", { name: "Delist & empty stock" }),
+    );
+    dialog = within(
+      await screen.findByRole("dialog", {
+        name: "Delist Lightning Bolt and empty stock",
+      }),
+    );
+    await user.click(
+      dialog.getByRole("button", { name: "Confirm delist & empty stock" }),
+    );
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(
+      item.localInventoryId,
+      "review",
+    );
+    expect(
+      await screen.findByText("Card delisted and local stock emptied."),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText<HTMLInputElement>(
+        "Local on-hand quantity for Lightning Bolt",
+      ).value,
+    ).toBe("0");
+    expect(
+      screen.getByLabelText<HTMLInputElement>(
+        "Local on-hand quantity for Unlisted Card",
+      ).value,
+    ).toBe("1");
+  });
   it("audits fresh per-marketplace shortages and labels intentional reserves", async () => {
     vi.stubGlobal("fetch", vi.fn(inventoryFetch));
     const user = userEvent.setup();

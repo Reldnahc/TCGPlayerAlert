@@ -596,6 +596,44 @@ export class InventoryAdditionQueueStore {
     );
   }
 
+  withCanceledSkuJobs<T>(
+    skuIds: ReadonlySet<number>,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    return this.exclusive(() =>
+      this.lease.runExclusive(async () => {
+        const state = await this.loadState();
+        const matches = (job: InventoryAdditionJob) =>
+          skuIds.has(
+            job.operation === "add"
+              ? job.addition.productConditionId
+              : job.removal.productConditionId,
+          );
+        if (
+          state.jobs.some((job) => matches(job) && job.status === "applying")
+        ) {
+          throw new ApplicationError(
+            "REVIEW_REQUIRED",
+            "An inventory job for this card is running. Wait for it to finish, then review the card again.",
+          );
+        }
+        await this.saveState({
+          version: 1,
+          jobs: state.jobs.map((job) =>
+            matches(job) && job.status === "pending"
+              ? {
+                  ...job,
+                  status: "canceled" as const,
+                  updatedAt: this.now().toISOString(),
+                }
+              : job,
+          ),
+        });
+        return work();
+      }),
+    );
+  }
+
   resubmit(jobId: string): Promise<InventoryAdditionJob> {
     if (!/^[0-9a-f-]{36}$/iu.test(jobId)) {
       throw new ConfigurationError(["The inventory-change job id is invalid."]);

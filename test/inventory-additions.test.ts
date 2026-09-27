@@ -160,6 +160,23 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
+  it("cancels only pending jobs for the card being cleared and blocks a running job", async () => {
+    const { queue } = await queueFixture();
+    await queue.enqueue(addition);
+    await queue.enqueue({ ...addition, productConditionId: 999 });
+    const work = vi.fn(() => Promise.resolve("cleared"));
+    await expect(queue.withCanceledSkuJobs(new Set([456]), work)).resolves.toBe(
+      "cleared",
+    );
+    expect(
+      (await queue.snapshot()).jobs.map((job) => job.status).sort(),
+    ).toEqual(["canceled", "pending"]);
+    await queue.claimNext();
+    await expect(
+      queue.withCanceledSkuJobs(new Set([999]), work),
+    ).rejects.toThrow(/running/);
+    expect(work).toHaveBeenCalledOnce();
+  });
   it.each(["same", "same-or-better"] as const)(
     "prices an Unopened addition using %s and only matching sealed listings",
     async (conditionPolicy) => {

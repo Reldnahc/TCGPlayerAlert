@@ -380,6 +380,15 @@ export const localInventoryItemResponseDecoder: Decoder<LocalInventoryItemRespon
   object({
     item: coreDecoder(parseLocalInventoryItem, "a local inventory item"),
   });
+export const inventoryDelistPreviewDecoder = object({
+  id: text,
+  localInventoryId: text,
+  displayName: text,
+  onHand: nonNegativeInteger,
+  listings: array(
+    object({ connectionLabel: text, quantity: nonNegativeInteger }),
+  ),
+});
 const publicationPreviewDecoder: Decoder<MarketplacePublicationPreview> =
   object({
     id: text,

@@ -1,6 +1,6 @@
 import { ReplenishmentPanel } from "./ReplenishmentPanel.js";
 import { InventoryAudit } from "./InventoryAudit.js";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { LocalInventoryItem } from "../../local-inventory-contracts.js";
 import type { MarketplaceInventoryObservation } from "../../local-inventory-workspace.js";
 import type { InventoryItem } from "../../marketplaces/contracts.js";
@@ -493,12 +493,55 @@ function LocalInventoryRow({
   readonly onSaved: () => Promise<void>;
 }) {
   const [autoOpen, setAutoOpen] = useState(false);
+  const [delistPreview, setDelistPreview] = useState<Awaited<
+    ReturnType<typeof uiApi.previewInventoryDelisting>
+  > | null>(null);
   const [quantity, setQuantity] = useState(String(item.onHand));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const connectionCount = new Set(
     listings.map((listing) => listing.descriptor.connectionId),
   ).size;
+
+  useLayoutEffect(() => setQuantity(String(item.onHand)), [item.onHand]);
+
+  async function reviewDelist() {
+    setBusy(true);
+    setMessage("");
+    try {
+      setDelistPreview(
+        await uiApi.previewInventoryDelisting(item.localInventoryId),
+      );
+    } catch (cause) {
+      setMessage(errorMessage(cause, "This card could not be reviewed."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelist() {
+    if (delistPreview === null || busy) return;
+    setBusy(true);
+    try {
+      await uiApi.confirmInventoryDelisting(
+        item.localInventoryId,
+        delistPreview.id,
+      );
+      setQuantity("0");
+      setMessage("Card delisted and local stock emptied.");
+    } catch (cause) {
+      setMessage(
+        errorMessage(
+          cause,
+          "Delisting could not be verified. Refresh and review before trying again.",
+        ),
+      );
+    } finally {
+      setDelistPreview(null);
+      setBusy(false);
+      await onSaved();
+    }
+  }
 
   async function save(event: Event) {
     event.preventDefault();
@@ -573,7 +616,56 @@ function LocalInventoryRow({
           </Button>
           {message === "" ? null : <small>{message}</small>}
         </form>
-        <Button onClick={() => setAutoOpen(true)}>Auto-relist</Button>
+        <Button disabled={busy} onClick={() => setAutoOpen(true)}>
+          Auto-relist
+        </Button>
+        <Button disabled={busy} onClick={() => void reviewDelist()}>
+          Delist &amp; empty stock
+        </Button>
+        {delistPreview === null ? null : (
+          <div class="dialog-backdrop">
+            <div
+              class="dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Delist ${item.displayName} and empty stock`}
+            >
+              <div class="dialog__body">
+                <h2>Delist {delistPreview.displayName} and empty stock?</h2>
+                <p>
+                  Remove all matched listings for this card and set its local
+                  quantity from {delistPreview.onHand} to 0. Other cards are
+                  unaffected.
+                </p>
+                {delistPreview.listings.length === 0 ? (
+                  <p>No live matched listings.</p>
+                ) : (
+                  <ul>
+                    {delistPreview.listings.map((listing, index) => (
+                      <li key={index}>
+                        {listing.connectionLabel}: {listing.quantity} listed
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p>
+                  Pending inventory jobs for this card will be canceled and
+                  auto-relisting paused. Local stock is cleared only after
+                  delisting is verified. Unmatched marketplace listings are not
+                  removed.
+                </p>
+              </div>
+              <div class="dialog__footer">
+                <Button disabled={busy} onClick={() => setDelistPreview(null)}>
+                  Cancel
+                </Button>
+                <Button busy={busy} onClick={() => void confirmDelist()}>
+                  Confirm delist &amp; empty stock
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {autoOpen ? (
           <div class="dialog-backdrop">
             <div
