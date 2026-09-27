@@ -41,6 +41,8 @@ existing marketplace snapshot while showing progress. Fixed rows distinguish
 the saved target from the last observed live price. Use **Refresh marketplace**
 after the queue applies the change to verify the live price; saving alone does
 not confirm that the marketplace has accepted it.
+Completed price-update jobs invalidate the cached snapshot on the next
+**Update preview**, including updates applied by a separate worker process.
 
 ## Safety defaults
 

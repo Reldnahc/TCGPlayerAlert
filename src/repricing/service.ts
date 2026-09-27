@@ -35,6 +35,8 @@ interface StoredPreview {
 }
 
 export interface RepricingServiceOptions {
+  /** Durable applied-mutation revision, shared with workers in other processes. */
+  readonly marketplaceRevision?: () => Promise<string>;
   readonly fixedPrices?: () => Promise<Readonly<Record<string, number>>>;
   readonly client: RepricingMarketplaceClient;
   readonly sellerKey: SellerKeySource;
@@ -53,6 +55,7 @@ export interface RepricingPreviewOptions {
 export class RepricingService {
   private readonly sellerKey: SellerKeySource;
   private activeSellerKey: string | undefined;
+  private marketplaceRevision: string | undefined;
   private readonly now: () => Date;
   private readonly id: () => string;
   private readonly previewLifetimeMs: number;
@@ -78,6 +81,11 @@ export class RepricingService {
   ): Promise<RepricingPreview> {
     const sellerKey = this.currentSellerKey();
     const rules = parseRepricingRules(value);
+    const revision = await this.options.marketplaceRevision?.();
+    if (revision !== this.marketplaceRevision) {
+      this.marketplace.invalidate();
+      this.marketplaceRevision = revision;
+    }
     this.removeExpiredPreviews();
     const { snapshot, source } = await this.marketplace.snapshot(
       options.forceRefresh === true,

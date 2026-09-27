@@ -450,6 +450,12 @@ export function createRepricingService(
   const priceQueue = createPriceUpdateQueue(config);
   return new RepricingService({
     fixedPrices: () => priceQueue.fixedPrices(),
+    marketplaceRevision: async () =>
+      (await priceQueue.snapshot()).jobs
+        .filter((job) => job.status === "applied")
+        .map((job) => job.id)
+        .sort()
+        .join(","),
     client,
     sellerKey: access.sellerKey,
   });

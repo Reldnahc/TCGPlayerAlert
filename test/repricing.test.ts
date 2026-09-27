@@ -218,12 +218,14 @@ describe("smart repricing", () => {
   it("keeps fixed-price rows visible across profiles and excludes them from scheduled or manual updates", async () => {
     let fixed: Readonly<Record<string, number>> = { "1003:0": 9 };
     let own = product(listing());
+    let revision = "";
     const listSellerInventory = vi.fn((input: { channelId?: number }) =>
       Promise.resolve(input.channelId === 0 ? [own] : []),
     );
     const service = new RepricingService({
       sellerKey,
       fixedPrices: () => Promise.resolve(fixed),
+      marketplaceRevision: () => Promise.resolve(revision),
       client: {
         getSkuMarketPrices,
         listSellerInventory,
@@ -271,9 +273,19 @@ describe("smart repricing", () => {
     expect(restored.rows[0]?.fixedPrice).toBeUndefined();
     expect(listSellerInventory).toHaveBeenCalledTimes(2);
     own = product(listing({ price: 9 }));
-    const live = await service.preview(rules, { forceRefresh: true });
+    const cached = await service.preview(rules);
+    expect(cached.rows[0]?.currentPrice).toBe(3);
+    expect(listSellerInventory).toHaveBeenCalledTimes(2);
+    revision = "applied-job-id";
+    const live = await service.preview(rules);
     expect(live.rows[0]?.currentPrice).toBe(9);
     expect(listSellerInventory).toHaveBeenCalledTimes(4);
+    await service.preview(rules);
+    expect(listSellerInventory).toHaveBeenCalledTimes(4);
+    own = product(listing({ price: 11 }));
+    const forced = await service.preview(rules, { forceRefresh: true });
+    expect(forced.rows[0]?.currentPrice).toBe(11);
+    expect(listSellerInventory).toHaveBeenCalledTimes(6);
   });
 
   it("rejects invalid or non-open-ended pricing ranges", () => {
