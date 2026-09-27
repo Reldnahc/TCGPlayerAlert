@@ -204,6 +204,7 @@ export function AddCardsPage() {
     setRowPrices({});
     window.localStorage.setItem(LISTING_DESTINATION_KEY, destination);
   }
+  const [kind, setKind] = useState<"singles" | "sealed">("singles");
   const [query, setQuery] = useState("");
   const [productLine, setProductLine] = useState("");
   const [setName, setSetName] = useState("");
@@ -374,7 +375,7 @@ export function AddCardsPage() {
     const normalizedSet = append && search !== null ? search.setName : setName;
     if (normalizedQuery.length < 2 && !/^\d+$/u.test(normalizedQuery)) {
       setMessage(
-        "Enter a product number or at least two characters of the card name.",
+        "Enter a product number or at least two characters of the product name.",
       );
       return;
     }
@@ -391,7 +392,9 @@ export function AddCardsPage() {
         normalizedSet,
         append ? (search?.nextOffset ?? 0) : 0,
         controller.signal,
+        kind,
       );
+      if (controller.signal.aborted) return;
       setSearch((current) => ({
         ...result,
         query: normalizedQuery,
@@ -424,8 +427,10 @@ export function AddCardsPage() {
       if (controller.signal.aborted) return;
       setMessage(errorMessage(cause, "Catalog search failed."));
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setSearching(false);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setSearching(false);
+      }
     }
   }
 
@@ -435,7 +440,9 @@ export function AddCardsPage() {
   ): RowSelection {
     const saved = selections[productId];
     const condition =
-      saved?.condition ?? activeProfile?.defaultCondition ?? "Near Mint";
+      kind === "sealed"
+        ? "Unopened"
+        : (saved?.condition ?? activeProfile?.defaultCondition ?? "Near Mint");
     const preferredPrinting =
       saved?.printing ?? activeProfile?.defaultPrinting ?? "Normal";
     return {
@@ -814,10 +821,38 @@ export function AddCardsPage() {
   return (
     <main class="page page--fixed">
       <PageHeader
-        title="Add cards"
+        title="Add inventory"
         description="Add physical stock and optionally list it for sale"
       />
       <div class="page-body add-cards-layout">
+        <div class="segmented" role="tablist" aria-label="Inventory type">
+          {(["singles", "sealed"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-controls="catalog-results"
+              aria-selected={kind === value}
+              disabled={adding.size > 0 || publishing}
+              onClick={() => {
+                if (kind === value) return;
+                abortRef.current?.abort();
+                abortRef.current = null;
+                setKind(value);
+                setSearch(null);
+                setSetName("");
+                setSelections({});
+                setRowMessages({});
+                setRowPrices({});
+                activePriceRequests.current.clear();
+                setMessage("");
+                setSearching(false);
+              }}
+            >
+              {value === "sealed" ? "Sealed" : "Singles"}
+            </button>
+          ))}
+        </div>
         <Toolbar>
           <Field label="Catalog source" class="profile-field">
             <select
@@ -841,7 +876,7 @@ export function AddCardsPage() {
               ))}
             </select>
           </Field>
-          <Field label="Card defaults" class="profile-field">
+          <Field label="Listing defaults" class="profile-field">
             <select
               value={activeProfile?.id ?? ""}
               onChange={(event) => selectProfile(event.currentTarget.value)}
@@ -855,8 +890,10 @@ export function AddCardsPage() {
           </Field>
           <span class="profile-summary">
             {activeProfile === undefined
-              ? "English · Near Mint · Normal"
-              : `${activeProfile.language} · ${activeProfile.defaultCondition} · ${activeProfile.defaultPrinting}`}
+              ? kind === "sealed"
+                ? "English · Unopened"
+                : "English · Near Mint · Normal"
+              : `${activeProfile.language} · ${kind === "sealed" ? "Unopened" : `${activeProfile.defaultCondition} · ${activeProfile.defaultPrinting}`}`}
           </span>
           <div class="field listing-destination-field">
             <span class="field__label">List on</span>
@@ -915,7 +952,14 @@ export function AddCardsPage() {
             void runSearch();
           }}
         >
-          <Field label="Card name or product #" class="catalog-query">
+          <Field
+            label={
+              kind === "sealed"
+                ? "Sealed product name or product #"
+                : "Card name or product #"
+            }
+            class="catalog-query"
+          >
             <input
               type="search"
               value={query}
@@ -962,11 +1006,20 @@ export function AddCardsPage() {
           </Button>
         </form>
         {message === "" ? null : <Notice tone="danger">{message}</Notice>}
-        <div class="catalog-results" id="catalog-results">
+        <div
+          class="catalog-results"
+          id="catalog-results"
+          role="tabpanel"
+          aria-label={kind === "sealed" ? "Sealed products" : "Singles"}
+        >
           {search === null ? (
             <EmptyState
               title="Search the catalog"
-              detail="Choose an exact condition and printing, then add physical stock locally."
+              detail={
+                kind === "sealed"
+                  ? "Find packs, boxes, bundles, and other unopened products."
+                  : "Choose an exact condition and printing, then add physical stock locally."
+              }
             />
           ) : groups.length === 0 ? (
             <EmptyState
@@ -984,6 +1037,7 @@ export function AddCardsPage() {
                   {group.products.map((product) => (
                     <CatalogRow
                       key={product.productId}
+                      sealed={kind === "sealed"}
                       product={product}
                       details={details[product.productId]}
                       selection={selectionFor(
@@ -1181,6 +1235,7 @@ export function AddCardsPage() {
 }
 
 function CatalogRow({
+  sealed,
   product,
   details,
   selection,
@@ -1194,6 +1249,7 @@ function CatalogRow({
   onAdd,
   onCustom,
 }: {
+  readonly sealed: boolean;
   readonly product: CatalogSearch["products"][number];
   readonly details: CatalogProduct | undefined;
   readonly selection: RowSelection;
@@ -1237,7 +1293,7 @@ function CatalogRow({
   return (
     <div
       ref={element}
-      class={`catalog-row${selection.printing === "Normal" ? "" : " is-foil"}`}
+      class={`catalog-row${sealed || selection.printing === "Normal" ? "" : " is-foil"}`}
     >
       <CatalogArt product={product} />
       <div class="catalog-copy">
@@ -1246,9 +1302,10 @@ function CatalogRow({
           {product.productLineName} · {product.setName} · #{product.productId}
         </span>
         <small>
-          {product.cardNumber === "" ? "" : `Card ${product.cardNumber} · `}
-          {product.rarityName || "No rarity"} · market{" "}
-          {money(product.marketPrice)}
+          {sealed
+            ? "Unopened"
+            : `${product.cardNumber === "" ? "" : `Card ${product.cardNumber} · `}${product.rarityName || "No rarity"}`}{" "}
+          · market {money(product.marketPrice)}
         </small>
       </div>
       <div class="catalog-controls">
@@ -1296,42 +1353,48 @@ function CatalogRow({
             )}
           </button>
         ) : null}
-        <select
-          aria-label={`Condition for ${product.productName}`}
-          value={selection.condition}
-          disabled={busy}
-          onChange={(event) =>
-            onSelection({ condition: event.currentTarget.value })
-          }
-        >
-          {CONDITIONS.map((condition) => (
-            <option key={condition}>{condition}</option>
-          ))}
-        </select>
-        <div
-          class="printing-buttons"
-          role="group"
-          aria-label={`Printing for ${product.productName}`}
-        >
-          {displayedPrintings.map((printing) => (
-            <button
-              key={printing}
-              type="button"
-              aria-pressed={selection.printing === printing}
-              disabled={busy || printingPending || printings.length === 1}
-              title={
-                printingPending
-                  ? "Checking printings"
-                  : printings.length === 1
-                    ? `Only available printing: ${printing}`
-                    : `Select ${printing}`
-              }
-              onClick={() => onSelection({ printing })}
-            >
-              {printing}
-            </button>
-          ))}
-        </div>
+        {sealed ? (
+          <span>Unopened</span>
+        ) : (
+          <select
+            aria-label={`Condition for ${product.productName}`}
+            value={selection.condition}
+            disabled={busy}
+            onChange={(event) =>
+              onSelection({ condition: event.currentTarget.value })
+            }
+          >
+            {CONDITIONS.map((condition) => (
+              <option key={condition}>{condition}</option>
+            ))}
+          </select>
+        )}
+        {sealed && printings.length <= 1 ? null : (
+          <div
+            class="printing-buttons"
+            role="group"
+            aria-label={`Printing for ${product.productName}`}
+          >
+            {displayedPrintings.map((printing) => (
+              <button
+                key={printing}
+                type="button"
+                aria-pressed={selection.printing === printing}
+                disabled={busy || printingPending || printings.length === 1}
+                title={
+                  printingPending
+                    ? "Checking printings"
+                    : printings.length === 1
+                      ? `Only available printing: ${printing}`
+                      : `Select ${printing}`
+                }
+                onClick={() => onSelection({ printing })}
+              >
+                {printing}
+              </button>
+            ))}
+          </div>
+        )}
         <div class="quantity-buttons">
           {[1, 2, 3, 4].map((quantity) => (
             <button

@@ -13,14 +13,87 @@ import {
 
 afterEach(resetWebUiTest);
 
-describe("local Add cards workflow", () => {
+describe("local Add inventory workflow", () => {
+  it("searches sealed products and adds the Unopened SKU without card condition controls", async () => {
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, options?: RequestInit) => {
+        const path = requestPath(input);
+        if (
+          path.includes("/api/catalog/search?") &&
+          path.includes("kind=sealed")
+        )
+          return Promise.resolve(
+            json({
+              totalProducts: 1,
+              productLines: [],
+              sets: [],
+              products: [{ ...product(), matchKind: "exact", matchRank: [0] }],
+              nextOffset: 1,
+              hasMore: false,
+            }),
+          );
+        if (path === "/api/catalog/products/123?connectionId=tcgplayer-main")
+          return Promise.resolve(
+            json({
+              ...product(),
+              skus: [
+                {
+                  productConditionId: 999,
+                  conditionId: 6,
+                  condition: "Unopened",
+                  printing: "Normal",
+                  language: "English",
+                },
+              ],
+            }),
+          );
+        return localAddFetch(input, options);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
+    await user.click(screen.getByRole("tab", { name: "Sealed", exact: true }));
+    await user.click(listOnButton("Local only"));
+    await user.type(
+      screen.getByLabelText("Sealed product name or product #"),
+      "Synthetic Card",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("Synthetic Card");
+    expect(screen.queryByLabelText("Condition for Synthetic Card")).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Printing for Synthetic Card" }),
+    ).toBeNull();
+    await user.click(screen.getByRole("button", { name: "+1" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.find(
+          ([input]) =>
+            requestPath(input) ===
+            "/api/local-inventory/catalog-items?connectionId=tcgplayer-main",
+        )?.[1]?.body,
+      ).toBe(
+        JSON.stringify({
+          productId: 123,
+          productConditionId: 999,
+          quantity: 1,
+        }),
+      ),
+    );
+    await user.click(screen.getByRole("tab", { name: "Singles", exact: true }));
+    expect(screen.queryByText("Synthetic Card")).toBeNull();
+    expect(screen.getByLabelText("Card name or product #")).toBeTruthy();
+  });
   it("enlarges a card image when its thumbnail is clicked", async () => {
     vi.stubGlobal("fetch", vi.fn(localAddFetch));
     const user = userEvent.setup();
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     await user.type(
       screen.getByLabelText("Card name or product #"),
       "Synthetic Card",
@@ -59,7 +132,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     await user.click(listOnButton("ManaPool"));
     await user.type(
       screen.getByLabelText("Card name or product #"),
@@ -125,7 +198,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     expect(listOnValue()).toBe("Local only");
     await user.type(
       screen.getByLabelText("Card name or product #"),
@@ -153,7 +226,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     await user.click(listOnButton("TCGplayer"));
     expect(listOnValue()).toBe("TCGplayer");
     await user.type(
@@ -189,7 +262,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     expect(listOnValue()).toBe("Auto · best price");
     expect(listOnButton("TCGplayer")).toBeTruthy();
     expect(listOnButton("ManaPool")).toBeTruthy();
@@ -227,7 +300,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     expect(listOnValue()).toBe("Auto · best price");
     await user.type(
       screen.getByLabelText("Card name or product #"),
@@ -252,7 +325,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     await user.click(listOnButton("Local only"));
     await user.type(
       screen.getByLabelText("Card name or product #"),
@@ -285,7 +358,7 @@ describe("local Add cards workflow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
-    await user.click(screen.getByRole("link", { name: "Add cards" }));
+    await user.click(screen.getByRole("link", { name: "Add inventory" }));
     await user.click(listOnButton("Local only"));
     await user.type(
       screen.getByLabelText("Card name or product #"),

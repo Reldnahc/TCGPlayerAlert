@@ -239,7 +239,7 @@ export function LocalInventoryPage() {
                     ? "No local inventory yet"
                     : "No local inventory matches these filters"
                 }
-                detail="Use Add cards to record stock. A marketplace listing is not required."
+                detail="Use Add inventory to record stock. A marketplace listing is not required."
               />
             ) : (
               <div class="data-region inventory-table-region local-inventory-table-region">

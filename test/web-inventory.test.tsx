@@ -580,7 +580,7 @@ describe("provider-neutral inventory", () => {
     expect(screen.getByRole("link", { name: "Scanner" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Inventory" })).toBeTruthy();
     for (const hidden of [
-      "Add cards",
+      "Add inventory",
       "Repricing",
       "Jobs",
       "Payments",

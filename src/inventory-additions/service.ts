@@ -470,6 +470,7 @@ export class InventoryAdditionService {
     offset = 0,
     signal?: AbortSignal,
     setName?: string,
+    kind: "singles" | "sealed" = "singles",
   ): Promise<CatalogSearchResult> {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
       throw new ConfigurationError([
@@ -479,6 +480,7 @@ export class InventoryAdditionService {
     signal?.throwIfAborted();
     this.removeExpiredCatalogSearches();
     const cacheKey = JSON.stringify([
+      kind,
       query.trim().toLocaleLowerCase("en-US"),
       productLineName?.trim().toLocaleLowerCase("en-US") ?? "",
       setName?.trim().toLocaleLowerCase("en-US") ?? "",
@@ -495,7 +497,7 @@ export class InventoryAdditionService {
       const result = await this.client.searchCatalogProducts(
         {
           query,
-          productTypeName: "Cards",
+          productTypeName: kind === "sealed" ? "Sealed Products" : "Cards",
           ...(productLineName === undefined || productLineName.trim() === ""
             ? {}
             : { productLineName }),

@@ -160,6 +160,80 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
+  it("separates Singles and Sealed catalog filters, caches, and pagination", async () => {
+    const searchCatalogProducts = vi.fn(() =>
+      Promise.resolve({
+        totalProducts: 50,
+        productLines: [],
+        sets: [],
+        products: [product],
+      }),
+    );
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic",
+      client: {
+        searchCatalogProducts,
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: () => Promise.resolve(searchResult([])),
+      },
+    });
+    await service.search(
+      "Booster",
+      undefined,
+      0,
+      undefined,
+      undefined,
+      "singles",
+    );
+    await service.search(
+      "Booster",
+      undefined,
+      0,
+      undefined,
+      undefined,
+      "sealed",
+    );
+    await service.search(
+      "Booster",
+      undefined,
+      0,
+      undefined,
+      undefined,
+      "sealed",
+    );
+    await service.search(
+      "Booster",
+      "Magic",
+      24,
+      undefined,
+      "Test Set",
+      "sealed",
+    );
+    expect(searchCatalogProducts).toHaveBeenCalledTimes(3);
+    expect(searchCatalogProducts).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ productTypeName: "Cards" }),
+      undefined,
+    );
+    expect(searchCatalogProducts).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        productTypeName: "Sealed Products",
+        offset: 0,
+      }),
+      undefined,
+    );
+    expect(searchCatalogProducts).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        productTypeName: "Sealed Products",
+        offset: 24,
+        setName: "Test Set",
+        productLineName: "Magic",
+      }),
+      undefined,
+    );
+  });
   it("does not merge a stock correction into another pending addition", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(addition);

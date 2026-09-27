@@ -22,7 +22,7 @@ export const routes: readonly {
   readonly group: string;
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", group: "Overview" },
-  { id: "add-cards", label: "Add cards", icon: "add", group: "Selling" },
+  { id: "add-cards", label: "Add inventory", icon: "add", group: "Selling" },
   { id: "inventory", label: "Inventory", icon: "inventory", group: "Selling" },
   { id: "repricing", label: "Repricing", icon: "pricing", group: "Selling" },
   { id: "orders", label: "Orders", icon: "orders", group: "Fulfillment" },

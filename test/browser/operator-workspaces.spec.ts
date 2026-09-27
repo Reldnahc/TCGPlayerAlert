@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 const workspaces = [
   { route: "dashboard", label: "Dashboard" },
   { route: "labels", label: "Bulk labels", navLabel: "Labels" },
-  { route: "add-cards", label: "Add cards" },
+  { route: "add-cards", label: "Add inventory" },
   { route: "orders", label: "Orders" },
   { route: "scanner", label: "Shipment scanner", navLabel: "Scanner" },
   { route: "messages", label: "Messages" },

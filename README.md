@@ -25,7 +25,7 @@ connection and uses provider-native pull data when available, otherwise
 normalized order lines.
 
 Catalog search is an optional connection capability used as a metadata source
-for local Add Cards. Repricing jobs, payments, messages, feedback, and
+for local Add inventory. Repricing jobs, payments, messages, feedback, and
 browser-managed session pairing remain optional connection capabilities. They
 do not block ManaPool or another provider.
 
@@ -67,7 +67,7 @@ Fixed-price holds and rows without a verified target remain unselectable.
 - Configuration stores environment-variable names, never credential values.
 - Remote IDs are always qualified by `connectionId`, so multiple accounts may
   safely contain the same order or listing ID.
-- Local `onHand` stock is authoritative. Add Cards has one **List on** selector
+- Local `onHand` stock is authoritative. Add inventory has one **List on** selector
   for TCGplayer, ManaPool, or local-only entry. TCGplayer additions use its
   priced durable queue; ManaPool additions show one final quantity-and-price
   confirmation. Ordinary local quantity edits never publish automatically.
@@ -105,6 +105,19 @@ Fixed-price holds and rows without a verified target remain unselectable.
   a shared product/printing ID with normalized language, condition, and finish.
   A complete set-code/collector-number/List-status key is the final fallback;
   incomplete or contradictory records remain unmatched.
+
+## Adding singles and sealed stock
+
+**Add inventory** has **Singles** and **Sealed** tabs. Singles searches the card
+catalog with condition and printing controls. Sealed searches the sealed-product
+catalog and uses the exact **Unopened** SKU, hiding the condition selector and
+single-option printing controls. If a sealed product has multiple variants,
+choose the appropriate one before adding stock.
+
+Both tabs share listing defaults, quantity buttons, local stock recording,
+marketplace selection, and pricing. Switching tabs clears the previous results
+and set filter; searches and pagination stay within the selected product type.
+Existing `#add-cards` bookmarks continue to open this page.
 
 ## Limited-quantity auto-relisting
 
@@ -239,7 +252,7 @@ order aliases or provider query-string switches.
   in Settings. Detailed behavior is in [docs/PRINTING.md](docs/PRINTING.md).
 - Configure pull-list grouping and physical-bin rules in Settings. Changes
   reproject the active in-memory list without another provider call.
-- Add Cards records exact catalog variants in the durable local inventory
+- Add inventory records exact catalog variants in the durable local inventory
   ledger. The catalog connection supplies metadata only; no marketplace listing
   is created. Marketplace listing quantities on Inventory are read-only
   observations in this phase.

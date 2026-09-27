@@ -1,8 +1,11 @@
 .add-cards-layout {
   position: relative;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 9px;
+}
+.add-cards-layout > :not(.catalog-results) {
+  flex-shrink: 0;
 }
 .listing-time-field {
   width: 130px;
@@ -21,6 +24,7 @@
   background: var(--bg-surface);
 }
 .catalog-results {
+  flex: 1;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);

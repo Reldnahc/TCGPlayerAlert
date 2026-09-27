@@ -157,6 +157,11 @@ async function handleCatalogRoute(
       });
       return true;
     }
+    const kind = url.searchParams.get("kind") ?? "singles";
+    if (kind !== "singles" && kind !== "sealed") {
+      sendJson(response, 400, { message: "Choose Singles or Sealed." });
+      return true;
+    }
     const productLine = url.searchParams.get("productLine")?.trim();
     const setName = url.searchParams.get("setName")?.trim();
     if (setName !== undefined && setName.length > 256) {
@@ -177,6 +182,7 @@ async function handleCatalogRoute(
         Number(offsetText),
         signal,
         setName === "" ? undefined : setName,
+        kind,
       ),
     );
     if (!response.destroyed) sendJson(response, 200, result);

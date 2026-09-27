@@ -762,12 +762,14 @@ export const uiApi = {
     setName: string,
     offset: number,
     signal?: AbortSignal,
+    kind: "singles" | "sealed" = "singles",
   ): Promise<CatalogSearch> => {
     const parameters = new URLSearchParams({
       connectionId,
       q: query,
       offset: String(offset),
     });
+    if (kind === "sealed") parameters.set("kind", kind);
     if (productLine !== "") parameters.set("productLine", productLine);
     if (setName !== "") parameters.set("setName", setName);
     return requestJson(
