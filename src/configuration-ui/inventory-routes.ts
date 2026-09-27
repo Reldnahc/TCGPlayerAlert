@@ -101,6 +101,7 @@ async function handleRepricingRoute(
     const updates = repricingService.takeUpdates(
       previewId,
       await readJsonBody(request),
+      { allowManualReview: true },
     );
     sendJson(response, 202, {
       jobs: await priceQueue.enqueue({ updates }),

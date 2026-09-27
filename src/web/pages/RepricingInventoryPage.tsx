@@ -207,7 +207,12 @@ export function RepricingInventoryPage() {
   const proposedCount =
     preview?.rows.filter((row) => row.proposedPrice !== row.currentPrice)
       .length ?? 0;
-  const selectedVisible = visibleReady.filter((row) => selected.has(row.id));
+  const selectedVisible = visibleRows.filter(
+    (row) =>
+      (row.queueable || row.manualQueueable === true) &&
+      !removals.has(row.id) &&
+      selected.has(row.id),
+  );
 
   function chooseProfile(id: string) {
     setProfileId(id);
@@ -361,7 +366,8 @@ export function RepricingInventoryPage() {
   }
 
   const allVisibleSelected =
-    visibleReady.length > 0 && selectedVisible.length === visibleReady.length;
+    visibleReady.length > 0 &&
+    visibleReady.every((row) => selected.has(row.id));
   const snapshot =
     preview === null
       ? ""
@@ -586,7 +592,12 @@ export function RepricingInventoryPage() {
                               type="checkbox"
                               aria-label={`Select ${row.productName}`}
                               checked={selected.has(row.id)}
-                              disabled={!row.queueable || removals.has(row.id)}
+                              disabled={
+                                busy !== "" ||
+                                (!row.queueable &&
+                                  row.manualQueueable !== true) ||
+                                removals.has(row.id)
+                              }
                               onChange={(event) =>
                                 setSelected((current) => {
                                   const next = new Set(current);
@@ -673,6 +684,12 @@ export function RepricingInventoryPage() {
                               <strong>Fixed price</strong>
                             )}
                             <p class="result-copy">{row.reason}</p>
+                            {row.manualQueueable === true ? (
+                              <small>
+                                Review the proposed price, then select this row
+                                to approve it for this run only.
+                              </small>
+                            ) : null}
                             {fixedEditor === row.id ? (
                               <form
                                 onSubmit={(event) => {

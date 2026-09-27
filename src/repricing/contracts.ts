@@ -56,6 +56,8 @@ export interface RepricingRules {
 export type RepricingRowStatus = "ready" | "unchanged" | "skipped";
 
 export interface RepricingPreviewRow {
+  /** A calculated target held for explicit operator review, never automatic selection. */
+  readonly manualQueueable?: boolean;
   readonly id: string;
   readonly productId: number;
   readonly productConditionId: number;

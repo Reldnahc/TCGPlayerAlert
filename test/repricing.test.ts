@@ -288,6 +288,63 @@ describe("smart repricing", () => {
     expect(listSellerInventory).toHaveBeenCalledTimes(6);
   });
 
+  it("allows reviewed decreases only through explicit manual selection", async () => {
+    let fixed: Readonly<Record<string, number>> = {};
+    const own = product(listing({ price: 20 }));
+    const service = new RepricingService({
+      sellerKey,
+      fixedPrices: () => Promise.resolve(fixed),
+      client: {
+        getSkuMarketPrices,
+        listSellerInventory: (input) =>
+          Promise.resolve(input.channelId === 0 ? [own] : []),
+        searchMarketplaceProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            products: [
+              {
+                ...own,
+                totalListings: 1,
+                listings: [listing({ sellerKey: "competitor", price: 2 })],
+              },
+            ],
+          }),
+      },
+    });
+    const guardedRules = { ...rules, automaticDecreaseGuard: true };
+    const preview = await service.preview(guardedRules);
+    const row = preview.rows[0];
+    expect(row).toMatchObject({
+      status: "skipped",
+      proposedPrice: 2,
+      queueable: false,
+      manualQueueable: true,
+    });
+    expect(() =>
+      service.takeUpdates(preview.id, { rowIds: [row?.id] }),
+    ).toThrow();
+    expect(
+      service.takeUpdates(
+        preview.id,
+        { rowIds: [row?.id] },
+        { allowManualReview: true },
+      ),
+    ).toEqual([expect.objectContaining({ price: 2 })]);
+    fixed = { "1003:0": 20 };
+    const held = await service.preview(guardedRules);
+    expect(held.rows[0]).toMatchObject({
+      manualQueueable: false,
+      queueable: false,
+    });
+    expect(() =>
+      service.takeUpdates(
+        held.id,
+        { rowIds: [held.rows[0]?.id] },
+        { allowManualReview: true },
+      ),
+    ).toThrow();
+  });
+
   it("rejects invalid or non-open-ended pricing ranges", () => {
     const range = rules.ranges[0];
     if (range === undefined) throw new Error("Missing default repricing range");

@@ -44,6 +44,11 @@ not confirm that the marketplace has accepted it.
 Completed price-update jobs invalidate the cached snapshot on the next
 **Update preview**, including updates applied by a separate worker process.
 
+Smart conservative rows skipped by the automatic-decrease review guard can
+be selected individually to approve their displayed target for one run. They
+remain excluded from initial selection, Select all, and scheduled repricing.
+Fixed-price holds and rows without a verified target remain unselectable.
+
 ## Safety defaults
 
 - Print actions, automatic shipment scanning, Discord, and mutation queues are

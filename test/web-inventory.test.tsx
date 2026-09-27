@@ -121,6 +121,64 @@ describe("provider-neutral inventory", () => {
     },
   );
 
+  it("lets an operator individually select a reviewed skipped price without selecting it automatically", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const profile = settings.repricingProfiles[0];
+    if (profile === undefined) throw new Error("Missing profile");
+    vi.spyOn(uiApi, "repricingPreview").mockResolvedValue({
+      id: "review-preview",
+      createdAt: completedAt,
+      expiresAt: completedAt,
+      rules: profile,
+      rows: [
+        {
+          id: "review-row",
+          productId: 1,
+          productConditionId: 2,
+          productName: "Review Card",
+          productLineName: "Magic",
+          setName: "Synthetic Set",
+          condition: "Near Mint",
+          printing: "Normal",
+          language: "English",
+          quantity: 1,
+          currentPrice: 20,
+          currentShipping: 0,
+          proposedPrice: 2,
+          minimumApplied: false,
+          status: "skipped",
+          queueable: false,
+          manualQueueable: true,
+          reason: "Large decrease needs review",
+        },
+      ],
+      counts: { ready: 0, unchanged: 0, skipped: 1 },
+      totals: { listingCount: 1, totalQuantity: 1, currentListingValue: 20 },
+      marketplaceSnapshot: {
+        capturedAt: completedAt,
+        expiresAt: completedAt,
+        source: "fresh",
+      },
+    });
+    const queue = vi
+      .spyOn(uiApi, "queuePrices")
+      .mockResolvedValue({ jobs: [] });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(screen.getByRole("link", { name: "Repricing" }));
+    await user.click(screen.getByRole("button", { name: "Update preview" }));
+    const checkbox =
+      await screen.findByLabelText<HTMLInputElement>("Select Review Card");
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.checked).toBe(false);
+    await user.click(screen.getByLabelText("Select all visible price changes"));
+    expect(checkbox.checked).toBe(false);
+    await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: "Queue 1 selected" }));
+    expect(queue).toHaveBeenCalledWith("review-preview", ["review-row"]);
+  });
+
   it("saves fixed pricing, keeps it visible on later runs, and restores the profile", async () => {
     vi.stubGlobal("fetch", vi.fn(inventoryFetch));
     const profile = settings.repricingProfiles[0];

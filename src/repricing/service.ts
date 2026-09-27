@@ -30,6 +30,7 @@ import { objectValue, parseRepricingRules } from "./rules.js";
 interface StoredPreview {
   readonly expiresAt: number;
   readonly updates: ReadonlyMap<string, SellerPriceUpdate>;
+  readonly manualUpdates: ReadonlyMap<string, SellerPriceUpdate>;
   readonly candidates: ReadonlyMap<string, SellerPriceUpdate>;
   readonly removals: ReadonlyMap<string, SellerInventoryRemoval>;
 }
@@ -138,6 +139,7 @@ export class RepricingService {
     const fixedPrices = (await this.options.fixedPrices?.()) ?? {};
     const candidates = new Map<string, SellerPriceUpdate>();
     const updates = new Map<string, SellerPriceUpdate>();
+    const manualUpdates = new Map<string, SellerPriceUpdate>();
     const removals = new Map<string, SellerInventoryRemoval>();
     const rows = sellerListings.map((context) => {
       const hasSecondaryInventory = secondarySkus.has(
@@ -242,6 +244,11 @@ export class RepricingService {
         ];
       const inventoryRow = {
         ...row,
+        manualQueueable:
+          removable &&
+          fixedPrice === undefined &&
+          row.automaticDecreaseGuardApplied === true &&
+          row.proposedPrice !== row.currentPrice,
         removable,
         fixedPriceEligible: removable,
         ...(fixedPrice === undefined
@@ -275,6 +282,10 @@ export class RepricingService {
         const candidate = candidates.get(row.id);
         if (candidate !== undefined) updates.set(row.id, candidate);
       }
+      if (inventoryRow.manualQueueable) {
+        const candidate = candidates.get(row.id);
+        if (candidate !== undefined) manualUpdates.set(row.id, candidate);
+      }
       if (removable) {
         removals.set(row.id, {
           productId: context.product.productId,
@@ -304,6 +315,7 @@ export class RepricingService {
     this.previews.set(previewId, {
       expiresAt: expiresAt.getTime(),
       updates,
+      manualUpdates,
       candidates,
       removals,
     });
@@ -365,7 +377,11 @@ export class RepricingService {
       this.marketplace.invalidate();
   }
 
-  takeUpdates(previewId: string, value: unknown): readonly SellerPriceUpdate[] {
+  takeUpdates(
+    previewId: string,
+    value: unknown,
+    options: { readonly allowManualReview?: boolean } = {},
+  ): readonly SellerPriceUpdate[] {
     this.removeExpiredPreviews();
     const preview = this.previews.get(previewId);
     if (preview === undefined) {
@@ -385,7 +401,13 @@ export class RepricingService {
         "Choose one or more distinct repricing rows to queue.",
       ]);
     }
-    const updates = rowIds.map((rowId) => preview.updates.get(String(rowId)));
+    const updates = rowIds.map(
+      (rowId) =>
+        preview.updates.get(String(rowId)) ??
+        (options.allowManualReview === true
+          ? preview.manualUpdates.get(String(rowId))
+          : undefined),
+    );
     if (updates.some((update) => update === undefined)) {
       throw new ConfigurationError([
         "The selection contains a row that is not eligible for repricing.",
