@@ -1,3 +1,4 @@
+import type { ReplenishmentService } from "./replenishment.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createServer,
@@ -331,6 +332,7 @@ export interface StartConfigurationUiOptions {
   readonly inventoryWorkerRunning?: boolean;
   readonly inventoryService?: InventoryAdditionService;
   readonly localInventory?: LocalInventoryService;
+  readonly replenishment?: ReplenishmentService;
   readonly marketplaces?: MarketplaceOrderRuntime;
   readonly marketplaceAccounts?: MarketplaceAccountServiceMap;
   readonly shipmentScannerService?: ShipmentScannerService;
@@ -394,6 +396,9 @@ export async function startConfigurationUi(
     inventoryWorkerRunning: options.inventoryWorkerRunning === true,
     inventoryService: options.inventoryService,
     localInventory,
+    ...(options.replenishment === undefined
+      ? {}
+      : { replenishment: options.replenishment }),
     ...(marketplacePublications === undefined
       ? {}
       : { marketplacePublications }),

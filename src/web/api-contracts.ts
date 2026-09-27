@@ -1,3 +1,7 @@
+import {
+  parseReplenishmentRule,
+  type ReplenishmentSnapshot,
+} from "../replenishment-contracts.js";
 import type {
   AdditionPreview,
   CatalogProduct,
@@ -1279,4 +1283,10 @@ export const pricingPreviewDecoder: Decoder<PricingPreview> = object({
     expiresAt: isoDateTime,
     source: enumeration("fresh", "cache", "shared"),
   }),
+});
+
+export const replenishmentDecoder: Decoder<ReplenishmentSnapshot> = object({
+  connectionId: optional(text),
+  workerRunning: boolean,
+  rules: array(coreDecoder(parseReplenishmentRule, "a replenishment rule")),
 });

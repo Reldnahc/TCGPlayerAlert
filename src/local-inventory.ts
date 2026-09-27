@@ -1,3 +1,8 @@
+import { FileSyncLease, type SyncLease } from "./sync-lease.js";
+import {
+  parseReplenishmentRule,
+  type ReplenishmentRule,
+} from "./replenishment-contracts.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -69,6 +74,7 @@ export type LocalInventorySaleDeductionResult =
 
 export interface LocalInventoryState {
   readonly version: 2;
+  readonly replenishments?: readonly ReplenishmentRule[];
   readonly items: readonly LocalInventoryItem[];
   readonly salesTrackingStartedAt?: string;
   readonly saleDeductions: Readonly<
@@ -77,6 +83,7 @@ export interface LocalInventoryState {
 }
 
 export interface LocalInventoryStore {
+  readonly lease?: SyncLease;
   load(): Promise<LocalInventoryState>;
   save(state: LocalInventoryState): Promise<void>;
 }
@@ -91,9 +98,11 @@ export function localInventoryStatePath(workflowStateFile: string): string {
 
 export class JsonLocalInventoryStore implements LocalInventoryStore {
   private readonly absolutePath: string;
+  readonly lease: SyncLease;
 
   constructor(path: string) {
     this.absolutePath = resolve(path);
+    this.lease = new FileSyncLease(`${this.absolutePath}.lock`);
   }
 
   async load(): Promise<LocalInventoryState> {
@@ -358,6 +367,23 @@ export class LocalInventoryService {
         ...state,
         items,
         saleDeductions: { ...state.saleDeductions, [saleKey]: deduction },
+        replenishments: (state.replenishments ?? []).map((rule) => {
+          const quantity = requestedByItem.get(rule.localInventoryId) ?? 0;
+          if (
+            !rule.enabled ||
+            rule.connectionId !== sale.ref.connectionId ||
+            quantity === 0
+          )
+            return rule;
+          return parseReplenishmentRule({
+            ...rule,
+            status:
+              rule.status === "review-required" || rule.status === "running"
+                ? rule.status
+                : "waiting-shipment",
+            tickets: [...rule.tickets, { ref: sale.ref, quantity }],
+          });
+        }),
       });
       return { outcome: "applied", ...deduction };
     });
@@ -392,8 +418,23 @@ export class LocalInventoryService {
     });
   }
 
+  withReplenishmentState<T>(
+    work: (
+      state: LocalInventoryState,
+      save: (state: LocalInventoryState) => Promise<void>,
+    ) => Promise<T>,
+  ): Promise<T> {
+    return this.exclusive(async () =>
+      work(await this.store.load(), (state) => this.store.save(state)),
+    );
+  }
+
   private exclusive<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.mutations.then(operation, operation);
+    const work = () =>
+      this.store.lease === undefined
+        ? operation()
+        : this.store.lease.runExclusive(operation);
+    const result = this.mutations.then(work, work);
     this.mutations = result.then(
       () => undefined,
       () => undefined,
@@ -419,6 +460,24 @@ export function parseLocalInventoryState(value: unknown): LocalInventoryState {
   }
   if (value.items.length > MAXIMUM_LOCAL_ITEMS) throw invalidState();
   const items = value.items.map(parseLocalInventoryItem);
+  if (
+    value.replenishments !== undefined &&
+    !Array.isArray(value.replenishments)
+  )
+    throw invalidState();
+  const replenishments = (value.replenishments ?? []).map(
+    parseReplenishmentRule,
+  );
+  if (
+    replenishments.length > items.length ||
+    new Set(replenishments.map((rule) => rule.localInventoryId)).size !==
+      replenishments.length ||
+    replenishments.some(
+      (rule) =>
+        !items.some((item) => item.localInventoryId === rule.localInventoryId),
+    )
+  )
+    throw invalidState();
   assertUniqueLocalInventory(items);
   if (value.version === 1) {
     return {
@@ -456,6 +515,7 @@ export function parseLocalInventoryState(value: unknown): LocalInventoryState {
   return {
     version: 2,
     items,
+    ...(value.replenishments === undefined ? {} : { replenishments }),
     saleDeductions,
     ...(salesTrackingStartedAt === undefined ? {} : { salesTrackingStartedAt }),
   };

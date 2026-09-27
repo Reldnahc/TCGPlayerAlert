@@ -123,6 +123,10 @@ async function handleRepricingRoute(
     removeMatch[1] ?? "",
     body?.rowId,
   );
+  await context.replenishment?.pauseExactIdentity(
+    "tcgplayer.sku",
+    String(removal.productConditionId),
+  );
   sendJson(response, 202, {
     job: await inventoryQueue.enqueueRemoval(removal),
   });

@@ -1,3 +1,4 @@
+import type { ReplenishmentService } from "../replenishment.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AppConfig } from "../config.js";
 import type {
@@ -54,6 +55,7 @@ export interface ConfigurationRouteContext {
   readonly inventoryWorkerRunning: boolean;
   readonly inventoryService: InventoryAdditionService | undefined;
   readonly localInventory: LocalInventoryService | undefined;
+  readonly replenishment?: ReplenishmentService;
   readonly marketplacePublications?: MarketplacePublicationService;
   readonly marketplaces: MarketplaceOrderRuntime | undefined;
   readonly marketplaceAccounts: MarketplaceAccountServiceMap | undefined;

@@ -53,6 +53,7 @@ import type {
 } from "./contracts.js";
 import type { ProviderOrderRef } from "../marketplaces/identity.js";
 import {
+  replenishmentDecoder,
   additionPreviewDecoder,
   catalogProductDecoder,
   catalogSearchDecoder,
@@ -317,6 +318,21 @@ async function streamingRepricingPreview(
 }
 
 export const uiApi = {
+  replenishment: () => requestJson("/api/replenishment", replenishmentDecoder),
+  configureReplenishment: (
+    localInventoryId: string,
+    settings: {
+      enabled: boolean;
+      targetQuantity: number;
+      price: number;
+      reconciled?: boolean;
+    },
+  ) =>
+    requestJson(
+      `/api/replenishment/${encodeURIComponent(localInventoryId)}`,
+      replenishmentDecoder,
+      { method: "PUT", body: JSON.stringify(settings) },
+    ),
   sellerConnection: (): Promise<SellerConnectionStatus> =>
     requestJson("/api/auth/status", sellerConnectionDecoder),
   startSellerPairing: (): Promise<SellerPairingChallenge> =>

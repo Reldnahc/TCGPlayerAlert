@@ -1,3 +1,6 @@
+import { catalogIdentityMatchTier } from "./marketplaces/catalog-identity.js";
+import { ReplenishmentService } from "./replenishment.js";
+import { tcgplayerReplenishmentGateway } from "./providers/tcgplayer/replenishment.js";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { loadConfig, type AppConfig } from "./config.js";
@@ -803,4 +806,48 @@ export function legacyStateConnectionId(config: AppConfig): string {
     ]);
   }
   return selected[0];
+}
+
+export function createReplenishmentService(
+  config: AppConfig,
+  local: LocalInventoryService,
+  marketplaces: MarketplaceOrderRuntime,
+  api: SellerApiRuntime,
+  prices: PriceUpdateQueueStore,
+): ReplenishmentService {
+  return new ReplenishmentService(
+    local,
+    tcgplayerReplenishmentGateway({
+      connectionId: primaryTcgplayerConnection(config.providers).connectionId,
+      sellerKey: api.credentials.sellerKey,
+      client: api.client,
+      registry: marketplaces.registry,
+      executor: createTcgplayerInventoryAdditionExecutor(
+        config,
+        process.env,
+        api.credentials,
+        api.client,
+      ),
+      prices,
+      reservedElsewhere: async (item) => {
+        let quantity = 0;
+        for (const connection of marketplaces.registry.list()) {
+          if (
+            connection.descriptor.connectionId ===
+              primaryTcgplayerConnection(config.providers).connectionId ||
+            connection.facets.inventoryReader === undefined
+          )
+            continue;
+          const inventory = await marketplaces.inventory.listConnection(
+            connection.descriptor.connectionId,
+          );
+          for (const listing of inventory.items) {
+            if (catalogIdentityMatchTier(item, listing) !== undefined)
+              quantity += listing.quantity;
+          }
+        }
+        return quantity;
+      },
+    }),
+  );
 }

@@ -1,0 +1,128 @@
+import { createHash } from "node:crypto";
+import type { LocalInventoryItem } from "../../local-inventory-contracts.js";
+import type { TcgplayerSellerClient } from "tcgplayer-private-api";
+import type { ReplenishmentGateway } from "../../replenishment.js";
+import type { InventoryAdditionExecutor } from "../../inventory-additions.js";
+import type { MarketplaceConnectionRegistry } from "../../marketplaces/registry.js";
+import type { PriceUpdateQueueStore } from "../../price-update-queue.js";
+import { parseOrderDetail } from "../../marketplaces/contracts.js";
+import {
+  orderRefKey,
+  MarketplaceValidationError,
+} from "../../marketplaces/identity.js";
+
+export function tcgplayerReplenishmentGateway(options: {
+  readonly connectionId: string;
+  readonly sellerKey: () => string;
+  readonly client: Pick<
+    TcgplayerSellerClient,
+    "getCatalogProduct" | "searchMarketplaceProducts"
+  >;
+  readonly registry: MarketplaceConnectionRegistry;
+  readonly executor: InventoryAdditionExecutor;
+  readonly prices: Pick<PriceUpdateQueueStore, "fixedPrices">;
+  readonly reservedElsewhere?: (item: LocalInventoryItem) => Promise<number>;
+}): ReplenishmentGateway {
+  return {
+    connectionId: options.connectionId,
+    accountScope: () =>
+      createHash("sha256")
+        .update(options.sellerKey().trim().toLowerCase())
+        .digest("hex"),
+    async isShipped(ref) {
+      if (ref.connectionId !== options.connectionId) return false;
+      const detail = parseOrderDetail(
+        await options.registry
+          .facet(ref.connectionId, "orderDetails")
+          .getOrder(ref),
+      );
+      return (
+        orderRefKey(detail.ref) === orderRefKey(ref) &&
+        (detail.lifecycle === "shipped" || detail.lifecycle === "delivered")
+      );
+    },
+    async prepare(item, price) {
+      const skuIds = item.catalogIdentities.filter(
+        (i) =>
+          i.namespace === "tcgplayer.sku" && i.precision === "exact-variant",
+      );
+      const productIds = item.catalogIdentities.filter(
+        (i) => i.namespace === "tcgplayer.product",
+      );
+      const skuId = Number(skuIds[0]?.value);
+      const productId = Number(productIds[0]?.value);
+      if (
+        skuIds.length !== 1 ||
+        productIds.length !== 1 ||
+        !Number.isSafeInteger(skuId) ||
+        skuId < 1 ||
+        !Number.isSafeInteger(productId) ||
+        productId < 1
+      )
+        throw new MarketplaceValidationError(
+          "Auto-relisting requires an exact TCGplayer SKU and product link.",
+        );
+      const product = await options.client.getCatalogProduct({ productId });
+      const sku = product.skus.find((s) => s.productConditionId === skuId);
+      if (sku === undefined || !product.sellerListable)
+        throw new MarketplaceValidationError("The exact SKU is not listable.");
+      const sellerKey = options.sellerKey();
+      const [primary, secondary] = await Promise.all(
+        [0, 1].map((channelId) =>
+          options.client.searchMarketplaceProducts({
+            productIds: [productId],
+            sellerKey,
+            channelId,
+            limit: 24,
+          }),
+        ),
+      );
+      const listing = primary?.products
+        .flatMap((p) => p.listings)
+        .find(
+          (l) =>
+            l.sellerKey === sellerKey &&
+            l.productConditionId === skuId &&
+            l.channelId === 0,
+        );
+      if (
+        listing?.customData.customListingId !== undefined ||
+        secondary?.products.some((p) =>
+          p.listings.some(
+            (l) => l.sellerKey === sellerKey && l.productConditionId === skuId,
+          ),
+        )
+      )
+        throw new MarketplaceValidationError(
+          "Custom or secondary inventory cannot auto-relist.",
+        );
+      const quantity = listing?.quantity ?? 0;
+      const reservedQuantity = (await options.reservedElsewhere?.(item)) ?? 0;
+      return {
+        quantity,
+        reservedQuantity,
+        async submit(addQuantity) {
+          const fixed = (await options.prices.fixedPrices())[
+            `${String(skuId)}:0`
+          ];
+          await options.executor.apply(
+            {
+              productId,
+              productName: product.productName,
+              productConditionId: skuId,
+              conditionId: sku.conditionId,
+              channelId: 0,
+              categoryName: product.productLineName,
+              currentQuantity: quantity,
+              addQuantity,
+              price: fixed ?? price,
+              storePriceCustomId: null,
+              reserveQuantity: 0,
+            },
+            "add",
+          );
+        },
+      };
+    },
+  };
+}

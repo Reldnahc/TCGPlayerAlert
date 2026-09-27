@@ -25,6 +25,7 @@ import {
   executeConfiguredAddressLabel,
   executeConfiguredSyntheticPrintTest,
   createRepricingService,
+  createReplenishmentService,
   createSellerRuntime,
   createBackgroundShipmentScanner,
   createShipmentScannerService,
@@ -165,6 +166,13 @@ try {
         localInventory,
       },
     );
+    const replenishment = createReplenishmentService(
+      config,
+      localInventory,
+      marketplaces,
+      sellerApi,
+      priceQueue,
+    );
     const messageService = createMessageManagementService(
       config,
       process.env,
@@ -179,6 +187,7 @@ try {
       inventoryQueue,
       inventoryService,
       localInventory,
+      replenishment,
       internalJobs,
       marketplaces,
       marketplaceAccounts: tcgplayerAccountServices(config, {
@@ -256,6 +265,13 @@ try {
         localInventory,
       },
     );
+    const replenishment = createReplenishmentService(
+      initialConfig,
+      localInventory,
+      marketplaces,
+      sellerApi,
+      priceQueue,
+    );
     const messageService = createMessageManagementService(
       initialConfig,
       process.env,
@@ -313,7 +329,10 @@ try {
       workerLease: new FileSyncLease(
         `${initialConfig.inventoryAdditionQueue.stateFile}.worker-lock`,
       ),
-      canProcess: sessionManager.isConnected,
+      canProcess: () =>
+        sessionManager.isConnected() &&
+        !marketplaces.workflow.isSynchronizing(),
+      idleWork: () => replenishment.runOne(),
     });
     const internalJobRunner = new InternalJobRunner({
       store: internalJobs,
@@ -342,6 +361,7 @@ try {
       inventoryWorkerRunning: true,
       inventoryService,
       localInventory,
+      replenishment,
       internalJobs,
       internalJobRunnerRunning: true,
       marketplaces,

@@ -55,6 +55,28 @@ do not block ManaPool or another provider.
   A complete set-code/collector-number/List-status key is the final fallback;
   incomplete or contradictory records remain unmatched.
 
+## Limited-quantity auto-relisting
+
+In **Inventory > Local stock > Auto-relist**, enable selected exact TCGplayer
+items, choose a public quantity limit (default 1), and set a relisting price.
+Local **on hand** must include all reserve stock plus the units already listed.
+Enabling does not change the live listing immediately; reduce an excessive live
+quantity before enabling.
+
+Only new sales recorded after enabling qualify. After the marketplace confirms
+all tracked orders shipped or delivered, the inventory worker replaces sold
+units up to the public limit and available local stock. Listings on other
+connected marketplaces reserve stock; unreadable inventory stops verification.
+A fixed-price override takes precedence over the relisting price. This feature
+limits visible quantity, not purchases per buyer.
+
+Run the service with the inventory queue enabled. **Jobs > Auto-relist** shows
+waiting orders and durable attempt history. Pausing or explicitly delisting
+clears pending tickets. Uncertain or interrupted attempts require checking the
+live listing and acknowledging reconciliation before watching future sales.
+Canceled/refunded orders do not replenish automatically. No rule is enabled by
+default and the feature does not publish all local stock.
+
 ## Requirements
 
 - Node.js 24 or newer for source development

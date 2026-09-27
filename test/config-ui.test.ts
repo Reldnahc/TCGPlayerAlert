@@ -1,3 +1,8 @@
+import {
+  JsonLocalInventoryStore,
+  LocalInventoryService,
+} from "../src/local-inventory.js";
+import { ReplenishmentService } from "../src/replenishment.js";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -732,6 +737,53 @@ describe("configuration UI", () => {
       message: "No background camera frame is available.",
     });
     expect(cameraPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists opt-in auto-relisting through the inventory route", async () => {
+    const current = await fixture();
+    const local = new LocalInventoryService(
+      new JsonLocalInventoryStore(`${current.path}.stock`),
+    );
+    const item = await local.add({
+      displayName: "Synthetic Promo",
+      quantity: 10,
+      attributes: {},
+      catalogIdentities: [
+        { namespace: "tcgplayer.sku", value: "2", precision: "exact-variant" },
+      ],
+    });
+    const submit = vi.fn(() => Promise.resolve());
+    const replenishment = new ReplenishmentService(local, {
+      connectionId: "tcgplayer-main",
+      accountScope: () => "synthetic-account",
+      isShipped: () => Promise.resolve(false),
+      prepare: () => Promise.resolve({ quantity: 1, submit }),
+    });
+    server = await startConfigurationUi({
+      configPath: current.path,
+      service: current.service,
+      port: 0,
+      localInventory: local,
+      replenishment,
+    });
+    const response = await fetch(
+      `${server.url}/api/replenishment/${item.localInventoryId}`,
+      {
+        method: "PUT",
+        headers: { Origin: server.url, "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true, targetQuantity: 1, price: 2 }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      rules: [{ enabled: true, targetQuantity: 1, status: "watching" }],
+    });
+    expect(submit).not.toHaveBeenCalled();
+    const snapshot = await fetch(`${server.url}/api/replenishment`);
+    expect(await snapshot.json()).toMatchObject({
+      workerRunning: false,
+      rules: [{ localInventoryId: item.localInventoryId }],
+    });
   });
 
   it("saves and clears fixed prices only from a server-owned preview candidate", async () => {

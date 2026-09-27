@@ -23,6 +23,34 @@ export const handleLocalInventoryRoute: ConfigurationRouteHandler = async (
 ) => {
   if (
     context.request.method === "GET" &&
+    context.url.pathname === "/api/replenishment"
+  ) {
+    sendJson(
+      context.response,
+      200,
+      context.replenishment === undefined
+        ? { workerRunning: false, rules: [] }
+        : await context.replenishment.snapshot(context.inventoryWorkerRunning),
+    );
+    return true;
+  }
+  const replenishMatch =
+    context.request.method === "PUT"
+      ? /^\/api\/replenishment\/([0-9a-f-]{36})$/iu.exec(context.url.pathname)
+      : null;
+  if (replenishMatch !== null) {
+    if (context.replenishment === undefined) return unavailable(context);
+    sendJson(context.response, 200, {
+      ...(await context.replenishment.configure(
+        replenishMatch[1] ?? "",
+        await readJsonBody(context.request),
+      )),
+      workerRunning: context.inventoryWorkerRunning,
+    });
+    return true;
+  }
+  if (
+    context.request.method === "GET" &&
     context.url.pathname === "/api/inventory"
   ) {
     return readInventoryWorkspace(context);

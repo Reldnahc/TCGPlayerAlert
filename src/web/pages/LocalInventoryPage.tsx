@@ -1,3 +1,4 @@
+import { ReplenishmentPanel } from "./ReplenishmentPanel.js";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { LocalInventoryItem } from "../../local-inventory-contracts.js";
 import type { MarketplaceInventoryObservation } from "../../local-inventory-workspace.js";
@@ -134,7 +135,7 @@ export function LocalInventoryPage() {
     <main class="page">
       <PageHeader
         title="Inventory"
-        description="Local stock is authoritative; marketplace listings are read-only observations"
+        description="Manage local stock and optional listing replenishment"
         actions={
           <Button busy={loading} onClick={() => void load()}>
             Refresh
@@ -143,8 +144,9 @@ export function LocalInventoryPage() {
       />
       <div class="page-body inventory-layout">
         <Notice tone="info">
-          Changes here update local on-hand stock only. They do not list,
-          cross-post, or change quantities on any marketplace.
+          Local quantity edits do not publish stock. Auto-relisting is a
+          separate opt-in setting for selected items, triggered after confirmed
+          shipment.
         </Notice>
         <div class="inventory-tabs-bar">
           <div
@@ -481,6 +483,7 @@ function LocalInventoryRow({
   readonly listings: readonly MarketplaceInventoryObservation[];
   readonly onSaved: () => Promise<void>;
 }) {
+  const [autoOpen, setAutoOpen] = useState(false);
   const [quantity, setQuantity] = useState(String(item.onHand));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -549,6 +552,36 @@ function LocalInventoryRow({
           </Button>
           {message === "" ? null : <small>{message}</small>}
         </form>
+        <Button onClick={() => setAutoOpen(true)}>Auto-relist</Button>
+        {autoOpen ? (
+          <div class="dialog-backdrop">
+            <div
+              class="dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Auto-relist ${item.displayName}`}
+            >
+              <div class="dialog__body">
+                <ReplenishmentPanel
+                  item={item}
+                  listingPrices={Object.fromEntries(
+                    listings.flatMap((listing) =>
+                      listing.item.price === undefined
+                        ? []
+                        : [
+                            [
+                              listing.descriptor.connectionId,
+                              listing.item.price.minorUnits / 100,
+                            ],
+                          ],
+                    ),
+                  )}
+                  onClose={() => setAutoOpen(false)}
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </td>
     </tr>
   );

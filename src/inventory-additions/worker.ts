@@ -56,6 +56,7 @@ export class InventoryAdditionWorker {
       readonly idleDelayMs?: number;
       readonly workerLease?: SyncLease;
       readonly canProcess?: () => boolean;
+      readonly idleWork?: () => Promise<boolean>;
     },
   ) {
     this.idleDelayMs = options.idleDelayMs ?? 1000;
@@ -86,7 +87,13 @@ export class InventoryAdditionWorker {
       }
       const job = await this.options.queue.claimNext();
       if (job === undefined) {
-        await wait(this.idleDelayMs, signal);
+        const worked = await this.options.idleWork?.();
+        await wait(
+          worked === true
+            ? Math.max(this.idleDelayMs, settings.delaySeconds * 1000)
+            : this.idleDelayMs,
+          signal,
+        );
         continue;
       }
       const listing = safeIdentifier(jobKey(job));

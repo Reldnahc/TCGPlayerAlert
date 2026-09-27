@@ -1,3 +1,4 @@
+import { ReplenishmentPanel } from "./ReplenishmentPanel.js";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type {
   InternalJobsResponse,
@@ -19,7 +20,7 @@ import { compactDate, errorMessage, money } from "../utils.js";
 import { JobRunsPanel, JobSchedulesPanel } from "./JobSchedulePanels.js";
 
 const PAGE_SIZE = 10;
-type JobsView = "schedules" | "runs" | "inventory" | "price";
+type JobsView = "schedules" | "runs" | "inventory" | "price" | "replenishment";
 type MutationQueue = "inventory" | "price";
 
 const EMPTY_INTERNAL_JOBS: InternalJobsResponse = {
@@ -119,8 +120,15 @@ export function JobsPage() {
                 setPage(0);
               }}
             />
+            <JobsTab
+              active={view === "replenishment"}
+              count={0}
+              label="Auto-relist"
+              onClick={() => setView("replenishment")}
+            />
           </div>
-          {view === "schedules" || view === "runs" ? (
+          {view === "replenishment" ? null : view === "schedules" ||
+            view === "runs" ? (
             <WorkerState
               running={internalJobs.runnerRunning}
               runningLabel="Scheduler processing"
@@ -137,6 +145,8 @@ export function JobsPage() {
           <div class="empty-state">
             <Spinner label="Loading jobs" />
           </div>
+        ) : view === "replenishment" ? (
+          <ReplenishmentPanel />
         ) : view === "schedules" ? (
           settings === null ? (
             <EmptyState title="Settings are unavailable" />
