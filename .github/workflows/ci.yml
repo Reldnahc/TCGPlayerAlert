@@ -19,18 +19,23 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: Reldnahc/tcgplayer-private-api
-          ref: 5bd5dddef6754fe264edaaa3e96c1ad200099f86
-          path: api-package
+          ref: 44ec026b714133d8e7c241aca92bc76da5a623e8
+          path: .packages/sources/tcgplayer-private-api
+      - uses: actions/checkout@v7
+        with:
+          repository: Reldnahc/manapool-seller-api
+          ref: 503fc2e141575c6400286e7e21df287e64344b20
+          path: .packages/sources/manapool-seller-api
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-      - name: Pack API dependency
+      - name: Pack pinned API dependencies
         run: |
-          npm ci --prefix api-package
-          mkdir -p .packages
-          cd api-package
-          npm pack --pack-destination ../.packages
+          for package in tcgplayer-private-api manapool-seller-api; do
+            npm ci --prefix ".packages/sources/$package"
+            (cd ".packages/sources/$package" && npm pack --pack-destination ../..)
+          done
       - run: npm ci
       - run: npm run check
       - name: Install browser test runtime
