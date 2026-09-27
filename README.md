@@ -28,6 +28,14 @@ for local Add Cards. Repricing jobs, payments, messages, feedback, and
 browser-managed session pairing remain optional connection capabilities. They
 do not block ManaPool or another provider.
 
+## Repricing shipping
+
+TCGplayer delivered-price matching uses this store's free shipping at $5 or
+more. A current listing's under-$5 shipping charge is not deducted when
+matching a qualifying price: $5.98 with free shipping and a one-cent undercut
+produces $5.97, not $4.48. Sub-$5 comparisons retain their shipping adjustment.
+Competitors' shipping charges still count toward their delivered prices.
+
 ## Safety defaults
 
 - Print actions, automatic shipment scanning, Discord, and mutation queues are

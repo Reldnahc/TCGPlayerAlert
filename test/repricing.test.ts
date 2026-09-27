@@ -79,6 +79,47 @@ const rules: RepricingRules = {
 };
 
 describe("smart repricing", () => {
+  it.each([
+    { reference: 5, percentage: 100, adjustment: 0, expected: 5 },
+    { reference: 5.98, percentage: 100, adjustment: 1, expected: 5.97 },
+    { reference: 8, percentage: 100, adjustment: 0, expected: 8 },
+    { reference: 5, percentage: 90, adjustment: 0, expected: 3.01 },
+    { reference: 4, percentage: 100, adjustment: 0, expected: 4 },
+    { reference: 4, percentage: 130, adjustment: 0, expected: 7.14 },
+  ])(
+    "recalculates shipping for the new price: $reference at $percentage%",
+    ({ reference, percentage, adjustment, expected }) => {
+      const ownListing = listing({ price: 4.48, shippingPrice: 1.49 });
+      const row = calculateRepricingRow(
+        { product: product(ownListing), listing: ownListing },
+        [
+          listing({
+            sellerKey: "competitor",
+            price: reference,
+            shippingPrice: 0,
+          }),
+        ],
+        sellerKey,
+        {
+          ...rules,
+          allowPriceIncreases: true,
+          adjustmentCents: adjustment,
+          ranges: [
+            {
+              priceSource: "lowest",
+              gapThresholdPercent: 0,
+              gapAction: "follow-lowest",
+              percentage,
+            },
+          ],
+        },
+      );
+      expect(row.proposedPrice).toBe(expected);
+      if (expected >= 5)
+        expect(row.reason).toContain("qualifies for free shipping");
+    },
+  );
+
   it("keeps sealed conditions separate from singles rankings", () => {
     expect(allowedConditions("Unopened", "same-or-better")).toEqual([
       "Unopened",
@@ -2177,8 +2218,8 @@ describe("smart repricing", () => {
       currentPrice: 4.48,
       competitorPrice: 5.98,
       competitorShipping: 0,
-      proposedPrice: 4.48,
-      status: "unchanged",
+      proposedPrice: 5.97,
+      status: "ready",
       pricingSource: "lowest",
     });
     expect(searchMarketplaceProducts).toHaveBeenCalledTimes(2);

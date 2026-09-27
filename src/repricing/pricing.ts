@@ -531,12 +531,25 @@ export function calculateRepricingRow(
     referenceListing.shippingPrice < TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
       ? TCGPLAYER_NORMALIZED_MARKETPLACE_SHIPPING
       : undefined;
-  const rawTarget =
-    (sourcePrice * range.percentage) / 100 -
-    (referenceListing !== undefined && rules.priceBasis === "delivered"
+  const adjustedReference =
+    (sourcePrice * range.percentage) / 100 - rules.adjustmentCents / 100;
+  const ownShipping =
+    referenceListing !== undefined && rules.priceBasis === "delivered"
       ? ownShippingForPricing(own.listing, referenceListing, rules.priceBasis)
-      : 0) -
-    rules.adjustmentCents / 100;
+      : 0;
+  // The current listing's shipping quote can include the under-$5 charge.
+  // Do not carry it into a new price that qualifies for free shipping. Keep
+  // the lower item-price solution when matching another sub-$5 listing.
+  const freeShippingApplies =
+    own.listing.channelId === 0 &&
+    referenceListing !== undefined &&
+    rules.priceBasis === "delivered" &&
+    roundCurrency(adjustedReference) >=
+      TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD &&
+    (referenceListing.price >= TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD ||
+      roundCurrency(adjustedReference - ownShipping) >=
+        TCGPLAYER_LOW_VALUE_MARKETPLACE_THRESHOLD);
+  const rawTarget = adjustedReference - (freeShippingApplies ? 0 : ownShipping);
   const minimum = effectiveMinimumPrice(
     rules.minimumPrice,
     own.product,
@@ -580,10 +593,13 @@ export function calculateRepricingRow(
       : range.priceSource === "market"
         ? `Uses ${String(range.percentage)}% of market price.`
         : `Uses ${String(range.percentage)}% of the lowest qualifying listing.`;
-  const strategyReason =
+  const shippingReason =
     competitorPricingShipping !== undefined && referenceListing !== undefined
       ? `${strategy} Sub-$5 marketplace shipping is normalized to $${competitorPricingShipping.toFixed(2)} for pricing.`
       : strategy;
+  const strategyReason = freeShippingApplies
+    ? `${shippingReason} The new price qualifies for free shipping at $5 or more; current listing shipping is not deducted.`
+    : shippingReason;
   const decreaseAmount = roundCurrency(own.listing.price - target);
   const decreasePercent =
     own.listing.price <= 0 ? 0 : (decreaseAmount / own.listing.price) * 100;
