@@ -170,11 +170,15 @@ describe("provider-neutral inventory", () => {
           },
         } satisfies PricingPreview),
       );
+    let finishSave: (() => void) | undefined;
+    const saving = new Promise<void>((resolve) => {
+      finishSave = resolve;
+    });
     const save = vi
       .spyOn(uiApi, "setFixedPrice")
       .mockImplementation((_preview, _row, price) => {
         fixedPrice = price ?? undefined;
-        return Promise.resolve({ jobs: [] });
+        return saving.then(() => ({ jobs: [] }));
       });
     const user = userEvent.setup();
     render(<App />);
@@ -196,7 +200,27 @@ describe("provider-neutral inventory", () => {
       screen.getByRole("button", { name: "Save & queue fixed price" }),
     );
     expect(save).toHaveBeenCalledWith("preview", "row", 8.25);
+    await screen.findByRole("progressbar", {
+      name: "Saving pricing choice and updating preview",
+    });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Update preview" })
+        .disabled,
+    ).toBe(true);
+    if (finishSave === undefined) throw new Error("Missing save completion");
+    finishSave();
+
     await screen.findByRole("button", { name: "Use profile" });
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.getByText("Last observed")).toBeTruthy();
+    expect(
+      screen.getByText("Fixed target · not yet verified live"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Update preview" })
+        .disabled,
+    ).toBe(false);
+
     expect(
       screen.getByLabelText<HTMLInputElement>("Select Synthetic Card").disabled,
     ).toBe(true);

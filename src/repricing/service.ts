@@ -349,9 +349,12 @@ export class RepricingService {
     return candidate;
   }
 
-  invalidatePreviews(): void {
+  invalidatePreviews(
+    options: { readonly preserveMarketplaceSnapshot?: boolean } = {},
+  ): void {
     this.previews.clear();
-    this.marketplace.invalidate();
+    if (options.preserveMarketplaceSnapshot !== true)
+      this.marketplace.invalidate();
   }
 
   takeUpdates(previewId: string, value: unknown): readonly SellerPriceUpdate[] {

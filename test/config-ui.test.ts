@@ -834,6 +834,9 @@ describe("configuration UI", () => {
     expect(fixedPriceCandidate).toHaveBeenCalledWith(previewId, "row");
     expect(await priceQueue.fixedPrices()).toEqual({ "2:0": 8.25 });
     expect(invalidatePreviews).toHaveBeenCalledTimes(1);
+    expect(invalidatePreviews).toHaveBeenCalledWith({
+      preserveMarketplaceSnapshot: true,
+    });
     expect((await post({ rowId: "row", price: -2 })).status).toBe(400);
     expect(await priceQueue.fixedPrices()).toEqual({ "2:0": 8.25 });
     expect((await post({ rowId: "row", price: null })).status).toBe(202);

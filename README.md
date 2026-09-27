@@ -36,6 +36,12 @@ matching a qualifying price: $5.98 with free shipping and a one-cent undercut
 produces $5.97, not $4.48. Sub-$5 comparisons retain their shipping adjustment.
 Competitors' shipping charges still count toward their delivered prices.
 
+Saving a fixed price queues the change and recalculates the preview using the
+existing marketplace snapshot while showing progress. Fixed rows distinguish
+the saved target from the last observed live price. Use **Refresh marketplace**
+after the queue applies the change to verify the live price; saving alone does
+not confirm that the marketplace has accepted it.
+
 ## Safety defaults
 
 - Print actions, automatic shipment scanning, Discord, and mutation queues are

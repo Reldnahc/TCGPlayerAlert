@@ -55,14 +55,18 @@ function InventoryLoading({
   refreshing,
   profileName,
   progress,
+  savingFixedPrice = false,
 }: {
   readonly refreshing: boolean;
   readonly profileName: string;
   readonly progress: PricingProgress | null;
+  readonly savingFixedPrice?: boolean;
 }) {
-  const title = refreshing
-    ? "Refreshing inventory preview"
-    : "Building inventory preview";
+  const title = savingFixedPrice
+    ? "Saving pricing choice and updating preview"
+    : refreshing
+      ? "Refreshing inventory preview"
+      : "Building inventory preview";
   const determinate = progress?.total !== undefined;
   const percent =
     progress?.total === undefined
@@ -264,6 +268,7 @@ export function RepricingInventoryPage() {
   async function saveFixedPrice(row: PreviewRow, price: number | null) {
     if (preview === null || busy !== "") return;
     setBusy("fixed-price");
+    setProgress(null);
     setMessage(null);
     let saved = false;
     try {
@@ -282,7 +287,7 @@ export function RepricingInventoryPage() {
         text:
           price === null
             ? "Profile pricing restored. Review and queue the proposed price when ready."
-            : "Fixed price saved and queued. Future repricer runs will leave this listing alone.",
+            : "Fixed price saved and queued. Last observed price changes only after the marketplace applies it and you refresh marketplace data.",
       });
     } catch (cause) {
       if (saved) setPreview(null);
@@ -608,6 +613,9 @@ export function RepricingInventoryPage() {
                           <td>{row.condition}</td>
                           <td class="align-right numeric">
                             {money(row.currentPrice)}
+                            {row.fixedPrice === undefined ? null : (
+                              <small class="muted">Last observed</small>
+                            )}
                           </td>
                           <td class="align-right numeric">
                             <span
@@ -632,6 +640,14 @@ export function RepricingInventoryPage() {
                             >
                               {money(row.proposedPrice)}
                             </strong>
+                            {row.fixedPrice === undefined ? null : (
+                              <small class="muted">
+                                Fixed target
+                                {row.fixedPrice !== row.currentPrice
+                                  ? " · not yet verified live"
+                                  : ""}
+                              </small>
+                            )}
                             {row.minimumApplied ? (
                               <small class="minimum-note">
                                 {row.minimumPriceSource ?? "minimum"}{" "}
@@ -776,12 +792,13 @@ export function RepricingInventoryPage() {
             </div>
           </>
         )}
-        {busy === "preview" || busy === "refresh" ? (
+        {busy === "preview" || busy === "refresh" || busy === "fixed-price" ? (
           <div class="page-overlay">
             <InventoryLoading
               refreshing={busy === "refresh"}
               profileName={activeProfile?.name ?? "the selected profile"}
               progress={progress}
+              savingFixedPrice={busy === "fixed-price"}
             />
           </div>
         ) : null}

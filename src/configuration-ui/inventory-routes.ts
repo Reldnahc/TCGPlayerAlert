@@ -78,7 +78,9 @@ async function handleRepricingRoute(
       body?.rowId,
     );
     const jobs = await priceQueue.setFixedPrice(candidate, body?.price);
-    repricingService.invalidatePreviews();
+    // Saving a policy queues a mutation; it does not change observed live prices.
+    // Recalculate from the snapshot instead of re-reading the entire marketplace.
+    repricingService.invalidatePreviews({ preserveMarketplaceSnapshot: true });
     sendJson(response, 202, { jobs });
     return true;
   }
