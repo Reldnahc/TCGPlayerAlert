@@ -1,4 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
+import { InventoryAuditRepair } from "./InventoryAuditRepair.js";
 import type { InventoryList } from "../contracts.js";
 import type { ReplenishmentSnapshot } from "../../replenishment-contracts.js";
 import { uiApi } from "../api.js";
@@ -22,6 +23,12 @@ export function InventoryAudit({ onClose }: { readonly onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [repairId, setRepairId] = useState<string | null>(null);
+  const [queued, setQueued] = useState<ReadonlySet<string>>(new Set());
+  const supportsRepair =
+    connections
+      .find((connection) => connection.descriptor.connectionId === connectionId)
+      ?.supportedFacets.includes("inventory-additions") === true;
 
   async function run() {
     setBusy(true);
@@ -93,18 +100,21 @@ export function InventoryAudit({ onClose }: { readonly onClose: () => void }) {
       >
         <div class="dialog__header">
           <h2 id="inventory-audit-title">Audit listing quantities</h2>
-          <Button onClick={onClose}>Close</Button>
+          <Button disabled={repairId !== null} onClick={onClose}>
+            Close
+          </Button>
         </div>
         <div class="dialog__body inventory-import-dialog__body">
           <p>
-            Compare local on-hand stock with fresh marketplace observations.
-            This audit does not change stock or listings. Differences can
-            reflect pending jobs, sales, intentional reserves, or unmatched
-            variants.
+            Compare local on-hand stock with fresh marketplace observations. Use
+            List missing to review a correction without adding local stock.
+            Differences can reflect pending jobs, sales, intentional reserves,
+            or unmatched variants.
           </p>
           <Field label="Audit marketplace">
             <select
               value={connectionId ?? ""}
+              disabled={repairId !== null}
               onChange={(event) => setSelected(event.currentTarget.value)}
             >
               {connections.map((connection) => (
@@ -126,6 +136,21 @@ export function InventoryAudit({ onClose }: { readonly onClose: () => void }) {
           </Field>
           {error === "" ? null : <Notice tone="danger">{error}</Notice>}
           {busy ? <Spinner label="Auditing listing quantities" /> : null}
+          {repairId === null || connectionId === undefined ? null : (
+            <InventoryAuditRepair
+              key={`${connectionId}/${repairId}`}
+              localId={repairId}
+              connectionId={connectionId}
+              onClose={() => setRepairId(null)}
+              onQueued={() => {
+                setQueued((current) =>
+                  new Set(current).add(`${connectionId}/${repairId}`),
+                );
+                setRepairId(null);
+                void run();
+              }}
+            />
+          )}
           {connectionId === undefined ? (
             <Notice tone="warning">
               No enabled inventory connection is available.
@@ -153,6 +178,7 @@ export function InventoryAudit({ onClose }: { readonly onClose: () => void }) {
                       <th>Listed</th>
                       <th>Difference</th>
                       <th>Review</th>
+                      <th>Correction</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -174,6 +200,27 @@ export function InventoryAudit({ onClose }: { readonly onClose: () => void }) {
                               : "No exact matched listing; verify variant"
                             : `Auto-relist enabled: public target ${String(rule.targetQuantity)}; reserve may be intentional`}
                         </td>
+                        <td>
+                          {queued.has(
+                            `${connectionId}/${item.localInventoryId}`,
+                          ) ? (
+                            <small>
+                              Correction queued. Refresh after the job finishes.
+                            </small>
+                          ) : supportsRepair ? (
+                            <Button
+                              disabled={busy || repairId !== null}
+                              onClick={() => setRepairId(item.localInventoryId)}
+                            >
+                              List missing
+                            </Button>
+                          ) : (
+                            <small>
+                              Corrections are available for the TCGplayer
+                              listing connection.
+                            </small>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -183,7 +230,14 @@ export function InventoryAudit({ onClose }: { readonly onClose: () => void }) {
           )}
         </div>
         <div class="dialog__footer">
-          <Button busy={busy} onClick={() => void run()}>
+          <Button
+            busy={busy}
+            disabled={repairId !== null}
+            onClick={() => {
+              setQueued(new Set());
+              void run();
+            }}
+          >
             Refresh audit
           </Button>
         </div>

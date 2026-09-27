@@ -19,6 +19,68 @@ afterEach(resetWebUiTest);
 const completedAt = "2026-08-07T12:00:00.000Z";
 
 describe("provider-neutral inventory", () => {
+  it("queues a reviewed audit correction without adding local inventory", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const payload = inventoryPayload();
+    const first = payload.listings[0];
+    if (first === undefined) throw new Error("Missing fixture listing");
+    first.item.quantity = 1;
+    vi.spyOn(uiApi, "inventory").mockResolvedValue(payload);
+    vi.spyOn(uiApi, "replenishment").mockResolvedValue({
+      workerRunning: false,
+      rules: [],
+    });
+    const preview = vi.spyOn(uiApi, "previewAuditRepair").mockResolvedValue({
+      id: "correction",
+      localInventoryId: "00000000-0000-4000-8000-000000000001",
+      connectionId: "tcgplayer-main",
+      displayName: "Lightning Bolt",
+      onHand: 3,
+      listed: 1,
+      target: 3,
+      addQuantity: 2,
+      price: 1.99,
+      fixedPrice: false,
+      reservedElsewhere: 0,
+      limited: false,
+    });
+    const queue = vi
+      .spyOn(uiApi, "queueAuditRepair")
+      .mockResolvedValue({ jobs: [] });
+    const addLocal = vi.spyOn(uiApi, "addLocalInventory");
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(
+      screen.getByRole("link", { name: "Inventory", exact: true }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Audit listing quantities" }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Audit listing quantities" }),
+    );
+    const row = (await dialog.findByText("Lightning Bolt")).closest("tr");
+    if (row === null) throw new Error("Missing row");
+    await user.click(within(row).getByRole("button", { name: "List missing" }));
+    const confirm = await dialog.findByRole("button", {
+      name: "Queue +2 at $1.99",
+    });
+    expect(preview).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000001",
+      "tcgplayer-main",
+      undefined,
+    );
+    expect(queue).not.toHaveBeenCalled();
+    await user.click(confirm);
+    expect(queue).toHaveBeenCalledExactlyOnceWith(
+      "00000000-0000-4000-8000-000000000001",
+      "tcgplayer-main",
+      "correction",
+    );
+    expect(await dialog.findByText(/Correction queued/)).toBeTruthy();
+    expect(addLocal).not.toHaveBeenCalled();
+  });
   it("confirms clearing one row and updates its local quantity only on success", async () => {
     vi.stubGlobal("fetch", vi.fn(inventoryFetch));
     const payload = inventoryPayload();
@@ -814,7 +876,13 @@ function connectionPayload() {
         "tcgplayer",
         "TCGplayer",
         "TCGplayer Store",
-        ["order-pages", "inventory-reader", "inventory-mutator", "repricing"],
+        [
+          "order-pages",
+          "inventory-reader",
+          "inventory-mutator",
+          "repricing",
+          "inventory-additions",
+        ],
       ),
       connection("manapool-main", "manapool", "ManaPool", "ManaPool Store", [
         "order-pages",

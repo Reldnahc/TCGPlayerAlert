@@ -694,6 +694,94 @@ export class InventoryAdditionService {
     });
   }
 
+  async prepareStockRepair(
+    productId: number,
+    productConditionId: number,
+    targetQuantity: number,
+    price?: number,
+  ): Promise<{
+    readonly currentQuantity: number;
+    readonly price?: number;
+    readonly addition?: SellerInventoryAddition;
+  }> {
+    const sellerKey = this.currentSellerKey();
+    const product = await this.getProduct(productId);
+    const sku = product.skus.find(
+      (candidate) => candidate.productConditionId === productConditionId,
+    );
+    if (sku === undefined || !product.sellerListable)
+      throw new ApplicationError(
+        "REVIEW_REQUIRED",
+        "The exact catalog variant cannot be listed.",
+      );
+    const { primary, secondary } = await this.loadSelectionSnapshot(product);
+    const own = primary.products
+      .flatMap((entry) => entry.listings)
+      .filter(
+        (listing) =>
+          listing.sellerKey === sellerKey &&
+          listing.productConditionId === productConditionId &&
+          listing.channelId === 0,
+      );
+    if (
+      own.length > 1 ||
+      own.some((listing) => listing.customData.customListingId !== undefined) ||
+      secondary.products.some((entry) =>
+        entry.listings.some(
+          (listing) =>
+            listing.sellerKey === sellerKey &&
+            listing.productConditionId === productConditionId,
+        ),
+      )
+    )
+      throw new ApplicationError(
+        "REVIEW_REQUIRED",
+        "Custom or secondary-channel listings require manual review.",
+      );
+    const currentQuantity = own[0]?.quantity ?? 0;
+    const chosenPrice = price ?? own[0]?.price;
+    if (
+      chosenPrice !== undefined &&
+      (!Number.isFinite(chosenPrice) ||
+        chosenPrice < 0.01 ||
+        chosenPrice > 1_000_000 ||
+        Math.abs(chosenPrice * 100 - Math.round(chosenPrice * 100)) > 1e-7)
+    )
+      throw new ConfigurationError([
+        "Enter a valid listing price with at most two decimal places.",
+      ]);
+    if (
+      !Number.isSafeInteger(targetQuantity) ||
+      targetQuantity <= currentQuantity ||
+      targetQuantity > 10_000_000
+    )
+      throw new ApplicationError(
+        "REVIEW_REQUIRED",
+        "There is no missing quantity to list within the available stock and public limit.",
+      );
+    return {
+      currentQuantity,
+      ...(chosenPrice === undefined
+        ? {}
+        : {
+            price: chosenPrice,
+            addition: {
+              productId,
+              productConditionId,
+              productName: product.productName,
+              categoryName: product.productLineName,
+              conditionId: sku.conditionId,
+              channelId: 0,
+              currentQuantity,
+              addQuantity: targetQuantity - currentQuantity,
+              price: chosenPrice,
+              storePriceCustomId: null,
+              reserveQuantity: 0,
+            },
+          }),
+    };
+  }
+
   takeAddition(previewId: string): SellerInventoryAddition {
     this.removeExpiredPreviews();
     const preview = this.previews.get(previewId);

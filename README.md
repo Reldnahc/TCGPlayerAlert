@@ -86,10 +86,15 @@ Fixed-price holds and rows without a verified target remain unselectable.
   quantity, listed quantity, and the difference for the selected marketplace.
   It includes partially listed and unmatched local items, labels enabled
   auto-relist reserves, and supports search and refresh. Failed marketplace reads
-  are reported as unknown, not zero stock. This is a read-only comparison, not
-  proof of lost additions: check pending/review-required jobs, variant matches,
-  sales, and intentional reserves before deciding to list more. Quantities from
-  different marketplace connections are compared separately, never added together.
+  are reported as unknown, not zero stock. Differences alone are not proof of
+  lost additions: check jobs, variant matches, sales, and intentional reserves.
+  **List missing** on a TCGplayer row reviews and queues only the fresh shortfall
+  without adding local stock. Existing listing prices and fixed-price overrides
+  are preserved; unlisted cards require an entered and reviewed price. Corrections
+  respect auto-relist public limits and reserve stock listed on other connections.
+  Pending/running inventory jobs and changed review data block duplicate repairs.
+  Other marketplace connections remain audit-only. Refresh after queued jobs
+  finish to verify the correction.
 - A reviewed one-time import can initialize missing local items from current
   marketplace observations. Cross-listed quantities use the highest observed
   value and are never summed.

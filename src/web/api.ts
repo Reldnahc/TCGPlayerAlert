@@ -61,6 +61,7 @@ import {
   inventoryQueueDecoder,
   inventoryListDecoder,
   inventoryDelistPreviewDecoder,
+  inventoryAuditRepairDecoder,
   localInventoryImportPreviewDecoder,
   localInventoryImportResultDecoder,
   localInventoryItemResponseDecoder,
@@ -466,6 +467,35 @@ export const uiApi = {
       {
         method: "POST",
         body: JSON.stringify(input),
+      },
+    ),
+  previewAuditRepair: (localId: string, connectionId: string, price?: number) =>
+    requestJson(
+      `/api/local-inventory/items/${encodeURIComponent(localId)}/list-missing-preview`,
+      inventoryAuditRepairDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          connectionId,
+          ...(price === undefined ? {} : { price }),
+        }),
+      },
+    ),
+  queueAuditRepair: (
+    localId: string,
+    connectionId: string,
+    previewId: string,
+  ) =>
+    requestJson(
+      `/api/local-inventory/items/${encodeURIComponent(localId)}/list-missing`,
+      queuedInventoryJobsDecoder,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          connectionId,
+          previewId,
+          confirmation: "LIST_MISSING_STOCK",
+        }),
       },
     ),
   previewInventoryDelisting: (localId: string) =>

@@ -389,6 +389,20 @@ export const inventoryDelistPreviewDecoder = object({
     object({ connectionLabel: text, quantity: nonNegativeInteger }),
   ),
 });
+export const inventoryAuditRepairDecoder = object({
+  id: text,
+  localInventoryId: text,
+  connectionId: text,
+  displayName: text,
+  onHand: nonNegativeInteger,
+  listed: nonNegativeInteger,
+  target: nonNegativeInteger,
+  addQuantity: nonNegativeInteger,
+  price: optional(number),
+  fixedPrice: boolean,
+  reservedElsewhere: nonNegativeInteger,
+  limited: boolean,
+});
 const publicationPreviewDecoder: Decoder<MarketplacePublicationPreview> =
   object({
     id: text,

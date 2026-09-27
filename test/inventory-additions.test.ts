@@ -160,6 +160,67 @@ async function queueFixture(now = new Date("2026-08-04T12:00:00.000Z")) {
 }
 
 describe("inventory additions", () => {
+  it("does not merge a stock correction into another pending addition", async () => {
+    const { queue } = await queueFixture();
+    await queue.enqueue(addition);
+    await expect(queue.enqueueStockRepair(addition)).rejects.toThrow(
+      /pending or running/,
+    );
+    expect((await queue.snapshot()).jobs).toHaveLength(1);
+  });
+  it.each([2, 0])(
+    "prepares an exact stock correction with %s already listed",
+    async (quantity) => {
+      const service = new InventoryAdditionService({
+        sellerKey: "synthetic-seller",
+        client: {
+          getCatalogProduct: () => Promise.resolve(product),
+          searchCatalogProducts: () =>
+            Promise.resolve({
+              totalProducts: 1,
+              productLines: [],
+              sets: [],
+              products: [product],
+            }),
+          searchMarketplaceProducts: (input) =>
+            Promise.resolve(
+              searchResult(
+                input.channelId === 0 && quantity > 0
+                  ? [
+                      listing({
+                        productConditionId: 456,
+                        sellerKey: "synthetic-seller",
+                        price: 3.25,
+                        quantity,
+                      }),
+                    ]
+                  : [],
+              ),
+            ),
+        },
+      });
+      const preview = await service.prepareStockRepair(123, 456, 5);
+      expect(preview.currentQuantity).toBe(quantity);
+      if (quantity === 0) expect(preview.addition).toBeUndefined();
+      else
+        expect(preview.addition).toMatchObject({
+          currentQuantity: 2,
+          addQuantity: 3,
+          price: 3.25,
+        });
+      const priced = await service.prepareStockRepair(123, 456, 5, 1.25);
+      expect(priced.addition).toMatchObject({
+        currentQuantity: quantity,
+        addQuantity: 5 - quantity,
+        price: 1.25,
+      });
+      await expect(
+        service.prepareStockRepair(123, 456, 5, -1),
+      ).rejects.toMatchObject({
+        issues: [expect.stringMatching(/valid listing price/)],
+      });
+    },
+  );
   it("cancels only pending jobs for the card being cleared and blocks a running job", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(addition);

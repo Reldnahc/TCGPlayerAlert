@@ -445,9 +445,14 @@ export class InventoryAdditionQueueStore {
     return this.enqueueAdditions(additions, sourceRunId);
   }
 
+  enqueueStockRepair(value: unknown): Promise<readonly InventoryAdditionJob[]> {
+    return this.enqueueAdditions([parseAddition(value)], undefined, true);
+  }
+
   private enqueueAdditions(
     additions: readonly SellerInventoryAddition[],
     sourceRunIdValue?: string,
+    rejectActive = false,
   ): Promise<readonly InventoryAdditionJob[]> {
     const sourceRunId = optionalSourceRunId(sourceRunIdValue);
     return this.exclusive(async () =>
@@ -464,6 +469,19 @@ export class InventoryAdditionQueueStore {
         const created: InventoryAdditionJob[] = [];
         for (const addition of additions) {
           const key = additionKey(addition);
+          if (
+            rejectActive &&
+            jobs.some(
+              (job) =>
+                jobKey(job) === key &&
+                (job.status === "pending" || job.status === "applying"),
+            )
+          ) {
+            throw new ApplicationError(
+              "REVIEW_REQUIRED",
+              "This card already has a pending or running inventory job. Let it finish or cancel it in Jobs, then refresh the audit.",
+            );
+          }
           const previous = jobs.find(
             (job) =>
               job.status === "pending" &&

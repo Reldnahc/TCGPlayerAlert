@@ -1,5 +1,9 @@
 import type { LocalInventoryItem } from "../local-inventory-contracts.js";
 import {
+  previewAuditRepair,
+  queueAuditRepair,
+} from "../inventory-audit-repair.js";
+import {
   LocalInventoryNotFoundError,
   type LocalInventoryAddition,
 } from "../local-inventory.js";
@@ -118,6 +122,74 @@ export const handleLocalInventoryRoute: ConfigurationRouteHandler = async (
     context.url.pathname === "/api/local-inventory/catalog-items"
   ) {
     return addCatalogItem(context);
+  }
+  const repairMatch =
+    context.request.method === "POST"
+      ? /^\/api\/local-inventory\/items\/([0-9a-f-]{36})\/(list-missing-preview|list-missing)$/iu.exec(
+          context.url.pathname,
+        )
+      : null;
+  if (repairMatch !== null) {
+    if (
+      context.localInventory === undefined ||
+      context.marketplaces === undefined ||
+      context.inventoryService === undefined ||
+      context.inventoryQueue === undefined
+    )
+      return unavailable(context);
+    const body = objectValue(await readJsonBody(context.request));
+    if (
+      typeof body?.connectionId !== "string" ||
+      body.connectionId !== context.catalogConnectionId
+    ) {
+      sendJson(context.response, 409, {
+        message:
+          "Audit corrections currently support the TCGplayer listing connection.",
+      });
+      return true;
+    }
+    const deps = {
+      local: context.localInventory,
+      inventory: context.marketplaces.inventory,
+      additions: context.inventoryService,
+      queue: context.inventoryQueue,
+      fixedPrices: () =>
+        context.priceQueue?.fixedPrices() ?? Promise.resolve({}),
+    };
+    const localId = repairMatch[1] ?? "";
+    if (repairMatch[2] === "list-missing-preview") {
+      if (body.price !== undefined && typeof body.price !== "number")
+        throw new MarketplaceValidationError("Enter a numeric listing price.");
+      sendJson(
+        context.response,
+        200,
+        await previewAuditRepair(deps, {
+          localId,
+          connectionId: body.connectionId,
+          ...(body.price === undefined ? {} : { price: body.price }),
+        }),
+      );
+    } else {
+      if (
+        body.confirmation !== "LIST_MISSING_STOCK" ||
+        typeof body.previewId !== "string"
+      ) {
+        sendJson(context.response, 400, {
+          message:
+            "Review and confirm the missing quantity before queueing it.",
+        });
+        return true;
+      }
+      sendJson(context.response, 202, {
+        jobs: await queueAuditRepair(
+          deps,
+          localId,
+          body.connectionId,
+          body.previewId,
+        ),
+      });
+    }
+    return true;
   }
   const delistMatch =
     context.request.method === "POST"
