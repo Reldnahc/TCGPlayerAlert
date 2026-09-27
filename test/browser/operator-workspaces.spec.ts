@@ -35,6 +35,7 @@ test("loads every operator workspace through the application shell", async ({
     await page
       .getByRole("navigation", { name: "Primary navigation" })
       .getByRole("link", {
+        exact: true,
         name:
           workspace.route === "messages"
             ? /^Messages(?:, \d+ unread messages?)?$/u
