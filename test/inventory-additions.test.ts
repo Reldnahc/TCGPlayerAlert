@@ -587,7 +587,52 @@ describe("inventory additions", () => {
     expect(service.takeAddition(preview.id)).toEqual(addition);
   });
 
-  it("reuses the selected SKU snapshot when quantity and pricing inputs change", async () => {
+  it("previews consecutive +1 additions against stock changed by the previous addition", async () => {
+    let liveQuantity = 1;
+    const service = new InventoryAdditionService({
+      sellerKey: "synthetic-seller",
+      client: {
+        searchCatalogProducts: () =>
+          Promise.resolve({
+            totalProducts: 1,
+            productLines: [],
+            sets: [],
+            products: [product],
+          }),
+        getCatalogProduct: () => Promise.resolve(product),
+        searchMarketplaceProducts: (input) =>
+          Promise.resolve(
+            input.sellerKey === undefined
+              ? searchResult([listing()])
+              : searchResult(
+                  input.channelId === 0
+                    ? [
+                        listing({
+                          sellerKey: "synthetic-seller",
+                          productConditionId: 456,
+                          quantity: liveQuantity,
+                        }),
+                      ]
+                    : [],
+                ),
+          ),
+      },
+    });
+    const request = {
+      productId: 123,
+      productConditionId: 456,
+      addQuantity: 1,
+      rules: additionPricingRules(),
+    };
+    const first = service.takeAddition((await service.preview(request)).id);
+    expect(first).toMatchObject({ currentQuantity: 1, addQuantity: 1 });
+    liveQuantity = first.currentQuantity + first.addQuantity;
+    const second = service.takeAddition((await service.preview(request)).id);
+    expect(second).toMatchObject({ currentQuantity: 2, addQuantity: 1 });
+    expect(second.currentQuantity + second.addQuantity).toBe(3);
+  });
+
+  it("refreshes own stock while reusing catalog and comparable pricing snapshots", async () => {
     let now = new Date("2026-08-04T12:00:00.000Z");
     const getCatalogProduct = vi.fn(() => Promise.resolve(product));
     const searchMarketplaceProducts = vi.fn((input: { sellerKey?: string }) =>
@@ -634,7 +679,7 @@ describe("inventory additions", () => {
       proposedPrice: 1.75,
     });
     expect(getCatalogProduct).toHaveBeenCalledOnce();
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(3);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(5);
 
     await service.preview({
       productId: product.productId,
@@ -648,7 +693,7 @@ describe("inventory additions", () => {
       addQuantity: 5,
       rules: { ...rules, conditionPolicy: "same" },
     });
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(4);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(10);
 
     now = new Date("2026-08-04T12:15:00.001Z");
     await service.preview({
@@ -658,7 +703,7 @@ describe("inventory additions", () => {
       rules: { ...rules, conditionPolicy: "same" },
     });
     expect(getCatalogProduct).toHaveBeenCalledTimes(2);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(7);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(13);
 
     await service.preview(
       {
@@ -670,7 +715,7 @@ describe("inventory additions", () => {
       { forceRefresh: true },
     );
     expect(getCatalogProduct).toHaveBeenCalledTimes(3);
-    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(10);
+    expect(searchMarketplaceProducts).toHaveBeenCalledTimes(16);
   });
 
   it("uses the configured minimum with a market fallback", async () => {

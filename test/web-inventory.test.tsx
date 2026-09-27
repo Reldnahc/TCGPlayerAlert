@@ -4,7 +4,7 @@ import { render, screen, within } from "@testing-library/preact";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { uiApi } from "../src/web/api.js";
-import type { PricingPreview } from "../src/web/contracts.js";
+import type { InventoryList, PricingPreview } from "../src/web/contracts.js";
 import { App } from "../src/web/App.js";
 import {
   baseFetch,
@@ -19,6 +19,114 @@ afterEach(resetWebUiTest);
 const completedAt = "2026-08-07T12:00:00.000Z";
 
 describe("provider-neutral inventory", () => {
+  it("audits fresh per-marketplace shortages and labels intentional reserves", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(
+      screen.getByRole("link", { name: "Inventory", exact: true }),
+    );
+    await screen.findByText("Lightning Bolt");
+    const fresh = inventoryPayload();
+    const firstItem = fresh.items[0];
+    if (firstItem === undefined) throw new Error("Missing fixture item");
+    firstItem.onHand = 5;
+    const read = vi.spyOn(uiApi, "inventory").mockResolvedValue(fresh);
+    vi.spyOn(uiApi, "replenishment").mockResolvedValue({
+      workerRunning: false,
+      rules: [
+        {
+          localInventoryId: firstItem.localInventoryId,
+          connectionId: "tcgplayer-main",
+          enabled: true,
+          targetQuantity: 3,
+          displayName: "Lightning Bolt",
+          accountScope: "synthetic",
+          price: 1.99,
+          status: "watching",
+          tickets: [],
+          jobs: [],
+          message: "",
+        },
+      ],
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Audit listing quantities" }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Audit listing quantities" }),
+    );
+    const row = (await dialog.findByText("Lightning Bolt")).closest("tr");
+    if (row === null) throw new Error("Missing audit row");
+    expect(read).toHaveBeenCalledOnce();
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent)
+        .slice(1, 4),
+    ).toEqual(["5", "3", "2"]);
+    expect(within(row).getByText(/reserve may be intentional/)).toBeTruthy();
+    expect(dialog.getByText("Unlisted Card")).toBeTruthy();
+    await user.selectOptions(
+      dialog.getByLabelText("Audit marketplace"),
+      "manapool-main",
+    );
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent)
+        .slice(1, 4),
+    ).toEqual(["5", "0", "5"]);
+    await user.type(dialog.getByLabelText("Search audit"), "Lightning");
+    expect(dialog.queryByText("Unlisted Card")).toBeNull();
+    firstItem.onHand = 3;
+    await user.selectOptions(
+      dialog.getByLabelText("Audit marketplace"),
+      "tcgplayer-main",
+    );
+    await user.click(dialog.getByRole("button", { name: "Refresh audit" }));
+    await dialog.findByText(/0 items below local stock/);
+    expect(dialog.queryByText("Lightning Bolt")).toBeNull();
+  });
+
+  it("does not treat a failed marketplace read as zero listed stock", async () => {
+    vi.stubGlobal("fetch", vi.fn(inventoryFetch));
+    const fresh = inventoryPayload();
+    vi.spyOn(uiApi, "inventory").mockResolvedValue({
+      ...fresh,
+      listings: [],
+      issues: [
+        {
+          connectionId: "tcgplayer-main",
+          code: "PROVIDER_ERROR",
+          operation: "inventory",
+          retryable: true,
+        },
+      ],
+    });
+    vi.spyOn(uiApi, "replenishment").mockResolvedValue({
+      workerRunning: false,
+      rules: [],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await user.click(
+      screen.getByRole("link", { name: "Inventory", exact: true }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Audit listing quantities" }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Audit listing quantities" }),
+    );
+    expect(
+      await dialog.findByText(/listing quantities are unknown/),
+    ).toBeTruthy();
+    expect(dialog.queryByRole("table")).toBeNull();
+  });
+
   it.each([false, true])(
     "confirms delisting from the pricing controls (fixed price: %s)",
     async (fixed) => {
@@ -757,5 +865,5 @@ function inventoryPayload() {
     ],
     issues: [],
     completedAt,
-  };
+  } satisfies InventoryList;
 }

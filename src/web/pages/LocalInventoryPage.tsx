@@ -1,4 +1,5 @@
 import { ReplenishmentPanel } from "./ReplenishmentPanel.js";
+import { InventoryAudit } from "./InventoryAudit.js";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { LocalInventoryItem } from "../../local-inventory-contracts.js";
 import type { MarketplaceInventoryObservation } from "../../local-inventory-workspace.js";
@@ -29,6 +30,7 @@ export function LocalInventoryPage() {
   const [importBusy, setImportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [auditOpen, setAuditOpen] = useState(false);
   const [listingFilter, setListingFilter] = useState<
     "all" | "unlisted" | "listed"
   >("all");
@@ -184,6 +186,9 @@ export function LocalInventoryPage() {
           </Notice>
         ))}
         <div class="toolbar">
+          <Button onClick={() => setAuditOpen(true)}>
+            Audit listing quantities
+          </Button>
           {view === "local" ? (
             <Field label="Listing status">
               <select
@@ -327,6 +332,9 @@ export function LocalInventoryPage() {
           </section>
         ) : null}
       </div>
+      {auditOpen ? (
+        <InventoryAudit onClose={() => setAuditOpen(false)} />
+      ) : null}
       {importOpen ? (
         <div class="dialog-backdrop" role="presentation">
           <div

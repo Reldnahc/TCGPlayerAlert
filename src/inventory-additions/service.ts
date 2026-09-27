@@ -95,11 +95,6 @@ interface InventorySelectionSnapshot {
   readonly secondary: SearchMarketplaceProductsResult;
 }
 
-interface StoredInventorySelectionSnapshot {
-  readonly expiresAt: number;
-  readonly value: Promise<InventorySelectionSnapshot>;
-}
-
 interface StoredInventoryComparisonSnapshot {
   readonly expiresAt: number;
   readonly value: Promise<SearchMarketplaceProductsResult>;
@@ -452,10 +447,6 @@ export class InventoryAdditionService {
   private readonly previews = new Map<string, StoredAdditionPreview>();
   private readonly catalogSearches = new Map<string, StoredCatalogSearch>();
   private readonly catalogProducts = new Map<number, StoredCatalogProduct>();
-  private readonly selectionSnapshots = new Map<
-    string,
-    StoredInventorySelectionSnapshot
-  >();
   private readonly comparisonSnapshots = new Map<
     string,
     StoredInventoryComparisonSnapshot
@@ -623,7 +614,8 @@ export class InventoryAdditionService {
     }
     const [{ primary, secondary }, comparisons, exactSkuMarketPrice] =
       await Promise.all([
-        this.selectionSnapshot(product),
+        // Stock may have changed since an earlier preview or queued addition.
+        this.loadSelectionSnapshot(product),
         this.comparisonSnapshot(product, sku, conditions),
         this.skuMarketPriceSnapshot(sku.productConditionId),
       ]);
@@ -782,25 +774,6 @@ export class InventoryAdditionService {
     }
   }
 
-  private selectionSnapshot(
-    product: CatalogProductDetails,
-  ): Promise<InventorySelectionSnapshot> {
-    const key = String(product.productId);
-    const cached = this.selectionSnapshots.get(key);
-    if (cached !== undefined) return cached.value;
-    const value = this.loadSelectionSnapshot(product);
-    this.selectionSnapshots.set(key, {
-      expiresAt: this.now().getTime() + this.previewLifetimeMs,
-      value,
-    });
-    void value.catch(() => {
-      if (this.selectionSnapshots.get(key)?.value === value) {
-        this.selectionSnapshots.delete(key);
-      }
-    });
-    return value;
-  }
-
   private async loadSelectionSnapshot(
     product: CatalogProductDetails,
   ): Promise<InventorySelectionSnapshot> {
@@ -891,9 +864,6 @@ export class InventoryAdditionService {
     for (const [productId, product] of this.catalogProducts) {
       if (product.expiresAt <= now) this.catalogProducts.delete(productId);
     }
-    for (const [key, snapshot] of this.selectionSnapshots) {
-      if (snapshot.expiresAt <= now) this.selectionSnapshots.delete(key);
-    }
     for (const [key, snapshot] of this.comparisonSnapshots) {
       if (snapshot.expiresAt <= now) this.comparisonSnapshots.delete(key);
     }
@@ -906,7 +876,6 @@ export class InventoryAdditionService {
 
   private invalidateSelectionData(productId: number): void {
     this.catalogProducts.delete(productId);
-    this.selectionSnapshots.delete(String(productId));
     const prefix = `[${String(productId)},`;
     for (const key of this.comparisonSnapshots.keys()) {
       if (key.startsWith(prefix)) this.comparisonSnapshots.delete(key);
@@ -926,7 +895,6 @@ export class InventoryAdditionService {
       this.previews.clear();
       this.catalogSearches.clear();
       this.catalogProducts.clear();
-      this.selectionSnapshots.clear();
       this.comparisonSnapshots.clear();
     }
     this.activeSellerKey = sellerKey;

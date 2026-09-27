@@ -71,6 +71,17 @@ Fixed-price holds and rows without a verified target remain unselectable.
   for TCGplayer, ManaPool, or local-only entry. TCGplayer additions use its
   priced durable queue; ManaPool additions show one final quantity-and-price
   confirmation. Ordinary local quantity edits never publish automatically.
+- Each TCGplayer addition preview rereads your live quantity, so consecutive
+  **+1** additions after earlier jobs apply do not reuse an old stock count.
+  The worker still stops for review if stock changes between preview and execution.
+- **Inventory > Audit listing quantities** reads fresh inventory and shows local
+  quantity, listed quantity, and the difference for the selected marketplace.
+  It includes partially listed and unmatched local items, labels enabled
+  auto-relist reserves, and supports search and refresh. Failed marketplace reads
+  are reported as unknown, not zero stock. This is a read-only comparison, not
+  proof of lost additions: check pending/review-required jobs, variant matches,
+  sales, and intentional reserves before deciding to list more. Quantities from
+  different marketplace connections are compared separately, never added together.
 - A reviewed one-time import can initialize missing local items from current
   marketplace observations. Cross-listed quantities use the highest observed
   value and are never summed.
