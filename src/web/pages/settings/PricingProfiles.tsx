@@ -270,6 +270,7 @@ export function PricingProfiles({
             />
             <Toggle
               label="Review large decreases"
+              description="Applies only when the selected price reference lacks the configured seller-band support. Supported prices bypass this guard."
               checked={profile.automaticDecreaseGuard}
               onChange={(checked) =>
                 updateProfile({

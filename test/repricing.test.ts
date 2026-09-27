@@ -1181,6 +1181,96 @@ describe("smart repricing", () => {
     expect(row.reason).toContain("No price band within 5%");
   });
 
+  it.each([
+    {
+      name: "two sellers at low",
+      prices: [1.74, 1.75],
+      minimum: 2,
+      action: "use-next",
+      source: "lowest",
+      expected: "ready",
+    },
+    {
+      name: "three sellers at low",
+      prices: [1.74, 1.75, 1.76],
+      minimum: 3,
+      action: "use-next",
+      source: "lowest",
+      expected: "ready",
+    },
+    {
+      name: "supported replacement band",
+      prices: [0.25, 1.74, 1.75],
+      minimum: 2,
+      action: "use-next",
+      source: "lowest",
+      expected: "ready",
+    },
+    {
+      name: "insufficient support",
+      prices: [1.74, 1.75],
+      minimum: 3,
+      action: "follow-lowest",
+      source: "lowest",
+      expected: "skipped",
+    },
+    {
+      name: "unsupported low with a higher supported band",
+      prices: [0.25, 1.74, 1.75],
+      minimum: 2,
+      action: "follow-lowest",
+      source: "lowest",
+      expected: "skipped",
+    },
+    {
+      name: "market price despite a supported listing band",
+      prices: [1.74, 1.75],
+      minimum: 2,
+      action: "follow-lowest",
+      source: "market",
+      expected: "skipped",
+    },
+  ] as const)(
+    "applies decrease review according to selected reference support: $name",
+    ({ prices, minimum, action, source, expected }) => {
+      const ownListing = listing({ price: 18.47, shippingPrice: 1.49 });
+      const row = calculateRepricingRow(
+        { product: product(ownListing), listing: ownListing },
+        prices.map((price, index) =>
+          listing({
+            listingId: index + 2,
+            sellerKey: `seller-${String(index)}`,
+            price,
+            shippingPrice: 1.49,
+          }),
+        ),
+        sellerKey,
+        {
+          ...rules,
+          adjustmentCents: 1,
+          automaticDecreaseGuard: true,
+          ranges: [
+            {
+              priceSource: source,
+              percentage: 100,
+              gapThresholdPercent: 3,
+              gapAction: action,
+              supportMode: "cluster",
+              minimumSellerSupport: minimum,
+              supportWindowPercent: 5,
+            },
+          ],
+        },
+      );
+      expect(row.status).toBe(expected);
+      expect(row.queueable).toBe(expected === "ready");
+      expect(row.automaticDecreaseGuardApplied).toBe(
+        expected === "skipped" ? true : undefined,
+      );
+      if (expected === "ready") expect(row.proposedPrice).toBe(1.73);
+    },
+  );
+
   it("requires review when a decrease exceeds both profile guard thresholds", () => {
     const ownListing = listing({ price: 18.47 });
     const row = calculateRepricingRow(

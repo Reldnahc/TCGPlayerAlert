@@ -603,8 +603,23 @@ export function calculateRepricingRow(
   const decreaseAmount = roundCurrency(own.listing.price - target);
   const decreasePercent =
     own.listing.price <= 0 ? 0 : (decreaseAmount / own.listing.price) * 100;
+  // Support must back the selected reference, not merely another price band.
+  const referenceSellerIndex =
+    referenceListing === undefined
+      ? -1
+      : sellerListings.indexOf(referenceListing);
+  const referenceHasSellerSupport =
+    supportMode === "cluster" &&
+    referenceSellerIndex >= 0 &&
+    sellerSupportAt(
+      sellerListings,
+      referenceSellerIndex,
+      rules.priceBasis,
+      supportWindowPercent,
+    ) >= minimumSellerSupport;
   if (
     rules.automaticDecreaseGuard === true &&
+    !referenceHasSellerSupport &&
     target < own.listing.price &&
     decreasePercent > (rules.automaticDecreaseThresholdPercent ?? 25) &&
     decreaseAmount > (rules.automaticDecreaseThresholdAmount ?? 0.5)

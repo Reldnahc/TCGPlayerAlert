@@ -44,6 +44,11 @@ not confirm that the marketplace has accepted it.
 Completed price-update jobs invalidate the cached snapshot on the next
 **Update preview**, including updates applied by a separate worker process.
 
+Prices backed by the configured number of distinct sellers within the support
+window bypass the automatic-decrease guard. Support must back the selected
+reference; a different supported band does not exempt an unsupported low or a
+market-price reference. Other profile rules still apply.
+
 Smart conservative rows skipped by the automatic-decrease review guard can
 be selected individually to approve their displayed target for one run. They
 remain excluded from initial selection, Select all, and scheduled repricing.
