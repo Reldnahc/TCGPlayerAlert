@@ -97,8 +97,8 @@
 .local-stock-table td:nth-child(3) {
   width: 100px;
 }
-.local-stock-table th:nth-child(5),
-.local-stock-table td:nth-child(5) {
+.local-stock-table th:last-child,
+.local-stock-table td:last-child {
   width: 132px;
 }
 .local-stock-table input[type="number"] {

@@ -362,6 +362,12 @@ describe("provider-neutral inventory", () => {
       .closest("section");
     if (localStock === null) throw new Error("Missing local stock section.");
     expect(await within(localStock).findByText("Lightning Bolt")).toBeTruthy();
+    expect(
+      within(localStock).getByRole("columnheader", {
+        name: "Your listing price",
+      }),
+    ).toBeTruthy();
+    expect(within(localStock).getByText("$1.99")).toBeTruthy();
     expect(screen.getByText("Unlisted Card")).toBeTruthy();
     expect(screen.queryByText("Booster Box")).toBeNull();
     await user.selectOptions(

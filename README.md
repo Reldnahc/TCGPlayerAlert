@@ -15,6 +15,7 @@ ManaPool. Use it only with seller accounts you are authorized to operate.
 - One combined master pull list with tiered exact-variant merging and qualified progress
 - Background synchronization and scanner workflows with per-connection failures
 - Durable local inventory with read-only marketplace listing observations
+- Local stock shows your observed listing price for each matched marketplace connection
 - Capability-driven navigation, health, unavailable states, and partial results
 
 ManaPool packing slips are generated locally from normalized order detail;

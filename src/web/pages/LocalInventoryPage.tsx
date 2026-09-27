@@ -245,6 +245,7 @@ export function LocalInventoryPage() {
                       <th>Variant</th>
                       <th>On hand</th>
                       <th>Observed listings</th>
+                      <th>Your listing price</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -544,6 +545,18 @@ function LocalInventoryRow({
             possible.
           </small>
         ) : null}
+      </td>
+      <td class="numeric">
+        {listings.length === 0
+          ? "—"
+          : listings.map((listing) => (
+              <div
+                key={`${listing.descriptor.connectionId}/${listing.item.inventoryKey}`}
+              >
+                <strong>{money(listing.item.price)}</strong>
+                <small>{listing.descriptor.connectionLabel}</small>
+              </div>
+            ))}
       </td>
       <td>
         <form onSubmit={(event) => void save(event)}>
