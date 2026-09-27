@@ -1,3 +1,8 @@
+import {
+  previewConnectionId,
+  previewMarketplaces,
+  previewOrder,
+} from "./preview-marketplaces.mjs";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -169,6 +174,7 @@ function orderDetail(orderNumber) {
           ]
         : [],
     canMarkShipped: order.canMarkShipped,
+    allowedActions: order.canMarkShipped ? ["AddTracking", "MarkShipped"] : [],
     fetchedAt: now,
   };
 }
@@ -736,9 +742,15 @@ const backgroundShipmentScanner = {
       readyOrderCount: 2,
       readyTagIds: orders
         .filter((order) => order.canMarkShipped)
-        .map((order) => shipmentTagId(order.orderNumber)),
+        .map((order) =>
+          shipmentTagId({
+            connectionId: previewConnectionId,
+            remoteId: order.orderNumber,
+          }),
+        ),
       conflictingTagCount: 0,
       reviewRequiredCount: 0,
+      issues: [],
       snapshotFetchedAt: now,
       backgroundCamera: {
         state: "running",
@@ -757,7 +769,7 @@ const backgroundShipmentScanner = {
   markShipped: (tagId, orderNumber) =>
     Promise.resolve({ state: "already-processed", tagId, orderNumber }),
 };
-const server = await startConfigurationUi({
+const previewOptions = {
   configPath,
   port: Number(process.env.PREVIEW_PORT ?? 47839),
   service,
@@ -1063,27 +1075,47 @@ const server = await startConfigurationUi({
         readyOrderCount: 2,
         readyTagIds: orders
           .filter((order) => order.canMarkShipped)
-          .map((order) => shipmentTagId(order.orderNumber)),
+          .map((order) =>
+            shipmentTagId({
+              connectionId: previewConnectionId,
+              remoteId: order.orderNumber,
+            }),
+          ),
         conflictingTagCount: 0,
         reviewRequiredCount: 0,
+        issues: [],
         snapshotFetchedAt: now,
       }),
     scan: (tagId) => {
       const order = orders.find(
         (candidate) =>
           candidate.canMarkShipped &&
-          shipmentTagId(candidate.orderNumber) === tagId,
+          shipmentTagId({
+            connectionId: previewConnectionId,
+            remoteId: candidate.orderNumber,
+          }) === tagId,
       );
       return Promise.resolve(
         order === undefined
           ? { state: "no-match", tagId }
-          : { state: "matched", tagId, order },
+          : { state: "matched", tagId, order: previewOrder(order) },
       );
     },
     markShipped: (tagId, orderNumber) =>
       Promise.resolve({ state: "already-processed", tagId, orderNumber }),
   },
   executePrintTest: () => Promise.resolve(),
+};
+const server = await startConfigurationUi({
+  ...previewOptions,
+  marketplaces: await previewMarketplaces(previewOptions),
+  marketplaceAccounts: {
+    [previewConnectionId]: {
+      payments: previewOptions.paymentService,
+      feedback: previewOptions.feedbackService,
+      messages: previewOptions.messageService,
+    },
+  },
 });
 
 process.stdout.write(`Synthetic UI preview: ${server.url}\n`);

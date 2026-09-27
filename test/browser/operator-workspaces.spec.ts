@@ -25,7 +25,9 @@ test("loads every operator workspace through the application shell", async ({
 
   await expect(page.locator(".app-shell")).toHaveCSS("display", "grid");
   await expect(page.locator(".sidebar")).toBeVisible();
-  await expect(page.getByText("Authenticated", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "123-4567890-001" }),
+  ).toBeVisible();
 
   for (const workspace of workspaces) {
     const navigationLabel =

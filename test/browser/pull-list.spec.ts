@@ -106,7 +106,7 @@ test("shows a printable master pull list with card metadata", async ({
   await expect(page.locator(".pull-list-summary")).toBeHidden();
   await expect(page.locator(".pull-list-sheet__header")).toBeHidden();
   await expect(page.locator(".pull-list-print-meta")).toHaveText(
-    "2 ready orders · 2 cards · 1 unique SKUs",
+    "2 ready orders · 2 cards · 1 exact variants",
   );
   await expect(page.locator(".pull-list-row--pulled")).toBeHidden();
   await expect(foilRow).toBeVisible();
