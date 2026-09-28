@@ -1,11 +1,18 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { createHash } from "node:crypto";
 import type { LocalInventoryItem } from "../../local-inventory-contracts.js";
 import type { TcgplayerSellerClient } from "tcgplayer-private-api";
-import type { ReplenishmentGateway } from "../../replenishment.js";
+import {
+  ReplenishmentVerificationError,
+  type ReplenishmentGateway,
+} from "../../replenishment.js";
 import type { InventoryAdditionExecutor } from "../../inventory-additions.js";
 import type { MarketplaceConnectionRegistry } from "../../marketplaces/registry.js";
 import type { PriceUpdateQueueStore } from "../../price-update-queue.js";
-import { parseOrderDetail } from "../../marketplaces/contracts.js";
+import {
+  parseOrderDetail,
+  type InventoryItem,
+} from "../../marketplaces/contracts.js";
 import {
   orderRefKey,
   MarketplaceValidationError,
@@ -20,6 +27,8 @@ export function tcgplayerReplenishmentGateway(options: {
   >;
   readonly registry: MarketplaceConnectionRegistry;
   readonly executor: InventoryAdditionExecutor;
+  readonly readListings: () => Promise<readonly InventoryItem[]>;
+  readonly wait?: (milliseconds: number) => Promise<void>;
   readonly prices: Pick<PriceUpdateQueueStore, "fixedPrices">;
   readonly pricingProfiles?: ReplenishmentGateway["pricingProfiles"];
   readonly profilePrice?: (
@@ -147,6 +156,26 @@ export function tcgplayerReplenishmentGateway(options: {
               },
               "add",
             );
+            // Retry only fresh inventory reads; never repeat an accepted mutation.
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (attempt > 0) await (options.wait ?? delay)(2000);
+              try {
+                const listings = await options.readListings();
+                const matches = listings.filter(
+                  (entry) =>
+                    entry.inventoryKey === `sku/${String(skuId)}/channel/0`,
+                );
+                if (
+                  options.sellerKey() === sellerKey &&
+                  matches.length === 1 &&
+                  matches[0]?.quantity === quantity + addQuantity
+                )
+                  return;
+              } catch {
+                // A failed verification read is not evidence that the write failed.
+              }
+            }
+            throw new ReplenishmentVerificationError();
           };
           if (options.withIdleSku === undefined) await submit();
           else await options.withIdleSku(skuId, submit);

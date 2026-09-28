@@ -100,9 +100,22 @@ function setup(
     customData: {},
   };
   let fixed: Readonly<Record<string, number>> = {};
+  const liveListing = {
+    inventoryKey: "sku/456/channel/0",
+    displayName: "Synthetic Promo",
+    quantity: 1,
+    catalogIdentities: [],
+    attributes: {},
+    quantityMutation: "increase-or-clear" as const,
+    priceMutable: true,
+  };
+  const readListings = vi.fn(() => Promise.resolve([liveListing]));
+  const wait = vi.fn(() => Promise.resolve());
   const profilePrice = vi.fn(() => Promise.resolve(1.75));
   const gateway = tcgplayerReplenishmentGateway({
     profilePrice,
+    readListings,
+    wait,
     connectionId: "tcgplayer-main",
     registry,
     sellerKey: () => "synthetic-seller",
@@ -134,6 +147,9 @@ function setup(
   });
   return {
     gateway,
+    readListings,
+    liveListing,
+    wait,
     profilePrice,
     apply,
     getCatalogProduct,
@@ -143,6 +159,36 @@ function setup(
   };
 }
 describe("TCGplayer replenishment adapter", () => {
+  it("waits for delayed visibility using reads only", async () => {
+    const f = setup();
+    f.readListings.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    const prepared = await f.gateway.prepare(item, 2);
+    await prepared.submit(1);
+    expect(f.apply).toHaveBeenCalledTimes(1);
+    expect(f.readListings).toHaveBeenCalledTimes(3);
+    expect(f.wait).toHaveBeenCalledTimes(2);
+  });
+  it.each(["missing", "wrong quantity", "wrong SKU", "read failure"])(
+    "rejects apparent success when live inventory has %s without submitting twice",
+    async (failure) => {
+      const f = setup();
+      if (failure === "missing") f.readListings.mockResolvedValue([]);
+      if (failure === "wrong quantity")
+        f.readListings.mockResolvedValue([{ ...f.liveListing, quantity: 2 }]);
+      if (failure === "wrong SKU")
+        f.readListings.mockResolvedValue([
+          { ...f.liveListing, inventoryKey: "sku/999/channel/0" },
+        ]);
+      if (failure === "read failure")
+        f.readListings.mockRejectedValue(new Error("Read failed"));
+      const prepared = await f.gateway.prepare(item, 2);
+      await expect(prepared.submit(1)).rejects.toThrow(
+        "expected live quantity could not be confirmed",
+      );
+      expect(f.apply).toHaveBeenCalledTimes(1);
+      expect(f.readListings).toHaveBeenCalledTimes(3);
+    },
+  );
   it("recalculates the selected profile for each replacement and never falls back to a stale price", async () => {
     const f = setup();
     const first = await f.gateway.prepare(item, 99, "smart");

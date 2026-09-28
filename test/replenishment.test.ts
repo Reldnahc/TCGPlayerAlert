@@ -6,7 +6,10 @@ import {
   JsonLocalInventoryStore,
   LocalInventoryService,
 } from "../src/local-inventory.js";
-import { ReplenishmentService } from "../src/replenishment.js";
+import {
+  ReplenishmentService,
+  ReplenishmentVerificationError,
+} from "../src/replenishment.js";
 import { parseReplenishmentRule } from "../src/replenishment-contracts.js";
 
 const id = "00000000-0000-4000-8000-000000000001";
@@ -238,6 +241,32 @@ describe("shipped-sale replenishment", () => {
       startPreviewId: review.preview?.id,
     });
     expect(result.rules[0]?.price).toBe(1.25);
+  });
+  it("persists an unverified initial listing as paused review-required and never retries it", async () => {
+    const f = await fixture();
+    f.remote.quantity = 0;
+    const settings = { enabled: true, targetQuantity: 1, price: 2 };
+    const review = await f.service.configure(id, {
+      ...settings,
+      previewOnly: true,
+    });
+    f.submit.mockRejectedValue(new ReplenishmentVerificationError());
+    const result = await f.service.configure(id, {
+      ...settings,
+      startPreviewId: review.preview?.id,
+    });
+    expect(result.rules[0]).toMatchObject({
+      enabled: false,
+      status: "review-required",
+      jobs: [{ status: "review-required" }],
+    });
+    expect(result.rules[0]?.message).toContain(
+      "expected live quantity could not be confirmed",
+    );
+    expect((await f.local.snapshot()).items[0]?.onHand).toBe(3);
+    f.advance();
+    expect(await f.service.runOne()).toBe(false);
+    expect(f.submit).toHaveBeenCalledTimes(1);
   });
   it("keeps legacy manual rules and permits explicitly switching a profile back to manual pricing", async () => {
     const f = await fixture();

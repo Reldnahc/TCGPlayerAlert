@@ -131,6 +131,9 @@ public limit without adding or deducting local stock. Reviews expire after five
 minutes and must be repeated if stock or pricing changes. Existing pending
 shipment tickets block manual top-ups. **Enable for future sales** saves the rule
 without changing the live listing. Reduce excessive live quantity before enabling.
+After submitting, the app checks fresh inventory up to three times before reporting
+success. Missing, mismatched, or unreadable quantities pause auto-relisting for
+review; only verification reads are retried, never the listing submission.
 
 Only new sales recorded after enabling qualify. After the marketplace confirms
 all tracked orders shipped or delivered, the inventory worker replaces sold

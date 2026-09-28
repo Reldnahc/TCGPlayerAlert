@@ -106,7 +106,7 @@ describe("auto-relisting controls", () => {
             status: "watching",
             pricingProfileId: "smart",
             message:
-              "Initial listing submitted. Replacements wait for confirmed shipment.",
+              "Initial listing confirmed in live inventory. Replacements wait for confirmed shipment.",
           },
         ],
       });
@@ -137,8 +137,76 @@ describe("auto-relisting controls", () => {
       }),
     );
     await screen.findAllByText(
-      "Initial listing submitted. Replacements wait for confirmed shipment.",
+      "Initial listing confirmed in live inventory. Replacements wait for confirmed shipment.",
     );
+  });
+  it("shows progress and an unverified result next to the listing controls", async () => {
+    vi.spyOn(uiApi, "replenishment").mockResolvedValue({
+      connectionId: "tcgplayer-main",
+      workerRunning: true,
+      rules: [],
+    });
+    let finish: (() => void) | undefined;
+    vi.spyOn(uiApi, "configureReplenishment")
+      .mockResolvedValueOnce({
+        connectionId: "tcgplayer-main",
+        workerRunning: true,
+        rules: [],
+        preview: {
+          id: "review",
+          quantity: 0,
+          targetQuantity: 1,
+          addQuantity: 1,
+          price: 2,
+        },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () =>
+              resolve({
+                connectionId: "tcgplayer-main",
+                workerRunning: true,
+                rules: [
+                  {
+                    ...rule,
+                    message:
+                      "Expected live quantity could not be confirmed. Check TCGplayer.",
+                  },
+                ],
+              });
+          }),
+      );
+    const user = userEvent.setup();
+    render(<ReplenishmentPanel item={item} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Review initial listing" }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "List now and enable auto-relist",
+      }),
+    );
+    await screen.findByText(
+      "Submitting and checking live inventory. Please wait; do not submit again.",
+    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "List now and enable auto-relist",
+      }).disabled,
+    ).toBe(true);
+    finish?.();
+    const messages = await screen.findAllByText(
+      "Expected live quantity could not be confirmed. Check TCGplayer.",
+    );
+    expect(messages.some((message) => message.closest("form") !== null)).toBe(
+      true,
+    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Review initial listing",
+      }).disabled,
+    ).toBe(true);
   });
   it("requires reconciliation acknowledgement for uncertain attempts", async () => {
     vi.spyOn(uiApi, "replenishment").mockResolvedValue({

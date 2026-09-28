@@ -843,6 +843,12 @@ export function createReplenishmentService(
         api.client,
       ),
       prices,
+      readListings: async () =>
+        (
+          await marketplaces.inventory.listConnection(
+            primaryTcgplayerConnection(config.providers).connectionId,
+          )
+        ).items,
       withIdleSku: (skuId, work) => queue.withIdleSku(skuId, work),
       pricingProfiles: async () =>
         (await configuration()).repricingProfiles.map(({ id, name }) => ({

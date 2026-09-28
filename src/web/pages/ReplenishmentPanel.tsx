@@ -29,6 +29,7 @@ export function ReplenishmentPanel({
   const [reconciled, setReconciled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const rule = data?.rules.find(
     (r) => r.localInventoryId === item?.localInventoryId,
   );
@@ -72,6 +73,7 @@ export function ReplenishmentPanel({
     if (item === undefined || busy) return;
     setBusy(true);
     setMessage("");
+    setSubmitting(action === "start");
     try {
       const result = await uiApi.configureReplenishment(item.localInventoryId, {
         enabled,
@@ -106,6 +108,7 @@ export function ReplenishmentPanel({
       );
     } finally {
       setBusy(false);
+      setSubmitting(false);
     }
   }
   return (
@@ -115,7 +118,9 @@ export function ReplenishmentPanel({
           ? "Auto-relist jobs"
           : `Auto-relist: ${item.displayName}`}
       </h2>
-      {message === "" ? null : <Notice tone="info">{message}</Notice>}
+      {(item !== undefined && data !== null) || message === "" ? null : (
+        <Notice tone="info">{message}</Notice>
+      )}
       {data === null ? (
         busy ? (
           <Spinner label="Loading auto-relisting" />
@@ -274,6 +279,16 @@ export function ReplenishmentPanel({
                   attempt. Discard old sale tickets and watch future sales.
                 </label>
               ) : null}
+              {submitting ? (
+                <Spinner label="Submitting and checking live inventory. Please wait; do not submit again." />
+              ) : null}
+              {message === "" ? null : (
+                <Notice
+                  tone={rule?.status === "review-required" ? "warning" : "info"}
+                >
+                  {message}
+                </Notice>
+              )}
               <Button
                 type="button"
                 disabled={

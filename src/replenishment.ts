@@ -17,6 +17,15 @@ import {
   type ReplenishmentSnapshot,
 } from "./replenishment-contracts.js";
 
+export class ReplenishmentVerificationError extends Error {
+  constructor() {
+    super(
+      "The request was sent, but the expected live quantity could not be confirmed. Auto-relisting is paused. Check the marketplace before trying again; no automatic resubmission will occur.",
+    );
+    this.name = "ReplenishmentVerificationError";
+  }
+}
+
 export interface ReplenishmentGateway {
   readonly connectionId: string;
   accountScope(): string;
@@ -259,15 +268,19 @@ export class ReplenishmentService {
       };
       await persist();
       let status: "submitted" | "review-required" = "submitted";
+      let verificationMessage: string | undefined;
       try {
         await prepared.submit(addQuantity);
-      } catch {
+      } catch (error) {
         status = "review-required";
+        if (error instanceof ReplenishmentVerificationError)
+          verificationMessage = error.message;
       }
       const message =
         status === "submitted"
-          ? "Initial listing submitted. Replacements wait for confirmed shipment."
-          : "Submission outcome requires review. Check the live listing before re-enabling.";
+          ? "Initial listing confirmed in live inventory. Replacements wait for confirmed shipment."
+          : (verificationMessage ??
+            "Submission outcome requires review. Check the live listing before re-enabling.");
       rule = {
         ...rule,
         enabled: status === "submitted",
@@ -453,15 +466,19 @@ export class ReplenishmentService {
       await persist(running);
       if (addQuantity === 0) return true;
       let status: "submitted" | "review-required" = "submitted";
+      let verificationMessage: string | undefined;
       try {
         await prepared.submit(addQuantity);
-      } catch {
+      } catch (error) {
         status = "review-required";
+        if (error instanceof ReplenishmentVerificationError)
+          verificationMessage = error.message;
       }
       const message =
         status === "submitted"
-          ? "Replacement submitted after confirmed shipment."
-          : "Submission outcome requires review. Check the live listing before re-enabling.";
+          ? "Replacement confirmed in live inventory after shipment."
+          : (verificationMessage ??
+            "Submission outcome requires review. Check the live listing before re-enabling.");
       await persist({
         ...running,
         enabled: status === "submitted",
