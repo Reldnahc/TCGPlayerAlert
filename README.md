@@ -122,16 +122,25 @@ Existing `#add-cards` bookmarks continue to open this page.
 ## Limited-quantity auto-relisting
 
 In **Inventory > Local stock > Auto-relist**, enable selected exact TCGplayer
-items, choose a public quantity limit (default 1), and set a relisting price.
+items, choose a public quantity limit (default 1), and select a pricing profile
+or a manual relisting price.
 Local **on hand** must include all reserve stock plus the units already listed.
-Enabling does not change the live listing immediately; reduce an excessive live
-quantity before enabling.
+For local-only stock, choose **Review initial listing**, check the quantity and
+price, then **List now and enable auto-relist**. This publishes only up to your
+public limit without adding or deducting local stock. Reviews expire after five
+minutes and must be repeated if stock or pricing changes. Existing pending
+shipment tickets block manual top-ups. **Enable for future sales** saves the rule
+without changing the live listing. Reduce excessive live quantity before enabling.
 
 Only new sales recorded after enabling qualify. After the marketplace confirms
 all tracked orders shipped or delivered, the inventory worker replaces sold
 units up to the public limit and available local stock. Listings on other
 connected marketplaces reserve stock; unreadable inventory stops verification.
-A fixed-price override takes precedence over the relisting price. This feature
+Profile prices are recalculated from fresh comparisons for every replacement,
+using the current saved profile and the default listing settings' shipping
+estimate. Missing profiles or unavailable pricing stop submission. Existing
+rules retain their manual prices. A saved fixed-price override takes precedence.
+This feature
 limits visible quantity, not purchases per buyer.
 
 Run the service with the inventory queue enabled. **Jobs > Auto-relist** shows

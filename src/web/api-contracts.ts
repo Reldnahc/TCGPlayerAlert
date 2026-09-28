@@ -1310,6 +1310,16 @@ export const pricingPreviewDecoder: Decoder<PricingPreview> = object({
 });
 
 export const replenishmentDecoder: Decoder<ReplenishmentSnapshot> = object({
+  pricingProfiles: optional(array(object({ id: text, name: text }))),
+  preview: optional(
+    object({
+      id: text,
+      quantity: nonNegativeInteger,
+      targetQuantity: nonNegativeInteger,
+      addQuantity: nonNegativeInteger,
+      price: number,
+    }),
+  ),
   connectionId: optional(text),
   workerRunning: boolean,
   rules: array(coreDecoder(parseReplenishmentRule, "a replenishment rule")),

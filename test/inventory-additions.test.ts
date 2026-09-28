@@ -295,6 +295,20 @@ describe("inventory additions", () => {
       });
     },
   );
+  it("blocks auto-relist submission while a conflicting inventory job is pending or applying", async () => {
+    const { queue } = await queueFixture();
+    const work = vi.fn(() => Promise.resolve("submitted"));
+    await queue.enqueue(addition);
+    await expect(queue.withIdleSku(456, work)).rejects.toThrow(
+      "existing inventory jobs",
+    );
+    await queue.claimNext();
+    await expect(queue.withIdleSku(456, work)).rejects.toThrow(
+      "existing inventory jobs",
+    );
+    expect(work).not.toHaveBeenCalled();
+    await expect(queue.withIdleSku(999, work)).resolves.toBe("submitted");
+  });
   it("cancels only pending jobs for the card being cleared and blocks a running job", async () => {
     const { queue } = await queueFixture();
     await queue.enqueue(addition);

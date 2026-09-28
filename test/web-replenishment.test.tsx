@@ -59,6 +59,7 @@ describe("auto-relisting controls", () => {
       targetQuantity: 1,
       price: 2,
       reconciled: false,
+      pricingProfileId: null,
     });
     await screen.findByText(
       "Auto-relisting enabled for future sales. No listing was changed now.",
@@ -71,7 +72,73 @@ describe("auto-relisting controls", () => {
       targetQuantity: 1,
       price: 2,
       reconciled: false,
+      pricingProfileId: null,
     });
+  });
+  it("reviews a profile-based initial listing before publishing local-only stock", async () => {
+    vi.spyOn(uiApi, "replenishment").mockResolvedValue({
+      connectionId: "tcgplayer-main",
+      workerRunning: true,
+      rules: [],
+      pricingProfiles: [{ id: "smart", name: "Smart conservative" }],
+    });
+    const configure = vi
+      .spyOn(uiApi, "configureReplenishment")
+      .mockResolvedValueOnce({
+        connectionId: "tcgplayer-main",
+        workerRunning: true,
+        rules: [],
+        preview: {
+          id: "review-id",
+          quantity: 0,
+          targetQuantity: 1,
+          addQuantity: 1,
+          price: 1.75,
+        },
+      })
+      .mockResolvedValue({
+        connectionId: "tcgplayer-main",
+        workerRunning: true,
+        rules: [
+          {
+            ...rule,
+            enabled: true,
+            status: "watching",
+            pricingProfileId: "smart",
+            message:
+              "Initial listing submitted. Replacements wait for confirmed shipment.",
+          },
+        ],
+      });
+    const user = userEvent.setup();
+    render(<ReplenishmentPanel item={item} />);
+    await screen.findByLabelText("Relisting pricing");
+    expect(
+      screen.getByLabelText<HTMLSelectElement>("Relisting pricing").value,
+    ).toBe("smart");
+    expect(screen.queryByLabelText("Relisting price ($)")).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Review initial listing" }),
+    );
+    expect(configure).toHaveBeenLastCalledWith(
+      item.localInventoryId,
+      expect.objectContaining({ pricingProfileId: "smart", previewOnly: true }),
+    );
+    await screen.findByText(/Public stock: 0 → 1/);
+    expect(configure).toHaveBeenCalledTimes(1);
+    await user.click(
+      screen.getByRole("button", { name: "List now and enable auto-relist" }),
+    );
+    expect(configure).toHaveBeenLastCalledWith(
+      item.localInventoryId,
+      expect.objectContaining({
+        startPreviewId: "review-id",
+        pricingProfileId: "smart",
+      }),
+    );
+    await screen.findAllByText(
+      "Initial listing submitted. Replacements wait for confirmed shipment.",
+    );
   });
   it("requires reconciliation acknowledgement for uncertain attempts", async () => {
     vi.spyOn(uiApi, "replenishment").mockResolvedValue({

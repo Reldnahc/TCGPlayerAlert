@@ -614,6 +614,28 @@ export class InventoryAdditionQueueStore {
     );
   }
 
+  withIdleSku<T>(skuId: number, work: () => Promise<T>): Promise<T> {
+    return this.exclusive(() =>
+      this.lease.runExclusive(async () => {
+        const state = await this.loadState();
+        if (
+          state.jobs.some(
+            (job) =>
+              (job.operation === "add"
+                ? job.addition.productConditionId
+                : job.removal.productConditionId) === skuId &&
+              ["pending", "applying"].includes(job.status),
+          )
+        )
+          throw new ApplicationError(
+            "REVIEW_REQUIRED",
+            "Resolve existing inventory jobs for this item before auto-relisting.",
+          );
+        return work();
+      }),
+    );
+  }
+
   withCanceledSkuJobs<T>(
     skuIds: ReadonlySet<number>,
     work: () => Promise<T>,

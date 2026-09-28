@@ -31,6 +31,7 @@ export interface ReplenishmentRule {
   readonly connectionId: string;
   readonly targetQuantity: number;
   readonly price: number;
+  readonly pricingProfileId?: string;
   readonly enabled: boolean;
   readonly status: ReplenishmentStatus;
   readonly tickets: readonly ReplenishmentTicket[];
@@ -38,7 +39,19 @@ export interface ReplenishmentRule {
   readonly checkedAt?: string;
   readonly message: string;
 }
+export interface ReplenishmentSetupPreview {
+  readonly id: string;
+  readonly quantity: number;
+  readonly targetQuantity: number;
+  readonly addQuantity: number;
+  readonly price: number;
+}
 export interface ReplenishmentSnapshot {
+  readonly pricingProfiles?: readonly {
+    readonly id: string;
+    readonly name: string;
+  }[];
+  readonly preview?: ReplenishmentSetupPreview;
   readonly connectionId?: string;
   readonly workerRunning: boolean;
   readonly rules: readonly ReplenishmentRule[];
@@ -122,6 +135,9 @@ export function parseReplenishmentRule(value: unknown): ReplenishmentRule {
     connectionId,
     targetQuantity: replenishmentQuantity(v.targetQuantity),
     price: replenishmentPrice(v.price),
+    ...(v.pricingProfileId === undefined
+      ? {}
+      : { pricingProfileId: replenishmentProfileId(v.pricingProfileId) }),
     enabled: v.enabled,
     status: v.status as ReplenishmentStatus,
     message: message(v.message),
@@ -154,4 +170,10 @@ export function parseReplenishmentRule(value: unknown): ReplenishmentRule {
       };
     }),
   };
+}
+
+export function replenishmentProfileId(value: unknown): string {
+  if (typeof value !== "string" || !/^[a-z][a-z0-9-]{0,63}$/u.test(value))
+    return invalid();
+  return value;
 }

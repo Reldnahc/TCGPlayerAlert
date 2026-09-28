@@ -172,6 +172,8 @@ try {
       marketplaces,
       sellerApi,
       priceQueue,
+      inventoryQueue,
+      () => loadConfig(configPath),
     );
     const messageService = createMessageManagementService(
       config,
@@ -271,6 +273,8 @@ try {
       marketplaces,
       sellerApi,
       priceQueue,
+      inventoryQueue,
+      () => loadConfig(configPath),
     );
     const messageService = createMessageManagementService(
       initialConfig,

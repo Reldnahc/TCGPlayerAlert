@@ -328,6 +328,9 @@ export const uiApi = {
       targetQuantity: number;
       price: number;
       reconciled?: boolean;
+      pricingProfileId?: string | null;
+      previewOnly?: boolean;
+      startPreviewId?: string;
     },
   ) =>
     requestJson(

@@ -25,7 +25,7 @@ import type {
   ConfigurationRouteContext,
   ConfigurationRouteHandler,
 } from "./context.js";
-import { objectValue, readJsonBody, sendJson } from "./http.js";
+import { HttpRouteError, objectValue, readJsonBody, sendJson } from "./http.js";
 
 export const handleLocalInventoryRoute: ConfigurationRouteHandler = async (
   context,
@@ -49,13 +49,19 @@ export const handleLocalInventoryRoute: ConfigurationRouteHandler = async (
       : null;
   if (replenishMatch !== null) {
     if (context.replenishment === undefined) return unavailable(context);
-    sendJson(context.response, 200, {
-      ...(await context.replenishment.configure(
-        replenishMatch[1] ?? "",
-        await readJsonBody(context.request),
-      )),
-      workerRunning: context.inventoryWorkerRunning,
-    });
+    try {
+      sendJson(context.response, 200, {
+        ...(await context.replenishment.configure(
+          replenishMatch[1] ?? "",
+          await readJsonBody(context.request),
+        )),
+        workerRunning: context.inventoryWorkerRunning,
+      });
+    } catch (error) {
+      if (error instanceof MarketplaceValidationError)
+        throw new HttpRouteError(400, error.message);
+      throw error;
+    }
     return true;
   }
   if (

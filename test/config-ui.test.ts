@@ -2,6 +2,7 @@ import {
   JsonLocalInventoryStore,
   LocalInventoryService,
 } from "../src/local-inventory.js";
+import { replenishmentDecoder } from "../src/web/api-contracts.js";
 import { ReplenishmentService } from "../src/replenishment.js";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -784,6 +785,41 @@ describe("configuration UI", () => {
       workerRunning: false,
       rules: [{ localInventoryId: item.localInventoryId }],
     });
+    const settings = {
+      enabled: true,
+      targetQuantity: 2,
+      price: 2,
+      pricingProfileId: "smart",
+    };
+    const request = (body: unknown) =>
+      fetch(`${server?.url ?? ""}/api/replenishment/${item.localInventoryId}`, {
+        method: "PUT",
+        headers: {
+          Origin: server?.url ?? "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    const reviewResponse = await request({ ...settings, previewOnly: true });
+    expect(reviewResponse.status).toBe(200);
+    const review = replenishmentDecoder.decode(await reviewResponse.json());
+    expect(review.preview).toMatchObject({ addQuantity: 1, price: 2 });
+    expect(submit).not.toHaveBeenCalled();
+    const confirmation = await request({
+      ...settings,
+      startPreviewId: review.preview?.id,
+    });
+    expect(confirmation.status).toBe(200);
+    const result = replenishmentDecoder.decode(await confirmation.json());
+    expect(result.rules[0]).toMatchObject({
+      pricingProfileId: "smart",
+      enabled: true,
+    });
+    expect(submit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(
+      (await request({ ...settings, startPreviewId: review.preview?.id }))
+        .status,
+    ).toBe(400);
   });
 
   it("saves and clears fixed prices only from a server-owned preview candidate", async () => {

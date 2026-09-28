@@ -820,7 +820,15 @@ export function createReplenishmentService(
   marketplaces: MarketplaceOrderRuntime,
   api: SellerApiRuntime,
   prices: PriceUpdateQueueStore,
+  queue: InventoryAdditionQueueStore,
+  configuration: () => Promise<AppConfig> = () => Promise.resolve(config),
 ): ReplenishmentService {
+  const pricing = createInventoryAdditionService(
+    config,
+    process.env,
+    api.credentials,
+    api,
+  );
   return new ReplenishmentService(
     local,
     tcgplayerReplenishmentGateway({
@@ -835,6 +843,39 @@ export function createReplenishmentService(
         api.client,
       ),
       prices,
+      withIdleSku: (skuId, work) => queue.withIdleSku(skuId, work),
+      pricingProfiles: async () =>
+        (await configuration()).repricingProfiles.map(({ id, name }) => ({
+          id,
+          name,
+        })),
+      profilePrice: async (productId, productConditionId, profileId) => {
+        const current = await configuration();
+        const profile = current.repricingProfiles.find(
+          (entry) => entry.id === profileId,
+        );
+        if (profile === undefined)
+          throw new ConfigurationError([
+            "The auto-relist pricing profile no longer exists. Choose another profile.",
+          ]);
+        const shipping = current.merchandiseProfiles.find(
+          (entry) => entry.id === current.defaultMerchandiseProfileId,
+        )?.estimatedShippingPrice;
+        const preview = await pricing.preview(
+          {
+            productId,
+            productConditionId,
+            addQuantity: 1,
+            rules: { ...profile, estimatedShippingPrice: shipping },
+          },
+          { forceRefresh: true },
+        );
+        if (!preview.queueable || preview.proposedPrice === undefined)
+          throw new ConfigurationError([
+            `Auto-relist pricing is unavailable: ${preview.reason}`,
+          ]);
+        return preview.proposedPrice;
+      },
       reservedElsewhere: async (item) => {
         let quantity = 0;
         for (const connection of marketplaces.registry.list()) {

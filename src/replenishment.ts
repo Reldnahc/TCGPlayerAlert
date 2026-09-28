@@ -11,6 +11,7 @@ import {
 import {
   parseReplenishmentRule,
   replenishmentPrice,
+  replenishmentProfileId,
   replenishmentQuantity,
   type ReplenishmentRule,
   type ReplenishmentSnapshot,
@@ -19,18 +20,27 @@ import {
 export interface ReplenishmentGateway {
   readonly connectionId: string;
   accountScope(): string;
+  pricingProfiles?(): Promise<
+    readonly { readonly id: string; readonly name: string }[]
+  >;
   isShipped(ref: ProviderOrderRef): Promise<boolean>;
   prepare(
     item: LocalInventoryItem,
     price: number,
+    pricingProfileId?: string,
   ): Promise<{
     readonly quantity: number;
+    readonly price?: number;
     readonly reservedQuantity?: number;
     submit(addQuantity: number): Promise<void>;
   }>;
 }
 
 export class ReplenishmentService {
+  private readonly previews = new Map<
+    string,
+    { fingerprint: string; expires: number }
+  >();
   constructor(
     private readonly local: LocalInventoryService,
     private readonly gateway: ReplenishmentGateway,
@@ -38,16 +48,18 @@ export class ReplenishmentService {
   ) {}
 
   snapshot(workerRunning = false): Promise<ReplenishmentSnapshot> {
-    return this.local.withReplenishmentState((state) =>
-      Promise.resolve({
-        connectionId: this.gateway.connectionId,
-        workerRunning,
-        rules: state.replenishments ?? [],
-      }),
-    );
+    return this.local.withReplenishmentState(async (state) => ({
+      pricingProfiles: (await this.gateway.pricingProfiles?.()) ?? [],
+      connectionId: this.gateway.connectionId,
+      workerRunning,
+      rules: state.replenishments ?? [],
+    }));
   }
 
-  configure(localId: string, value: unknown): Promise<ReplenishmentSnapshot> {
+  async configure(
+    localId: string,
+    value: unknown,
+  ): Promise<ReplenishmentSnapshot> {
     const id = parseLocalInventoryId(localId);
     if (typeof value !== "object" || value === null || Array.isArray(value))
       throw new MarketplaceValidationError("Invalid auto-relist settings.");
@@ -56,7 +68,36 @@ export class ReplenishmentService {
       throw new MarketplaceValidationError(
         "Choose whether auto-relisting is enabled.",
       );
+    if (
+      (input.previewOnly !== undefined &&
+        typeof input.previewOnly !== "boolean") ||
+      (input.reconciled !== undefined &&
+        typeof input.reconciled !== "boolean") ||
+      (input.previewOnly === true && input.startPreviewId !== undefined)
+    )
+      throw new MarketplaceValidationError(
+        "Invalid auto-relist review settings.",
+      );
     const enabled = input.enabled;
+    const previewOnly = input.previewOnly === true;
+    const starting = input.startPreviewId !== undefined;
+    const stored =
+      typeof input.startPreviewId === "string"
+        ? this.previews.get(input.startPreviewId)
+        : undefined;
+    if (typeof input.startPreviewId === "string")
+      this.previews.delete(input.startPreviewId);
+    if ((starting || previewOnly) && !enabled)
+      throw new MarketplaceValidationError(
+        "Enable auto-relisting to list now.",
+      );
+    if (
+      starting &&
+      (stored === undefined || stored.expires <= this.now().getTime())
+    )
+      throw new MarketplaceValidationError(
+        "This listing review expired or was already used. Review again.",
+      );
     return this.local.withReplenishmentState(async (state, save) => {
       const item = state.items.find(
         (candidate) => candidate.localInventoryId === id,
@@ -69,7 +110,25 @@ export class ReplenishmentService {
       const targetQuantity = replenishmentQuantity(
         input.targetQuantity ?? existing?.targetQuantity ?? 1,
       );
-      const price = replenishmentPrice(input.price ?? existing?.price);
+      const pricingProfileId =
+        input.pricingProfileId === null
+          ? undefined
+          : input.pricingProfileId === undefined
+            ? existing?.pricingProfileId
+            : replenishmentProfileId(input.pricingProfileId);
+      const configuredPrice = replenishmentPrice(
+        input.price ??
+          existing?.price ??
+          (pricingProfileId === undefined ? undefined : 1),
+      );
+      let price = configuredPrice;
+      let prepared:
+        Awaited<ReturnType<ReplenishmentGateway["prepare"]>> | undefined;
+      let addQuantity = 0;
+      if ((starting || previewOnly) && (existing?.tickets.length ?? 0) > 0)
+        throw new MarketplaceValidationError(
+          "Wait for tracked orders to ship before listing more stock.",
+        );
       if (enabled) {
         if (
           (existing?.status === "review-required" ||
@@ -83,7 +142,13 @@ export class ReplenishmentService {
           throw new MarketplaceValidationError(
             "Record local stock before enabling auto-relisting.",
           );
-        const current = await this.gateway.prepare(item, price);
+        const current = await this.gateway.prepare(
+          item,
+          price,
+          pricingProfileId,
+        );
+        prepared = current;
+        price = replenishmentPrice(current.price ?? price);
         if (
           current.quantity >
           Math.min(
@@ -95,15 +160,63 @@ export class ReplenishmentService {
             "The live quantity exceeds this limit. Reduce or delist it before enabling auto-relisting.",
           );
       }
-      const rule = parseReplenishmentRule({
+      if (prepared !== undefined) {
+        const target = Math.min(
+          targetQuantity,
+          Math.max(0, item.onHand - (prepared.reservedQuantity ?? 0)),
+        );
+        addQuantity = Math.max(0, target - prepared.quantity);
+        const fingerprint = JSON.stringify({
+          item,
+          existing,
+          account: this.gateway.accountScope(),
+          targetQuantity,
+          price,
+          configuredPrice:
+            pricingProfileId === undefined ? configuredPrice : undefined,
+          pricingProfileId,
+          quantity: prepared.quantity,
+          reserved: prepared.reservedQuantity ?? 0,
+        });
+        if (previewOnly) {
+          for (const [key, entry] of this.previews)
+            if (entry.expires <= this.now().getTime())
+              this.previews.delete(key);
+          if (this.previews.size >= 100) this.previews.clear();
+          const previewId = randomUUID();
+          this.previews.set(previewId, {
+            fingerprint,
+            expires: this.now().getTime() + 300000,
+          });
+          return {
+            connectionId: this.gateway.connectionId,
+            workerRunning: false,
+            rules: state.replenishments ?? [],
+            preview: {
+              id: previewId,
+              quantity: prepared.quantity,
+              targetQuantity: target,
+              addQuantity,
+              price,
+            },
+          };
+        }
+        if (starting && stored?.fingerprint !== fingerprint)
+          throw new MarketplaceValidationError(
+            "Stock, pricing, or auto-relist settings changed. Review again.",
+          );
+      }
+      let rule = parseReplenishmentRule({
         displayName: item.displayName,
         localInventoryId: id,
         connectionId: this.gateway.connectionId,
         accountScope: this.gateway.accountScope(),
         targetQuantity,
-        price,
+        price: pricingProfileId === undefined ? configuredPrice : price,
+        ...(pricingProfileId === undefined ? {} : { pricingProfileId }),
         enabled,
-        tickets: [],
+        tickets:
+          enabled && input.reconciled !== true ? (existing?.tickets ?? []) : [],
         jobs: existing?.jobs ?? [],
         status: enabled
           ? "watching"
@@ -115,18 +228,54 @@ export class ReplenishmentService {
           ? "Watching future sales; replenish after confirmed shipment."
           : "Auto-relisting paused. Outstanding sale tickets cleared.",
       });
-      const rules = [
-        ...(state.replenishments ?? []).filter(
-          (r) => r.localInventoryId !== id,
-        ),
-        rule,
-      ];
-      await save({ ...state, replenishments: rules });
-      return {
-        connectionId: this.gateway.connectionId,
-        workerRunning: false,
-        rules,
+      const persist = async () => {
+        const rules = [
+          ...(state.replenishments ?? []).filter(
+            (r) => r.localInventoryId !== id,
+          ),
+          rule,
+        ];
+        await save({ ...state, replenishments: rules });
+        return {
+          connectionId: this.gateway.connectionId,
+          workerRunning: false,
+          rules,
+        };
       };
+      if (!starting || prepared === undefined || addQuantity === 0)
+        return persist();
+      const job = {
+        id: randomUUID(),
+        at: this.now().toISOString(),
+        quantity: addQuantity,
+        status: "running" as const,
+        message: "Submitting initial public stock.",
+      };
+      rule = {
+        ...rule,
+        status: "running",
+        jobs: [...rule.jobs.slice(-99), job],
+        message: job.message,
+      };
+      await persist();
+      let status: "submitted" | "review-required" = "submitted";
+      try {
+        await prepared.submit(addQuantity);
+      } catch {
+        status = "review-required";
+      }
+      const message =
+        status === "submitted"
+          ? "Initial listing submitted. Replacements wait for confirmed shipment."
+          : "Submission outcome requires review. Check the live listing before re-enabling.";
+      rule = {
+        ...rule,
+        enabled: status === "submitted",
+        status: status === "submitted" ? "watching" : "review-required",
+        message,
+        jobs: [...rule.jobs.slice(0, -1), { ...job, status, message }],
+      };
+      return persist();
     });
   }
 
@@ -259,12 +408,16 @@ export class ReplenishmentService {
             return true;
           }
         }
-        prepared = await this.gateway.prepare(item, rule.price);
+        prepared = await this.gateway.prepare(
+          item,
+          rule.price,
+          rule.pricingProfileId,
+        );
       } catch {
         await persist({
           ...checked,
           message:
-            "Could not verify shipment or inventory. Will check again; nothing submitted.",
+            "Could not verify shipment, inventory, or pricing. Check the connection and saved pricing profile. Will check again; nothing submitted.",
         });
         return true;
       }

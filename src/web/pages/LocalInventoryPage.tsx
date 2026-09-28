@@ -689,7 +689,10 @@ function LocalInventoryRow({
                           ],
                     ),
                   )}
-                  onClose={() => setAutoOpen(false)}
+                  onClose={() => {
+                    setAutoOpen(false);
+                    void onSaved();
+                  }}
                 />
               </div>
             </div>

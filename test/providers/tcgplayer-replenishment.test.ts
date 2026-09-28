@@ -100,7 +100,9 @@ function setup(
     customData: {},
   };
   let fixed: Readonly<Record<string, number>> = {};
+  const profilePrice = vi.fn(() => Promise.resolve(1.75));
   const gateway = tcgplayerReplenishmentGateway({
+    profilePrice,
     connectionId: "tcgplayer-main",
     registry,
     sellerKey: () => "synthetic-seller",
@@ -132,6 +134,7 @@ function setup(
   });
   return {
     gateway,
+    profilePrice,
     apply,
     getCatalogProduct,
     setFixed: () => {
@@ -140,6 +143,33 @@ function setup(
   };
 }
 describe("TCGplayer replenishment adapter", () => {
+  it("recalculates the selected profile for each replacement and never falls back to a stale price", async () => {
+    const f = setup();
+    const first = await f.gateway.prepare(item, 99, "smart");
+    expect(first.price).toBe(1.75);
+    await first.submit(1);
+    expect(f.profilePrice).toHaveBeenCalledWith(123, 456, "smart");
+    f.profilePrice.mockResolvedValue(2.25);
+    const next = await f.gateway.prepare(item, 99, "smart");
+    await next.submit(1);
+    expect(f.apply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ price: 2.25 }),
+      "add",
+    );
+    f.profilePrice.mockRejectedValue(new Error("Missing profile"));
+    await expect(f.gateway.prepare(item, 99, "missing")).rejects.toThrow(
+      "Missing profile",
+    );
+    expect(f.apply).toHaveBeenCalledTimes(2);
+    f.setFixed();
+    const fixed = await f.gateway.prepare(item, 99, "missing");
+    expect(fixed.price).toBe(2.5);
+    await fixed.submit(1);
+    expect(f.apply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ price: 2.5 }),
+      "add",
+    );
+  });
   it("recreates a missing exact sealed SKU through the live-validating executor and honors a newly saved fixed price", async () => {
     const f = setup();
     const prepared = await f.gateway.prepare(item, 1.5);

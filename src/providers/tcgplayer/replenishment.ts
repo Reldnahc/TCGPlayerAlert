@@ -21,6 +21,16 @@ export function tcgplayerReplenishmentGateway(options: {
   readonly registry: MarketplaceConnectionRegistry;
   readonly executor: InventoryAdditionExecutor;
   readonly prices: Pick<PriceUpdateQueueStore, "fixedPrices">;
+  readonly pricingProfiles?: ReplenishmentGateway["pricingProfiles"];
+  readonly profilePrice?: (
+    productId: number,
+    skuId: number,
+    profileId: string,
+  ) => Promise<number>;
+  readonly withIdleSku?: <T>(
+    skuId: number,
+    work: () => Promise<T>,
+  ) => Promise<T>;
   readonly reservedElsewhere?: (item: LocalInventoryItem) => Promise<number>;
 }): ReplenishmentGateway {
   return {
@@ -29,6 +39,9 @@ export function tcgplayerReplenishmentGateway(options: {
       createHash("sha256")
         .update(options.sellerKey().trim().toLowerCase())
         .digest("hex"),
+    ...(options.pricingProfiles === undefined
+      ? {}
+      : { pricingProfiles: options.pricingProfiles }),
     async isShipped(ref) {
       if (ref.connectionId !== options.connectionId) return false;
       const detail = parseOrderDetail(
@@ -41,7 +54,7 @@ export function tcgplayerReplenishmentGateway(options: {
         (detail.lifecycle === "shipped" || detail.lifecycle === "delivered")
       );
     },
-    async prepare(item, price) {
+    async prepare(item, price, pricingProfileId) {
       const skuIds = item.catalogIdentities.filter(
         (i) =>
           i.namespace === "tcgplayer.sku" && i.precision === "exact-variant",
@@ -96,31 +109,47 @@ export function tcgplayerReplenishmentGateway(options: {
         throw new MarketplaceValidationError(
           "Custom or secondary inventory cannot auto-relist.",
         );
+      const fixedPrice = (await options.prices.fixedPrices())[
+        `${String(skuId)}:0`
+      ];
+      if (pricingProfileId !== undefined && fixedPrice === undefined) {
+        if (options.profilePrice === undefined)
+          throw new MarketplaceValidationError(
+            "Profile pricing is unavailable.",
+          );
+        price = await options.profilePrice(productId, skuId, pricingProfileId);
+      }
+      const proposedPrice = fixedPrice ?? price;
       const quantity = listing?.quantity ?? 0;
       const reservedQuantity = (await options.reservedElsewhere?.(item)) ?? 0;
       return {
         quantity,
+        price: proposedPrice,
         reservedQuantity,
         async submit(addQuantity) {
-          const fixed = (await options.prices.fixedPrices())[
-            `${String(skuId)}:0`
-          ];
-          await options.executor.apply(
-            {
-              productId,
-              productName: product.productName,
-              productConditionId: skuId,
-              conditionId: sku.conditionId,
-              channelId: 0,
-              categoryName: product.productLineName,
-              currentQuantity: quantity,
-              addQuantity,
-              price: fixed ?? price,
-              storePriceCustomId: null,
-              reserveQuantity: 0,
-            },
-            "add",
-          );
+          const submit = async () => {
+            const fixed = (await options.prices.fixedPrices())[
+              `${String(skuId)}:0`
+            ];
+            await options.executor.apply(
+              {
+                productId,
+                productName: product.productName,
+                productConditionId: skuId,
+                conditionId: sku.conditionId,
+                channelId: 0,
+                categoryName: product.productLineName,
+                currentQuantity: quantity,
+                addQuantity,
+                price: fixed ?? proposedPrice,
+                storePriceCustomId: null,
+                reserveQuantity: 0,
+              },
+              "add",
+            );
+          };
+          if (options.withIdleSku === undefined) await submit();
+          else await options.withIdleSku(skuId, submit);
         },
       };
     },
